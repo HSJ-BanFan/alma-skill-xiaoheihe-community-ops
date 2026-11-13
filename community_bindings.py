@@ -545,6 +545,12 @@ class SDKBackend:
     def taste(self) -> dict:
         return self.helpers.taste_profile() if self.helpers is not None else {}
 
+    def messages(self, limit: int = 20, max_pages: int = 3) -> list:
+        """Platform reply queue. Names sender, root and post without scanning floors."""
+        if self.helpers is None:
+            return []
+        return self.helpers.fetch_messages(limit=limit, max_pages=max_pages)
+
 
 def platform_image_source(url: str) -> bool:
     try:

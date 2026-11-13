@@ -597,6 +597,10 @@ def fetch_messages(limit: int = 20, max_pages: int = 5) -> list[dict]:
                 "title": _clean_text(m.get("link_title") or "")[:120],
                 "topic": _clean_text(m.get("topic_name") or ""),
                 "from": _username(m.get("user_a")),
+                # userid_a is the sender; the ledger needs it to tell
+                # "someone replied to me" from "I replied to them".
+                "author_uid": str(m.get("userid_a") or "").strip(),
+                "image_url": str(m.get("comment_img") or "").strip(),
                 "text": _clean_text(m.get("comment_a_text") or "")[:400],
                 "my_text": _clean_text(m.get("comment_b_text") or "")[:200],
                 "created_at": _fmt_time(m.get("timestamp")),

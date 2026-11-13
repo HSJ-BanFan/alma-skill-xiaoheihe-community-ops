@@ -638,6 +638,22 @@ class Community:
                     break
                 captured = time.time()
                 requests += 1
+                if task == "comments_head" and area == "incoming":
+                    # The platform queue names sender, root and post directly, so it
+                    # finds replies under floors the profile scan never reaches. Import
+                    # it first: otherwise the ledger can report itself clear while a
+                    # reply is still sitting unread on an older post.
+                    queued = self._request("messages", 20, 3)
+                    imported = self.state.ingest_messages(queued)
+                    session.setdefault("scopes", []).append({"scope": "user_message/queue",
+                        "captured_at": captured, "rows": len(queued), "imported": imported})
+                    next_cursor = dict(cursor, task="comments_deep")
+                    session["pending"] = {"rows": [], "position": 0, "scope": "user_message/queue",
+                                          "source": "user_message", "captured_at": captured,
+                                          "next": next_cursor}
+                    self.state.checkpoint(session)
+                    self.state.consume_staged(session, 0)
+                    continue
                 if task in {"comments_head", "comments_deep", "posts_head", "posts_deep"}:
                     records, next_cursor, scope = self._origin_task(task, cursor, session, 20)
                     source = "own_profile"

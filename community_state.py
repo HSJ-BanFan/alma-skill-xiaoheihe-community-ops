@@ -137,19 +137,63 @@ def dumps(value) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
-def payload_pages(text: str) -> list[str]:
+def payload_pages(text: str, limit: int = 5000) -> list[str]:
+    """Split a JSON document into pages that are each valid JSON.
+
+    Slicing the encoded text every N bytes produced pages that no caller could
+    parse, so a paginated read could never be reassembled or acted on. When the
+    document carries a list we split that list instead, keeping every page a
+    complete object. Paths are returned so the caller can merge them back.
+    """
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        parsed = None
+    split = _split_json_list(parsed, limit) if isinstance(parsed, dict) else None
+    if split:
+        return split
     pages = []
     while text:
-        low, high = 1, min(len(text), 5000)
+        low, high = 1, min(len(text), limit)
         while low < high:
             middle = (low + high + 1) // 2
-            if len(dumps(text[:middle]).encode("utf-8")) <= 5000:
+            if len(dumps(text[:middle]).encode("utf-8")) <= limit:
                 low = middle
             else:
                 high = middle - 1
         pages.append(text[:low])
         text = text[low:]
     return pages or [""]
+
+
+def _split_json_list(node, limit: int, path: tuple = ()) -> list[str] | None:
+    """Split the first oversized list found at any depth, keeping pages valid JSON."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            found = _split_json_list(value, limit, path + (key,))
+            if found:
+                return found
+        return None
+    if not isinstance(node, list) or len(node) < 2:
+        return None
+    if len(dumps(node).encode("utf-8")) <= limit:
+        return None
+    return _paginate_list(node, limit, path)
+
+
+def _paginate_list(items: list, limit: int, path: tuple) -> list[str] | None:
+    pages, current = [], []
+    for item in items:
+        if current and len(dumps(current + [item]).encode("utf-8")) > limit:
+            pages.append(current)
+            current = [item]
+        else:
+            current = current + [item]
+    if current:
+        pages.append(current)
+    if len(pages) < 2:
+        return None
+    return [dumps({"path": list(path), "items": page}) for page in pages]
 
 
 class StateConflict(RuntimeError):
