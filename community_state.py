@@ -613,14 +613,21 @@ class State:
         if not self.image_contract or not run_id or delivery.get("image_run_id") != run_id:
             raise StateConflict("image_run_not_bound")
         now = time.time()
-        issued = conn.execute("select * from image_assets where run_id=? and captured_at>=? and (view_id=? or (kind='stickers' and post_id=''))",
-                              (run_id, now - 900, row["view_id"])).fetchall()
+        # Reuse any asset this run already prepared for this post. Re-reading a post
+        # issues a new view_id, so binding to view_id alone would discard assets the
+        # caller already saw and selected. Match on run + post instead.
+        issued = conn.execute(
+            "select * from image_assets where run_id=? and captured_at>=?"
+            " and ((post_id=? and post_id<>'') or kind='stickers')",
+            (run_id, now - 900, post_id)).fetchall()
         available = {item["asset_id"]: dict(json.loads(item["payload"]), source_ref=item["source_ref"])
                      for item in issued if 0 <= now - item["captured_at"] <= 900}
         required = []
+        # Match required sources against every asset this run prepared for the post,
+        # not only the ids listed by the latest view. A re-read replaces that list, so
+        # using it alone would drop images the caller already had confirmed.
         for source in dict.fromkeys(refs):
-            matched = [available[asset_id] for asset_id in delivery.get("image_asset_ids", [])
-                       if asset_id in available and available[asset_id]["source_ref"] == source]
+            matched = [asset for asset in available.values() if asset["source_ref"] == source]
             if len(matched) != 1:
                 raise StateConflict("required_image_unavailable")
             required.append(matched[0])
