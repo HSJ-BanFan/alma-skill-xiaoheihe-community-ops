@@ -640,7 +640,10 @@ def _terminal_result(stdout, payload: dict, returncode: int) -> dict | None:
         if result["ok"] or result["kind"] != "worker" or result["account"] is not None or result["data"] is not None or "context" in result:
             return None
     elif (not _identity_matches(binding, payload) or binding != _worker_binding(stdout, payload) or
-            result["account"] != {key: binding[key] for key in ("uid", "alias")}):
+            # The worker reports the same identity plus where it came from. Compare the
+            # identity fields only; the provenance tag is not part of the binding.
+            {key: (result["account"] or {}).get(key) for key in ("uid", "alias")} !=
+            {key: binding[key] for key in ("uid", "alias")}):
         return None
     if result["kind"] != "worker":
         try:
