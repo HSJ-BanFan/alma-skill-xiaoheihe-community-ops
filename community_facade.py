@@ -969,7 +969,10 @@ class Community:
             if self.contract_version >= 2:
                 pages = self.state.context_pages(pid, action.context_keys)
                 if self.evidence is not None and not self.evidence.context_pages_received(pages):
-                    raise ReadProblem("host_context_not_confirmed", action.resource)
+                    # Name the pages to replay instead of only naming the gate.
+                    view = pages[0]["context"]["view_ref"]
+                    need = " ; ".join(f"read {view} --page {i}" for i in range(1, len(pages) + 1))
+                    raise ReadProblem("host_context_not_confirmed: 先把这些页的输出完整回显到本次 Bash stdout（不要 tail、重定向或二次解析），再重试 act。需要：" + need, action.resource)
                 confirmation = {"view_ref": pages[0]["context"]["view_ref"], "pages": len(pages),
                                 "status": "host_saved_pages" if self.evidence is not None else "caller_acknowledged",
                                 "provider_bytes_observed": False}

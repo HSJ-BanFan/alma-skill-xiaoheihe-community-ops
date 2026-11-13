@@ -75,11 +75,11 @@
 
 `reply_count_known` 是去重后的已知回复 ID 数；`reply_evidence` 区分 API 回执、精确目标观察与当前可见性。历史观察不等于当前仍可见。`handled` 来自精确回复证据、目标绑定回执或明确的本地 `close`，不由时间先后推断。
 
-`defer` 的决定记录保留，`defer_until` 是决定时间加 24 小时；到期后重新进入可处理集合。到期只恢复展示，不自动发送、不解除结果不明的发送保留。`close` 和已有回复证据没有这个到期机制。
+`defer` 的决定记录保留，`defer_until` 是决定时间加 24 小时；到期后重新进入可处理集合。到期只恢复展示，不自动发送、不解除结果不明的发送保留。`close` 和已有回复证据没有这个到期机制。处置动作的语义见 `SKILL.md`「来信与处置动作」。
 
 `scan` 返回已观察范围、缺口和 `coverage.resume`；续读用 `scan incoming --resume <值>` 或对应的 `scan feed`。保存过的页内行和未完成子评论任务不会因为本轮预算结束而丢弃。每轮仍是有限范围，`full_history=false`。
 
-公开发送前读取完整详情。结果部分交付时，用 `read v:<hash> --page N` 取齐每页，把所有页的 key 分别传作 `--context-key <key>`。原生排程还核对当前 activePath 内先前已完成的 assistant Bash 结果中的完整页内容，footer key 残留不证明中间内容完整。详情读取与发送不在同一次尚未完成的 Bash 中自证。
+公开发送前读取完整详情。结果分页时用 `read v:<hash> --page N` 取齐每页，把所有页的 key 分别传作 `--context-key <key>`。原生排程要求这些页的输出**完整出现在本次 Bash 的 stdout 里**（不要 `tail`、重定向或二次解析）；被 `host_context_not_confirmed` 拒绝时，错误信息会直接列出还缺哪几页。
 
 对来信的发送还要求目标 CID 实际出现在最新返回楼层。`detail_required / context_confirmation_required / target_not_currently_observed / already_handled` 是目标状态；`account_binding_changed` 是账号绑定变化。State 在原子发送 reservation 中重查最新页、CID、图片计划与共享 grant。新详情读取失败也撤销旧授权，不移除历史记录。
 
@@ -91,9 +91,9 @@
 
 用会话原生 `Read(file_path=<preview_file>)` 查看所有最新主帖图片，以及所选附图的预览。未挂载时通过会话 `ToolSearch` 查找原生 `Read`。caption、文件存在、upload 回执或读取 source 路径不代替预览字节证据。外部 CLI 和 caller-only 页确认不成为原生视觉证据。
 
-图像 gate 核对当前 activePath 内已完成 assistant 原生 Read 的 PNG inline 字节，或经 native gallery basename 解析的当前缓存字节。完整 SHA256 与长度必须和发行预览一致。摘要前缀、缓存名称、弱 memo 命中或残留路径都不授权发送。没有准备成功的主帖来源仍是必需项，不静默跳过。楼层图片另标未观察，不声称看过所有历史楼层图。
+图像 gate 只认本次已完成原生 Read 的预览字节：完整 SHA256 与长度必须和发行预览一致，摘要前缀、缓存名称或残留路径都不算。主帖必需的图片未准备成功时不能发送，也不能跳过。楼层图片不强制，也不声称看过全部。
 
-Windows lease 在内容验证、原子 reservation、原 helper 发送与回执记录期间允许读取但禁止改写和删除源快照与预览。超时和清理故障不解除未知意图，不丢已知 CID。证据状态是 `host_preview_bytes_verified`，scope 为 saved inline 或当前 gallery cache，`provider_bytes_observed=false`；不证明完整动画、上传后像素或模型理解。
+发送期间快照与预览只读，防止被改写。超时或清理失败不解除未知意图，也不丢已知 CID。证据只到 `host_preview_bytes_verified`，不代表完整动画、上传后像素或模型理解。
 
 图片决定尚未完成时，`act` 可返回本地 `refused` 与候选资产。候选须先经 `read stickers` 发行并用原生 Read 查看对应预览，再传它的 `file`。不选附图时沿用 `--without-image <原因>`。官方短码仍是独立文本，由 `read shortcodes` 目录校验，不依赖图片参数。
 

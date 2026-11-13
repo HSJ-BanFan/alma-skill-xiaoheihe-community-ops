@@ -36,21 +36,17 @@ python -I -X utf8 "C:/Users/33308/.config/alma/skills/xiaoheihe-community-ops/co
 
 例行收件箱使用 `scan incoming` 的有限 profile、保留楼层及精确目标台账。低层 `fetch_messages` 和 `scan_sub_comments` 是按需参考，不替代规范意图、预算或未知结果保护。细节见 `REFERENCE.md`。
 
-## 收件箱处置与回复决策
+## 来信与处置动作
 
-对收件箱台账中的来信 `i:<cid>`，遵循“保持拟真活人感、拒绝无限 ping-pong、杜绝红点骚扰”原则，区分公开回复与内部结清：
+收件箱台账的每条来信是 `i:<cid>`，`read i:<cid>` 给出正文、根楼层、精确接话对象与图片。来信有三种处置，语义不同：
 
-1. **回复（`act i:<cid> reply`）**：
-   - **具体求助 / 技术追问**：具有明确信息增量，针对性提供具体建议或排查思路；
-   - **观点延展 / 深度探讨**：对方提出新论点或展开话题，认真承接交流；
-   - **身份认领 / 友善打招呼**：被抓包认出（如 cue 到大号或大肥鱼）时俏皮大方互动一次；
-   - **事实纠偏**：若此前看错信息或弄错机制，坦诚幽默地澄清。
-2. **结清（`act i:<cid> close`，不公开回复）**：
-   - **自然正向收尾**：单纯感谢（“受教了/谢谢老哥/好勒”）、单字确认（“对/确实/哈哈/好吧/1”）、纯表情包等对话已达“句号”的回复，直接 `close` 结清台账，严禁追回“不客气/祝顺利”等冗余红点骚扰；
-   - **交互轮次熔断**：同一楼层与同一用户往返互动严格控制在 1–2 轮以内，无关键新问题时主动自然收尾；
-   - **纯抬杠 / 恶意攻击 / 无意义引战**：直接 `close`，不争辩、不消耗精力。
-3. **格式约束**：
-   - 当前 `reply` 入口仅支持纯文本与 `read shortcodes` 目录中的官方短码，图片参数返回 `reply_image_unsupported`。
+- `act i:<cid> reply --text-file <文件> --context-key <key> --confirm`：在该楼层公开回复，接话对象由工具解析。
+- `act i:<cid> close`：标记无需继续处理，不产生公开内容。
+- `act i:<cid> defer`：暂缓，`defer_until` 为决定时间加 24 小时，到期只恢复展示。
+
+`close` 与 `defer` 是本地记录，不是公开回复。已处理条目不会因查询重新进入待办。
+
+格式约束：当前 `reply` 入口仅支持纯文本与 `read shortcodes` 目录中的官方短码，图片参数返回 `reply_image_unsupported`。
 
 ## 操作边界
 
@@ -64,7 +60,7 @@ python -I -X utf8 "C:/Users/33308/.config/alma/skills/xiaoheihe-community-ops/co
 
 词库由独立插件 `alma-meme-watcher` 拥有。社区只通过其公开 `scripts/lookup.mjs` 消费词卡，不导入梗内部模块或读取私有表，不提供采集、导入或维护入口。
 
-- 查词用 `read knowledge --query <公开内容>`，词卡包含词义、来源、别名与 `days_left`。本入口不生成额外 `tone` 或 `brief`。
+- 查词用 `read knowledge --query <公开内容>`。返回词卡的公开字段为 `term / meaning / usage_context / avoid_when / origin / source_url / aliases / matched_keys / confidence / days_left`，`days_left=null` 表示不失效。本入口不生成额外 `tone` 或 `brief`。
 - 成功无命中返回 `available=true` 与空词卡。启动、数据库或协议失败返回 `status=knowledge_unavailable`、`available=false`，读帖的正文、台账与详情页继续保留。
 - 词库维护由独立插件处理。接口未就绪不等于读帖失败，也不要求社区完成梗迁移。
 
