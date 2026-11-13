@@ -23,6 +23,8 @@ python -I -X utf8 "C:/Users/33308/.config/alma/skills/xiaoheihe-community-ops/co
 ## 一轮操作
 
 1. `scan incoming` 核对账号并更新互动，返回台账与近期公开操作数据。`read inbox` 只用于额外台账查询，不固定重复 `read account`。查询本身不标已处理。
+
+   `scan incoming` 先导入平台消息队列再反查旧帖。台账结清只表示已发现的条目处理完，不等于平台上没有新来信：`coverage.status=done` 且无 `gaps` 才能说本轮无待办，`partial` 一律按"未查完"表述。`eligible` 可能大于 `displayed`，差额是 `--limit` 截断，不是不存在。
 2. 条目是 `i:<cid>`，帖子是 `p:<id>`。`read i:<cid>` 或 `read p:<id>` 返回正文、楼层和精确回复关系。部分结果用 `read v:<hash> --page N` 取齐所有页。主帖图片和所选表情的 `preview_file` 用会话原生 `Read` 查看，未挂载时通过会话 `ToolSearch` 查找 `Read`。
 3. 回复文件保存为 UTF-8。读完详情后，每页的 key 分别传作 `--context-key <key>`。`act i:<cid> reply --text-file <文件> --context-key <key> --confirm` 回复该条；`act p:<id> comment --text-file <文件> --context-key <key> --confirm` 发一级评论。根楼层和回复对象由工具解析。原生排程还核对先前已完成的 Bash 结果是否包含完整详情页。
 4. `act i:<cid> close` 记录无需继续处理；`defer` 记录暂缓。两者不是公开回复。

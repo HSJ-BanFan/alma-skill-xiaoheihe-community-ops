@@ -54,6 +54,10 @@
 一次翻到底既慢又容易撞风控，中间断开还得从头再来。实测一个 5 层深的楼：
 第一轮 `limit=3` 拿 3 条 `done=False`，带游标第二轮拿 2 条，两轮零重复。
 
+## 分页取齐
+
+`read v:<hash> --page N` 的每页都是完整 JSON，形状为 `{"path":["data","items"],"items":[...]}`。多页结果的 `context.keys` 一次给出全部 page key，逐页传 `--context-key` 即可，不必再用正则从输出里抠 key。合并时按 `path` 把各页 `items` 依次拼回同一位置。
+
 ## 资源与状态
 
 | 资源 | 数据 |
