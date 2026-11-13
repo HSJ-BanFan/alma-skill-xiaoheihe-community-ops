@@ -817,8 +817,14 @@ class Community:
         asset_access, image_issues = "legacy_backend_result", ()
         if self.contract_version >= 2:
             post = detail["post"]
-            image_issues, requests = self._prepare_assets(post["assets"], "url", budget, requests)
-            asset_access = "prepared_source_snapshots" if image_issues else "no_post_assets" if not post["assets"] else "required_images_unavailable"
+            # Reply targets are text-only, so preparing post images for them spends
+            # budget on an attachment that can never be sent and leaves the caller
+            # holding an image confirmation it has no use for.
+            if incoming is None:
+                image_issues, requests = self._prepare_assets(post["assets"], "url", budget, requests)
+                asset_access = "prepared_source_snapshots" if image_issues else "no_post_assets" if not post["assets"] else "required_images_unavailable"
+            else:
+                asset_access = "reply_text_only"
         else:
             post = self._request("asset_files", detail["post"])
         self.state.ingest([{"type": "detail", "data": post}], scope=detail["scope"])
@@ -832,8 +838,11 @@ class Community:
         if self.contract_version >= 2:
             coverage["asset_access"] = asset_access
         delivered = {node["cid"] for node in data["floor"] if node["currently_observed"]}
+        # Mark reply targets text-only so the view records no required images: the
+        # nested-reply protocol carries text only.
         return self.result("detail", data, coverage=coverage,
-                           delivery={"post_id": pid, "cids": delivered, "scopes": scopes}, images=image_issues)
+                           delivery={"post_id": pid, "cids": delivered, "scopes": scopes,
+                                     "text_only": incoming is not None}, images=image_issues)
 
     def _refresh_operation(self, operation: dict, budget: ReadBudget) -> dict:
         if operation.get("kind") in REACTIONS:
@@ -1006,7 +1015,13 @@ class Community:
             if confirmation is not None:
                 payload["context_confirmation"] = confirmation
             plan, proofs = None, ()
-            if self.contract_version >= 2:
+            # A nested reply is text-only on this platform: the app protocol has no
+            # image field for it. Running the image plan anyway demanded that the
+            # main post image be prepared and confirmed before a plain text reply
+            # could go out, which made every reply on an image post fail. Skip the
+            # whole image path for replies instead of validating an option that
+            # cannot be sent.
+            if self.contract_version >= 2 and action.kind != "reply":
                 plan = self.state.image_plan(pid, action.context_keys, self.run_scope.run_id if self.run_scope else "",
                                              image_file=action.image_file, image_url=action.image_url)
                 if plan.selected is not None:

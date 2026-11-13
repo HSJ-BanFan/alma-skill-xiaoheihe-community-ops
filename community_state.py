@@ -140,18 +140,21 @@ def dumps(value) -> str:
 def payload_pages(text: str, limit: int = 5000) -> list[str]:
     """Split a JSON document into pages that are each valid JSON.
 
-    Slicing the encoded text every N bytes produced pages that no caller could
-    parse, so a paginated read could never be reassembled or acted on. When the
-    document carries a list we split that list instead, keeping every page a
-    complete object. Paths are returned so the caller can merge them back.
+    Slicing the encoded text every N bytes produced pages no caller could parse,
+    so a paginated read could never be reassembled or acted on. Oversized payloads
+    are usually one heavy field (a knowledge card, a long floor) rather than one
+    huge list, so this splits by field first and only then by list element.
+    Every page is a complete object of the shape
+    ``{"path": [...], "value": <the slice>}``.
     """
     try:
         parsed = json.loads(text)
     except ValueError:
         parsed = None
-    split = _split_json_list(parsed, limit) if isinstance(parsed, dict) else None
-    if split:
-        return split
+    if isinstance(parsed, dict):
+        split = _split_oversized(parsed, limit, ())
+        if split:
+            return split
     pages = []
     while text:
         low, high = 1, min(len(text), limit)
@@ -164,6 +167,67 @@ def payload_pages(text: str, limit: int = 5000) -> list[str]:
         pages.append(text[:low])
         text = text[low:]
     return pages or [""]
+
+
+def _page(path: tuple, value) -> str:
+    return dumps({"path": list(path), "value": value})
+
+
+def _split_by_field(node: dict, limit: int) -> list[str] | None:
+    """Page a dict by its own keys, keeping each page a complete object."""
+    if len(dumps(node).encode("utf-8")) <= limit:
+        return None
+    pages, current = [], {}
+    for key, value in node.items():
+        candidate = dict(current, **{key: value})
+        if current and len(dumps(candidate).encode("utf-8")) > limit:
+            pages.append(current)
+            current = {key: value}
+        else:
+            current = candidate
+    if current:
+        pages.append(current)
+    if len(pages) < 2:
+        return None
+    # Each page is a partial dict; name the keys it carries so the caller can merge.
+    return [_page(tuple(page), page) for page in pages]
+
+
+def _split_oversized(node: dict, limit: int, path: tuple) -> list[str] | None:
+    """Page a dict, descending into any single field that still overflows."""
+    pages = _split_by_field(node, limit)
+    if not pages:
+        return None
+    out, merged = [], {}
+    for page in pages:
+        parsed_page = json.loads(page)
+        segment = parsed_page["value"]
+        if len(page.encode("utf-8")) > limit and isinstance(segment, dict) and len(segment) == 1:
+            key, value = next(iter(segment.items()))
+            if isinstance(value, dict):
+                nested = _split_oversized(value, limit, path + (key,))
+                if nested:
+                    out.extend(nested)
+                    continue
+        out.append(page)
+    return out
+
+
+def _split_deep(node: dict, limit: int, path: tuple = ()) -> list[str] | None:
+    """Descend into an oversized field and page the part that actually overflows."""
+    for key, value in node.items():
+        if isinstance(value, dict):
+            nested = _split_by_field(value, limit)
+            if nested:
+                return [_page(path + (key,) + tuple(json.loads(page)["path"]), json.loads(page)["value"])
+                        for page in nested]
+            deeper = _split_deep(value, limit, path + (key,))
+            if deeper:
+                return deeper
+        elif isinstance(value, list) and len(value) >= 2:
+            if len(dumps(value).encode("utf-8")) > limit:
+                return _paginate_list(value, limit, path + (key,))
+    return None
 
 
 def _split_json_list(node, limit: int, path: tuple = ()) -> list[str] | None:
@@ -192,8 +256,8 @@ def _paginate_list(items: list, limit: int, path: tuple) -> list[str] | None:
     if current:
         pages.append(current)
     if len(pages) < 2:
-        return None
-    return [dumps({"path": list(path), "items": page}) for page in pages]
+        pages = [[item] for item in items]
+    return [_page(path, page) for page in pages]
 
 
 class StateConflict(RuntimeError):
@@ -568,7 +632,12 @@ class State:
                             "view_ref": "v:" + view_id, "delivery_state": "issued_not_host_confirmed"}
                 if self.image_contract:
                     post_assets = (result.get("data") or {}).get("post", {}).get("assets", [])
-                    metadata.update(required_image_refs=[asset["url"] for asset in post_assets],
+                    # A reply target is text-only: the platform has no image field for a
+                    # nested reply. Recording every post image as "required" made the
+                    # later send demand confirmations for an attachment that can never
+                    # be attached, so nothing could be sent on an image post.
+                    refs = [] if delivery.get("text_only") else [asset["url"] for asset in post_assets]
+                    metadata.update(required_image_refs=refs,
                                     image_asset_ids=[asset["asset_id"] for _, asset in rows], image_run_id=run_id or "")
                 conn.execute("update posts set delivered_at=? where post_id=?", (now, pid))
                 conn.execute("insert into meta values(?,?) on conflict(key) do update set value=excluded.value",
@@ -762,7 +831,10 @@ class State:
                 _, delivery = self._context_row(conn, target["post_id"], context_keys)
                 if target.get("incoming_cid") and target["incoming_cid"] not in delivery["cids"]:
                     raise StateConflict("target_not_currently_observed")
-                if self.image_contract:
+                # A nested reply is text-only on this platform, so it carries no
+                # attachment and needs no image plan. Validating one anyway made
+                # every reply on an image post fail with image_run_not_bound.
+                if self.image_contract and target["kind"] != "reply":
                     chosen = image_plan.selected["snapshot_file"] if image_plan and image_plan.selected else None
                     current = self._image_plan(conn, target["post_id"], context_keys, run_id or "", image_file=chosen)
                     if payload.get("image_url") is not None or (

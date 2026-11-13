@@ -54,6 +54,12 @@
 一次翻到底既慢又容易撞风控，中间断开还得从头再来。实测一个 5 层深的楼：
 第一轮 `limit=3` 拿 3 条 `done=False`，带游标第二轮拿 2 条，两轮零重复。
 
+## 楼中楼不传图
+
+小黑盒 App 协议里楼中楼没有图片字段。工具因此对 `reply` 完全跳过图片链路：不预取主帖图、不要求图片确认、不占图片预算。`read i:<cid>` 返回 `coverage.asset_access=reply_text_only`。要给帖子配图只能走顶楼一级评论 `comment`。
+
+一次读取后请用**同一批 `context.keys`** 直接发送，不要为了“刷新”再读一遍——重读会换新 key，旧 key 立刻失效并报 `context_confirmation_required`。
+
 ## 分页取齐
 
 `read v:<hash> --page N` 的每页都是完整 JSON，形状为 `{"path":["data","items"],"items":[...]}`。多页结果的 `context.keys` 一次给出全部 page key，逐页传 `--context-key` 即可，不必再用正则从输出里抠 key。合并时按 `path` 把各页 `items` 依次拼回同一位置。

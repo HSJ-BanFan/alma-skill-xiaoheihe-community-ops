@@ -48,7 +48,7 @@ python -I -X utf8 "C:/Users/33308/.config/alma/skills/xiaoheihe-community-ops/co
 
 `close` 与 `defer` 是本地记录，不是公开回复。已处理条目不会因查询重新进入待办。
 
-格式约束：当前 `reply` 入口仅支持纯文本与 `read shortcodes` 目录中的官方短码，图片参数返回 `reply_image_unsupported`。
+格式约束：楼中楼是**纯文本通道**——平台协议没有图片字段。因此 `reply` 不需要图片确认、不预取主帖图片、也不消耗图片预算；传 `--image-file` / `--image-url` 会返回 `reply_image_unsupported`。`read i:<cid>` 的 `coverage.asset_access` 为 `reply_text_only`，表示这是纯文本目标。官方短码仍是文本，楼中楼可以用。
 
 ## 操作边界
 
