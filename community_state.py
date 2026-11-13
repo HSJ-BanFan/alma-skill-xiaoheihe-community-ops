@@ -507,11 +507,12 @@ class State:
         identity = text + (uuid.uuid4().hex if delivery else "")
         view_id = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:32]
         pieces = [text] if len(json.dumps(result, ensure_ascii=False).encode("utf-8")) <= 6000 else payload_pages(text)
+        page_keys = [uuid.uuid4().hex for _ in pieces]
         now = time.time()
         with self.connection(True) as conn:
             conn.execute("delete from public_views where captured_at<?", (now - 7 * 86400,))
             conn.execute("insert or ignore into public_views values(?,?,?,?,?,?,?)",
-                         (view_id, result["kind"], text, dumps(pieces), dumps([uuid.uuid4().hex for _ in pieces]),
+                         (view_id, result["kind"], text, dumps(pieces), dumps(page_keys),
                           now, delivery["post_id"] if delivery else ""))
             for source_ref, asset in rows:
                 conn.execute("insert into image_assets values(?,?,?,?,?,?,?,?)",
@@ -553,7 +554,10 @@ class State:
                          "full_coverage_in_view": True, "gaps_in_snapshot": len(previous.get("gaps", []))})
         header = {"version": 1, "ok": result["ok"], "kind": result["kind"], "account": result.get("account"),
                   "data": data, "coverage": coverage, "errors": result.get("errors", [])[:3],
-                  "context": {"view_ref": "v:" + view_id, "pages": len(pieces), "status": "issued_not_confirmed"}}
+                  # Every page key up front: callers otherwise re-read pages or scrape
+                  # keys with a regex, which is where the round-trip cost and errors came from.
+                  "context": {"view_ref": "v:" + view_id, "pages": len(pieces),
+                              "keys": page_keys, "status": "issued_not_confirmed"}}
         if len(json.dumps(header, ensure_ascii=False).encode("utf-8")) > 8000:
             # The complete fields remain in the immutable view, including oversized error scopes.
             header["data"] = {"view_ref": "v:" + view_id, "original_kind": result["kind"], "payload_bytes": size}
@@ -620,7 +624,8 @@ class State:
             "select * from image_assets where run_id=? and captured_at>=?"
             " and ((post_id=? and post_id<>'') or kind='stickers')",
             (run_id, now - 900, post_id)).fetchall()
-        available = {item["asset_id"]: dict(json.loads(item["payload"]), source_ref=item["source_ref"])
+        available = {item["asset_id"]: dict(json.loads(item["payload"]), source_ref=item["source_ref"],
+                                            issued_at=item["captured_at"])
                      for item in issued if 0 <= now - item["captured_at"] <= 900}
         required = []
         # Match required sources against every asset this run prepared for the post,
@@ -628,9 +633,12 @@ class State:
         # using it alone would drop images the caller already had confirmed.
         for source in dict.fromkeys(refs):
             matched = [asset for asset in available.values() if asset["source_ref"] == source]
-            if len(matched) != 1:
+            if not matched:
                 raise StateConflict("required_image_unavailable")
-            required.append(matched[0])
+            # The same post may be re-read several times in one run, which issues a
+            # fresh asset for the same source each time. Take the newest one instead
+            # of demanding a single match, otherwise a re-read bricks the send.
+            required.append(max(matched, key=lambda asset: asset.get("issued_at", 0)))
         selected = None
         if image_file is not None or image_url is not None:
             if image_file is not None and image_url is not None:
@@ -639,9 +647,9 @@ class State:
             matched = [asset for asset in available.values() if
                        (expected is not None and str(Path(asset["snapshot_file"]).resolve()).casefold() == expected) or
                        (image_url is not None and asset["source_ref"] == image_url)]
-            if len(matched) != 1:
+            if not matched:
                 raise StateConflict("image_selection_not_issued")
-            selected = matched[0]
+            selected = max(matched, key=lambda asset: asset.get("issued_at", 0))
             if selected["asset_id"] not in {asset["asset_id"] for asset in required}:
                 required.append(selected)
         return ImagePlan(tuple(required), selected, "v:" + row["view_id"])
@@ -1015,6 +1023,39 @@ class State:
     def checkpoint(self, session: dict, status: str = "running"):
         with self.connection(True) as conn:
             self._checkpoint(conn, session, status)
+
+    def ingest_messages(self, messages: list[dict], *, now: float | None = None) -> int:
+        """Import the platform reply queue into the same ledger the scanner fills.
+
+        Scanning my own comments only finds replies under floors it already knows
+        about, so a reply on an older post can stay invisible while the ledger
+        reports itself clear. The platform queue names the sender, root and post
+        directly, so importing it makes discovery independent of scan coverage.
+        """
+        captured = time.time() if now is None else now
+        added = 0
+        with self.connection(True) as conn:
+            for item in messages:
+                cid = str(item.get("comment_id") or "").strip()
+                pid = str(item.get("link_id") or "").strip()
+                if not cid or not pid or item.get("is_cy"):
+                    continue
+                sender = str(item.get("author_uid") or "").strip()
+                if sender == self.uid:
+                    continue
+                root = str(item.get("root_id") or "").strip() or cid
+                exists = conn.execute("select 1 from incoming where cid=?", (cid,)).fetchone()
+                conn.execute("""insert into incoming values(?,?,?,?,?,?,?,?,?,?,?) on conflict(cid) do update set
+                  root_id=excluded.root_id,author_name=excluded.author_name,text=excluded.text,
+                  last_observed=max(incoming.last_observed,excluded.last_observed)""",
+                             (cid, pid, root, sender, str(item.get("from") or ""), str(item.get("text") or ""),
+                              str(item.get("created_at") or ""), "reply_to_own_comment",
+                              str(item.get("my_comment_id") or ""), captured, captured))
+                if not exists:
+                    added += 1
+                conn.execute("insert or ignore into posts(post_id) values(?)", (pid,))
+                conn.execute("insert or ignore into roots(post_id,root_id,kind) values(?,?,'platform_message')", (pid, root))
+        return added
 
     def consume_staged(self, session: dict, count: int) -> int:
         pending = session.get("pending")
