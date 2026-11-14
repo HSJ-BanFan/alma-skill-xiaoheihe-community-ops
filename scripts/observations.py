@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from xhh_sdk.exceptions import XhhConfigError
+from documents import entity_id
 
 
 def stable(value):
@@ -27,8 +28,7 @@ def fingerprint(value):
 
 
 def record_key(item):
-    identity = next((str(item[key]) for key in ("id", "uid", "topic_id", "topicid", "linkid", "appid", "folder_id")
-                     if item.get(key) is not None), None)
+    identity = entity_id(item)
     return identity or "content:" + fingerprint(item)
 
 

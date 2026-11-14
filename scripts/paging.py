@@ -7,6 +7,8 @@ import time
 
 from documents import integer, truth
 from xhh_sdk.exceptions import XhhConfigError
+from xhh_sdk.transport import Transport
+from xhh_sdk.signer import Signer
 
 
 class ReadLimit(RuntimeError):
@@ -30,9 +32,34 @@ class Budget:
         original = client.config.timeout
         client.config.timeout = min(original, remaining)
         self.used += 1
+        transport = client.transport
+        original_open = getattr(transport, "_open", None)
+        signer, signer_timeout = None, None
+
+        def before_http(request):
+            remaining = self.deadline - time.monotonic()
+            if remaining <= 0:
+                raise ReadLimit("time_budget")
+            client.config.timeout = min(original, remaining)
+            return original_open(request)
+
         try:
+            if original_open is not None:
+                transport._open = before_http
+            if client.config.protocol_mode == "app" and isinstance(transport, Transport):
+                candidate = transport.signer
+                remaining = self.deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ReadLimit("time_budget")
+                if isinstance(candidate, Signer):
+                    signer, signer_timeout = candidate, candidate.timeout
+                    signer.timeout = min(signer_timeout, remaining)
             return function()
         finally:
+            if original_open is not None:
+                transport._open = original_open
+            if signer_timeout is not None:
+                signer.timeout = signer_timeout
             client.config.timeout = original
 
     def view(self):

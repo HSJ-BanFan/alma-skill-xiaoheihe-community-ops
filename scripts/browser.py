@@ -7,7 +7,7 @@ import json
 import urllib.parse
 import urllib.request
 
-from documents import author, comment, document, floors, identifier, integer, link_id, result_object, source, summary
+from documents import author, comment, document, floors, identifier, integer, link_id, result_object, source, summary, entity_id
 from paging import Budget, ReadLimit, coverage, decode_resume, encode_resume
 from xhh_sdk.exceptions import XhhConfigError, XhhError
 from xhh_sdk.web_signer import sign_web_request
@@ -19,6 +19,13 @@ def bounded(value):
     number = int(value)
     if not 1 <= number <= 100:
         raise argparse.ArgumentTypeError("must be within 1..100")
+    return number
+
+
+def page_index(value):
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError("page index must be positive")
     return number
 
 
@@ -61,7 +68,7 @@ def register(commands):
                 parser.add_argument("folder_id", nargs="?")
         elif name in ("post", "comments", "thread"):
             parser.add_argument("link_id", type=post_argument)
-            parser.add_argument("--page", type=bounded, default=1)
+            parser.add_argument("--page", type=page_index, default=1)
             parser.add_argument("--limit", type=bounded, default=50)
             parser.add_argument("--sort", choices=("hot", "time_aes", "time_desc"), default="hot")
             if name == "post":
@@ -191,6 +198,7 @@ class Browser:
         observed_positions = []
         data, scope = None, {"completion": "unknown", "gaps": [], "next": getattr(args, position_key, None)}
         duplicates = 0
+        returned_total, excluded_total = 0, 0
         for _ in range(args.pages):
             position = getattr(args, position_key, None)
             if position in positions and paged:
@@ -215,10 +223,12 @@ class Browser:
             if args.raw and "raw" in page:
                 raw_pages.append(page.pop("raw"))
             scope = current
+            returned_total += current.get("returned", 0)
+            excluded_total += current.get("excluded", 0)
             if not paged:
                 break
             for item in page["items"]:
-                identity = item.get("id") if isinstance(item, dict) else None
+                identity = entity_id(item) if isinstance(item, dict) else None
                 if identity and identity in identities:
                     duplicates += 1
                     continue
@@ -231,8 +241,14 @@ class Browser:
         if data is None:
             data = {"items": []}
         if paged:
+            if args.command == "feed" and args.sort != "platform":
+                items.sort(key=lambda item: item["created_at"] or 0 if args.sort == "created"
+                           else item["statistics"][args.sort] or 0, reverse=True)
             data["items"] = items
             scope["duplicates_removed"] = duplicates
+            scope["returned_total"] = returned_total
+            if args.command == "feed":
+                scope.update(selected=len(items), excluded=excluded_total)
         if args.raw:
             data["raw_pages"] = raw_pages
         if paged and scope.get("completion") != "complete" and scope.get("next") is not None and scope.get("stop_reason") != "cursor_stalled":
@@ -365,9 +381,6 @@ class Browser:
                 items = [item for item in items if (args.content_type == "all" or item["content_type"] == args.content_type)
                          and (args.after is None or item["created_at"] is not None and item["created_at"] >= args.after)
                          and (item["statistics"]["comments"] or 0) >= args.min_comments]
-                if args.sort != "platform":
-                    items.sort(key=lambda item: item["created_at"] or 0 if args.sort == "created"
-                               else item["statistics"][args.sort] or 0, reverse=True)
                 scope.update(selected=len(items), excluded=len(records) - len(items), sorting_scope="returned_items", sort=args.sort)
             data = {"items": items, "source": evidence, "navigation": {"sorts": result.get("sort_filter", result.get("sort_filter_list")),
                     "filters": result.get("filters", result.get("filter_list")), "time_ranges": result.get("time_range_list")}}
@@ -379,6 +392,7 @@ class Browser:
         if args.resume:
             raise XhhConfigError("thread resumes through the comments/replies continuation returned in coverage")
         nodes, root, page, cursor = {}, None, args.page, None
+        raw_pages = []
         last_scope = {"completion": "unknown", "gaps": []}
         phase = "comments"
         for _ in range(args.pages):
@@ -386,6 +400,8 @@ class Browser:
                 if root is None:
                     raw, result, evidence = self.fetch("/bbs/app/link/tree", {"link_id": args.link_id,
                                 "page": str(page), "limit": str(args.limit), "sort_filter": args.sort}, budget)
+                    if args.raw:
+                        raw_pages.append(raw)
                     parsed = floors(result.get("comments"), args.link_id)
                     for node in parsed:
                         if node["root_id"] == args.root_id:
@@ -398,7 +414,8 @@ class Browser:
                             break
                         continue
                     known_children = len(nodes) - 1
-                    if (root["has_more"] is False and (root["children_count"] is None or known_children >= root["children_count"])) or (root["children_count"] is not None and known_children >= root["children_count"]):
+                    if root["has_more"] is not True and (root["has_more"] is False and (root["children_count"] is None or known_children >= root["children_count"])
+                            or root["children_count"] is not None and known_children >= root["children_count"]):
                         last_scope["completion"] = "complete"
                         break
                     phase = "replies"
@@ -408,6 +425,8 @@ class Browser:
                     if cursor is not None:
                         query["lastval"] = cursor
                     raw, result, evidence = self.fetch("/bbs/app/comment/sub/comments", query, budget)
+                    if args.raw:
+                        raw_pages.append(raw)
                     records = rows(result, ("comments",))
                     for item in records:
                         node = comment(item, args.link_id, args.root_id)
@@ -451,5 +470,8 @@ class Browser:
         last_scope["continuation"] = {"command": phase, "post_id": args.link_id, "root_id": args.root_id,
                                       "page": page if phase == "comments" else None, "cursor": cursor} if last_scope["completion"] != "complete" else None
         last_scope["budget"] = budget.view()
-        return {"post_id": args.link_id, "root_id": args.root_id, "target_id": target, "target_observed": target in nodes,
-                "ancestor_ids": ancestors, "missing_ancestor_ids": missing, "items": list(nodes.values())}, last_scope
+        data = {"post_id": args.link_id, "root_id": args.root_id, "target_id": target, "target_observed": target in nodes,
+                "ancestor_ids": ancestors, "missing_ancestor_ids": missing, "items": list(nodes.values())}
+        if args.raw:
+            data["raw_pages"] = raw_pages
+        return data, last_scope

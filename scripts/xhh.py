@@ -15,7 +15,7 @@ from operations import Journal, OperationError, numeric_id, prepare_write, read,
 from xhh_sdk.accounts import AccountStore
 from xhh_sdk.client import XhhClient
 from xhh_sdk.config import XhhConfig
-from xhh_sdk.exceptions import XhhError
+from xhh_sdk.exceptions import XhhError, XhhConfigError
 from documents import link_id
 import browser
 

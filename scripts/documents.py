@@ -16,6 +16,11 @@ def identifier(value):
     return value if re.fullmatch(r"[1-9][0-9]{0,29}", value) else None
 
 
+def entity_id(item):
+    return next((str(item[key]) for key in ("id", "uid", "topic_id", "topicid", "linkid", "appid", "folder_id")
+                 if item.get(key) is not None), None)
+
+
 def link_id(value):
     if identifier(value):
         return str(value)
@@ -210,8 +215,11 @@ def document(link, evidence):
     completeness = "partial" if partial or gaps else "complete" if full else "unknown"
     post.update(body={"status": status, "completeness": completeness, "text": text, "blocks": blocks,
                       "gaps": sorted(set(gaps)), "source_field": "link.text", "excerpt_is_body": False}, source=evidence)
-    post["media"] = [block for block in blocks if block["type"] in ("image", "video", "audio")]
-    post["content_sha256"] = hashlib.sha256(json.dumps({k: post[k] for k in ("id", "title", "body")},
+    body_media = [{**block, "origin": "body"} for block in blocks if block["type"] in ("image", "video", "audio")]
+    known_urls = {asset.get("url") for asset in body_media}
+    post["media"] = body_media + [{"type": "image", **asset, "origin": "link.imgs"} for asset in post["media"]
+                                  if asset["url"] not in known_urls]
+    post["content_sha256"] = hashlib.sha256(json.dumps({k: post[k] for k in ("id", "title", "body", "media")},
                                              sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     return post
 
