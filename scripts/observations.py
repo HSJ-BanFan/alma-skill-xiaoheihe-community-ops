@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from xhh_sdk.exceptions import XhhConfigError
-from documents import entity_id
+from documents import enrich_observation, entity_id
 from local_files import protect
 
 
@@ -40,37 +40,41 @@ def record_key(item):
 
 
 def records(data):
+    return {key: fingerprint(item) for key, item in record_items(data).items()}
+
+
+def record_items(data):
     items = data.get("items") if isinstance(data, dict) else None
     items = items if isinstance(items, list) else [data]
     result = {}
     for item in items:
         if not isinstance(item, dict):
             raise XhhConfigError("snapshot records must be objects")
-        identity = record_key(item)
+        record = copy.deepcopy(item)
+        if "source" not in record and isinstance(data, dict) and "source" in data:
+            record["source"] = copy.deepcopy(data["source"])
+        identity = record_key(record)
         if identity in result:
             raise XhhConfigError("snapshot contains duplicate record identities")
-        result[identity] = fingerprint(item)
+        result[identity] = record
     return result
 
 
 def difference(previous, current):
-    before, after = records(previous), records(current)
+    before, after = record_items(previous), record_items(current)
+    comparable = {key: fingerprint(enrich_observation(before[key], after[key])) for key in before.keys() & after.keys()}
     return {"new": sorted(after.keys() - before.keys()),
-            "changed": sorted(key for key in after.keys() & before.keys() if after[key] != before[key]),
-            "unchanged": sorted(key for key in after.keys() & before.keys() if after[key] == before[key]),
+            "changed": sorted(key for key in comparable if comparable[key] != fingerprint(before[key])),
+            "unchanged": sorted(key for key in comparable if comparable[key] == fingerprint(before[key])),
             "not_observed": sorted(before.keys() - after.keys()), "deletion_inferred": False}
 
 
 def merge(previous, current):
     if not isinstance(previous.get("items"), list) or not isinstance(current.get("items"), list):
         return current
-    merged = {}
-    for data in (previous, current):
-        for item in data["items"]:
-            record = copy.deepcopy(item)
-            if "source" not in record and "source" in data:
-                record["source"] = data["source"]
-            merged[record_key(record)] = record
+    merged = record_items(previous)
+    for identity, record in record_items(current).items():
+        merged[identity] = enrich_observation(merged[identity], record) if identity in merged else record
     return {**current, "items": list(merged.values())}
 
 

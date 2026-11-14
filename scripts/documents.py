@@ -89,7 +89,8 @@ def truth(value):
 
 def source(client, route):
     return {"route": route, "protocol": client.config.protocol_mode,
-            "observed_at": time.time(), "account_uid": str(client.config.heybox_id)}
+            "observed_at": time.time(), "configured_uid": str(client.config.heybox_id),
+            "identity_verified": False}
 
 
 class Markup(HTMLParser):

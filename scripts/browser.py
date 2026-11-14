@@ -160,6 +160,7 @@ def request_arguments(args):
 class Browser:
     def __init__(self, client):
         self.client = client
+        self.identity_verified = False
 
     def fetch(self, route, query, budget):
         raw = budget.call(self.client, lambda: self.client.transport.signed_request(route, query=query))
@@ -167,7 +168,9 @@ class Browser:
             result = {"links": raw["post_links"], "user": raw.get("user"), "has_more": raw.get("has_more")}
         else:
             result = result_object(raw)
-        return raw, result, source(self.client, route)
+        evidence = source(self.client, route)
+        evidence["identity_verified"] = self.identity_verified
+        return raw, result, evidence
 
     def execute(self, args, *, verify_account=False, prior_data=None):
         budget = Budget(args.requests, args.seconds)
@@ -176,6 +179,7 @@ class Browser:
             if args.requests < 2:
                 raise XhhConfigError("saving or resuming observations requires at least two requests including account verification")
             budget.call(self.client, lambda: verify_identity(self.client))
+            self.identity_verified = True
         if args.command == "thread":
             return self.thread(args, budget, prior_data)
         paged = (args.command in ("comments", "replies", "feed", "hot", "search")
@@ -284,6 +288,7 @@ class Browser:
         transport = self.client.transport
         raw = budget.call(self.client, lambda: transport._checked_response(route, transport._decode(transport._open(request))))
         evidence = source(self.client, route)
+        evidence["identity_verified"] = self.identity_verified
         evidence["reader"] = "website"
         return raw, result_object(raw), evidence
 
@@ -437,7 +442,8 @@ class Browser:
                     for node in parsed:
                         if node["root_id"] == args.root_id:
                             node["source"] = evidence
-                            nodes[node["id"]] = node
+                            nodes[node["id"]] = (enrich_observation(nodes[node["id"]], node)
+                                                 if node["id"] in nodes else node)
                             observed.add(node["id"])
                     root = nodes.get(args.root_id)
                     last_scope = coverage(result, count=len(result["comments"]), position=page, mode="page")
@@ -466,7 +472,8 @@ class Browser:
                     for item in records:
                         node = comment(item, args.link_id, args.root_id)
                         node["source"] = evidence
-                        nodes[node["id"]] = node
+                        nodes[node["id"]] = (enrich_observation(nodes[node["id"]], node)
+                                             if node["id"] in nodes else node)
                         observed.add(node["id"])
                     last_scope = coverage(result, count=len(records), position=cursor, mode="cursor")
                     if last_scope["completion"] == "complete" or last_scope["next"] is None:

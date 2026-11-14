@@ -48,8 +48,8 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 | 命令 | 返回范围 |
 | --- | --- |
 | `account-info` | 在线账号身份核对 |
-| `feed TOPIC --offset N --limit N` | 指定板块单页原始数据 |
-| `search QUERY --type link --offset N --limit N` | 帖子、游戏或用户搜索单页 |
+| `feed TOPIC --offset N --limit N` | 指定社区的信息流；返回规范化条目、来源与分页覆盖 |
+| `search QUERY --type link --offset N --limit N` | 帖子、游戏或用户搜索；支持分页并按类型返回规范化或平台条目 |
 | `post LINK --page N --limit N` | 结构化正文、顺序块、媒体、来源与正文完整性 |
 | `comments LINK --page N --limit N` | 独立评论节点，保留根楼层及精确回复关系 |
 | `replies ROOT --cursor CURSOR` | 指定根楼层的游标页 |
@@ -63,7 +63,7 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 
 收件箱的 `comment_a_id` 是来信 CID，`comment_b_id` 是被回复的 CID，`root_comment_id` 是根楼层，`linkid` 是帖子 ID。正文分别在 `comment_a_text` 和 `comment_b_text`，工具保持原始内容。
 
-`replies` 的续读位置取 `data.lastval`。`coverage.has_more` 缺失时完成状态未知。`inbox.next_offset` 仅提供下一读取位置，不能证明后续为空。板块 ID 由用户或平台查询选择，工具不内置兴趣板块。
+`replies` 的下一位置在 `coverage.next`，完整绑定账号、命令和查询的续读令牌在 `coverage.resume`；平台原始 `lastval` 只在 `--raw` 的原始页中保留。`coverage.has_more` 缺失时完成状态未知。`inbox.next_offset` 仅提供下一读取位置，不能证明后续为空。板块 ID 由用户或平台查询选择，工具不内置兴趣板块。
 
 ## 写入
 
@@ -165,7 +165,7 @@ python -I -X utf8 "<skill>/scripts/xhh.py" asset "https://imgheybox.max-c.com/�
 
 正文数据保留平台返回的旧 HTTP 图片引用，但 `asset` 仍要求 HTTPS，不能把已知引用当成已成功下载。正文中作者写出的文件路径仅作为文本返回，不读取对应的宿主文件。
 
-浏览快照保存在独立的 `browsing/snapshots.sqlite3`，与发送日志分开。快照按配置 UID 分组，这属于数据命名空间，不是同一本地操作系统用户之间的身份权限边界。缓存目录和文件限制为本地所有者访问；Windows 使用受保护 DACL，POSIX 使用目录 0700、数据库 0600。离线查看不需要有效网络会话。新保存和网络续读会核对真实会话 UID，身份验证也计入请求预算，因此保存或续读至少需要两个请求。`--since` 和 `snapshot diff` 只比较相同资源与筛选的查询。
+浏览来源的 `configured_uid` 是配置中的数据命名空间，`identity_verified` 表示该次读取是否已在网络中核对当前会话。浏览快照保存在独立的 `browsing/snapshots.sqlite3`，与发送日志分开。快照按配置 UID 分组，这属于数据命名空间，不是同一本地操作系统用户之间的身份权限边界。缓存目录和文件限制为本地所有者访问；Windows 使用受保护 DACL，POSIX 使用目录 0700、数据库 0600。离线查看不需要有效网络会话，也不能证明身份。新保存和网络续读会核对真实会话 UID，身份验证也计入请求预算，因此保存或续读至少需要两个请求。`--since` 和 `snapshot diff` 只比较相同资源与筛选的查询。
 
 快照使用递增修订号拒绝并发陈旧更新，冲突时保留数据库与本次已读结果。续读既可以用 `snapshot resume`，也可以用原命令的 `--resume --snapshot`，均保留先前页。响应与下一断点在同一事务持久化，stdout 成功写出并刷新后才确认已交付；中断时下次调用先离线重放未交付响应，不跳过数据。原型期旧 `browsing.sqlite3` 路径不自动导入。
 
