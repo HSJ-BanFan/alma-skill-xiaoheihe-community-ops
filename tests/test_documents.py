@@ -20,7 +20,7 @@ class DocumentTests(unittest.TestCase):
                          {"type": "img", "url": "https://imgheybox.max-c.com/p.png", "width": "12"},
                          {"type": "html", "text": '<p>after <a href="https://example.com">source</a></p>'},
                          {"type": "future"}]}, {})
-        self.assertEqual([block["type"] for block in post["body"]["blocks"]], ["text", "image", "text", "link", "unknown"])
+        self.assertEqual([block["type"] for block in post["body"]["blocks"]], ["text", "image", "text", "link", "text", "unknown"])
         self.assertIn("unsupported_body_block", post["body"]["gaps"])
 
     def test_invalid_body_json_is_not_published_as_text(self):

@@ -73,7 +73,7 @@ def decode_resume(token, command, uid):
         if not isinstance(token, str) or len(token) > 16000:
             raise ValueError()
         value = json.loads(base64.b64decode(token, altchars=b"-_", validate=True))
-        if value.get("version") != 1 or value.get("command") != command or value.get("uid") != uid:
+        if not isinstance(value, dict) or value.get("version") != 1 or value.get("command") != command or value.get("uid") != uid:
             raise ValueError()
         parameters = value["parameters"]
         if not isinstance(parameters, dict):

@@ -156,6 +156,9 @@ def main(argv=None, *, client_factory=XhhClient):
             coverage = {"public_visibility": "not_checked"}
         elif args.command in browser.COMMANDS:
             data, coverage = browser.Browser(client).execute(args)
+            if coverage.get("stop_reason") == "platform_error":
+                emit(False, args.command, data, coverage=coverage, error={"code": "platform_read_stopped", "retry_allowed": False}, secret=secret)
+                return 1
         else:
             data, coverage = read(client, args.command, args)
         emit(True, args.command, data, coverage=coverage, secret=secret)

@@ -2,12 +2,17 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
+import urllib.parse
+import urllib.request
 
 from documents import author, comment, document, floors, identifier, integer, link_id, result_object, source, summary
 from paging import Budget, ReadLimit, coverage, decode_resume, encode_resume
-from xhh_sdk.exceptions import XhhConfigError
+from xhh_sdk.exceptions import XhhConfigError, XhhError
+from xhh_sdk.web_signer import sign_web_request
 
-COMMANDS = {"community", "topics", "hot", "feed", "search", "post", "comments", "replies"}
+COMMANDS = {"community", "topics", "hot", "feed", "search", "post", "comments", "replies", "thread"}
 
 
 def bounded(value):
@@ -30,11 +35,18 @@ def register(commands):
             parser.add_argument("target", nargs="?")
         elif name == "topics":
             parser.add_argument("query")
-        elif name in ("post", "comments"):
+        elif name in ("post", "comments", "thread"):
             parser.add_argument("link_id", type=link_id)
             parser.add_argument("--page", type=bounded, default=1)
             parser.add_argument("--limit", type=bounded, default=50)
             parser.add_argument("--sort", choices=("hot", "time_aes", "time_desc"), default="hot")
+            if name == "post":
+                parser.add_argument("--reader", choices=("native", "website"), default="native")
+                parser.add_argument("--section", choices=("all", "body", "metadata"), default="all")
+                parser.add_argument("--body-format", choices=("text", "blocks", "both"), default="both")
+            if name == "thread":
+                parser.add_argument("root_id", type=link_id)
+                parser.add_argument("--around", type=link_id)
         elif name == "replies":
             parser.add_argument("root_id", type=link_id)
             parser.add_argument("--post-id", type=link_id)
@@ -95,8 +107,98 @@ class Browser:
 
     def execute(self, args):
         budget = Budget(args.requests, args.seconds)
+        if args.command == "thread":
+            return self.thread(args, budget)
+        paged = args.command in ("comments", "replies", "feed", "hot", "search")
+        if not paged and (args.pages != 1 or args.resume):
+            raise XhhConfigError("this command returns one resource; pages/resume are not applicable")
+        mode = "page" if args.command == "comments" else "cursor" if args.command == "replies" else "offset"
+        position_key = {"page": "page", "cursor": "cursor", "offset": "offset"}[mode]
+        binding = hashlib.sha256(json.dumps({key: value for key, value in vars(args).items()
+                    if key not in {"resume", "pages", "requests", "seconds", "raw", position_key}},
+                    sort_keys=True, default=str).encode()).hexdigest()
         if args.resume:
-            raise XhhConfigError("resume is not available for this command yet")
+            token = decode_resume(args.resume, args.command, self.client.config.heybox_id)
+            if set(token) != {"binding", "position", "protocol"} or token["binding"] != binding or token["protocol"] != self.client.config.protocol_mode:
+                raise XhhConfigError("resume does not match the requested resource or filters")
+            value = token["position"]
+            if mode == "cursor":
+                if not isinstance(value, str) or len(value) > 4096:
+                    raise XhhConfigError("invalid continuation cursor")
+            elif type(value) is not int or value < (1 if mode == "page" else 0):
+                raise XhhConfigError("invalid continuation position")
+            setattr(args, position_key, value)
+        items, identities, positions, raw_pages = [], set(), set(), []
+        data, scope = None, {"completion": "unknown", "gaps": [], "next": getattr(args, position_key, None)}
+        duplicates = 0
+        for _ in range(args.pages):
+            position = getattr(args, position_key, None)
+            if position in positions and paged:
+                scope["stop_reason"] = "cursor_stalled"
+                scope["gaps"].append("repeated_continuation")
+                break
+            positions.add(position)
+            try:
+                page, current = self.page(args, budget)
+            except ReadLimit as error:
+                scope["stop_reason"] = error.reason
+                break
+            except XhhError as error:
+                if data is None:
+                    raise
+                scope["stop_reason"] = "platform_error"
+                scope["error"] = {"type": type(error).__name__, "status": getattr(error, "status", None)}
+                break
+            data = page
+            if args.raw and "raw" in page:
+                raw_pages.append(page.pop("raw"))
+            scope = current
+            if not paged:
+                break
+            for item in page["items"]:
+                identity = item.get("id") if isinstance(item, dict) else None
+                if identity and identity in identities:
+                    duplicates += 1
+                    continue
+                if identity:
+                    identities.add(identity)
+                items.append(item)
+            if current["completion"] == "complete" or current["next"] is None:
+                break
+            setattr(args, position_key, current["next"])
+        if data is None:
+            data = {"items": []}
+        if paged:
+            data["items"] = items
+            scope["duplicates_removed"] = duplicates
+        if args.raw:
+            data["raw_pages"] = raw_pages
+        if paged and scope.get("completion") != "complete" and scope.get("next") is not None and scope.get("stop_reason") != "cursor_stalled":
+            scope["resume"] = encode_resume(args.command, self.client.config.heybox_id,
+                                {"binding": binding, "position": scope["next"], "protocol": self.client.config.protocol_mode})
+        else:
+            scope["resume"] = None
+        scope["budget"] = budget.view()
+        return data, scope
+
+    def website(self, query, budget):
+        if self.client.config.protocol_mode != "web":
+            raise XhhConfigError("website reader requires an explicitly selected Web session")
+        route = "/bbs/app/link/tree"
+        signature = sign_web_request(route)
+        parameters = {"client_type": "web", "x_client_type": "web", "os_type": "web", "x_app": "heybox_website",
+                      "version": "999.0.4", "web_version": "2.5", "owner_only": "1",
+                      "heybox_id": self.client.config.heybox_id, **{key: value for key, value in signature.items() if key != "_rnd"}, **query}
+        request = urllib.request.Request(self.client.config.api_base.rstrip("/") + route + "?" + urllib.parse.urlencode(parameters),
+                    headers={"Cookie": self.client.config.cookie_web, "Referer": self.client.config.web_origin + "/",
+                             "User-Agent": self.client.config.user_agent_web})
+        transport = self.client.transport
+        raw = budget.call(self.client, lambda: transport._checked_response(route, transport._decode(transport._open(request))))
+        evidence = source(self.client, route)
+        evidence["reader"] = "website"
+        return raw, result_object(raw), evidence
+
+    def page(self, args, budget):
         if getattr(args, "offset", 0) < 0:
             raise XhhConfigError("offset must be nonnegative")
         if args.command == "community":
@@ -117,17 +219,25 @@ class Browser:
             data = {"items": rows(result, ("search_result", "hashtags", "topics")), "source": evidence}
             scope = {"completion": "unknown", "full_history": False}
         elif args.command in ("post", "comments"):
-            raw, result, evidence = self.fetch("/bbs/app/link/tree",
-                         {"link_id": args.link_id, "page": str(args.page), "limit": str(args.limit), "sort_filter": args.sort}, budget)
+            query = {"link_id": args.link_id, "page": str(args.page), "limit": str(args.limit), "sort_filter": args.sort}
+            raw, result, evidence = self.website(query, budget) if getattr(args, "reader", "native") == "website" else self.fetch("/bbs/app/link/tree", query, budget)
             if not isinstance(result.get("link"), dict):
                 raise XhhConfigError("post missing from platform result")
-            nodes = floors(result.get("comments"), args.link_id)
+            nodes = floors(result.get("comments"), args.link_id) if args.command == "comments" else []
             data = document(result["link"], evidence) if args.command == "post" else {"post_id": args.link_id, "items": nodes, "source": evidence}
-            scope = coverage(result, count=len(result["comments"]), position=args.page, mode="page")
+            scope = coverage(result, count=len(result.get("comments", [])), position=args.page, mode="page")
+            if "comments" not in result:
+                scope["gaps"].append("comments_not_returned")
             scope["sort"] = args.sort
             if args.command == "post":
                 scope["body"] = data["body"]["completeness"]
                 scope["gaps"].extend(data["body"]["gaps"])
+                if args.body_format != "both":
+                    data["body"].pop("text" if args.body_format == "blocks" else "blocks")
+                if args.section == "metadata":
+                    data.pop("body")
+                elif args.section == "body":
+                    data = {key: data[key] for key in ("id", "url", "body", "source", "content_sha256")}
             data["available_sorts"] = result.get("sort_filter", [])
         elif args.command == "replies":
             query = {"root_comment_id": args.root_id, "hide_cy": "0", "h_src": ""}
@@ -159,5 +269,83 @@ class Browser:
             data = {"items": items, "source": evidence, "navigation": {"sorts": result.get("sort_filter"), "filters": result.get("filters")}}
         if args.raw:
             data["raw"] = raw
-        scope["budget"] = budget.view()
         return data, scope
+
+    def thread(self, args, budget):
+        if args.resume:
+            raise XhhConfigError("thread resumes through the comments/replies continuation returned in coverage")
+        nodes, root, page, cursor = {}, None, args.page, None
+        last_scope = {"completion": "unknown", "gaps": []}
+        phase = "comments"
+        for _ in range(args.pages):
+            try:
+                if root is None:
+                    raw, result, evidence = self.fetch("/bbs/app/link/tree", {"link_id": args.link_id,
+                                "page": str(page), "limit": str(args.limit), "sort_filter": args.sort}, budget)
+                    parsed = floors(result.get("comments"), args.link_id)
+                    for node in parsed:
+                        if node["root_id"] == args.root_id:
+                            nodes[node["id"]] = node
+                    root = nodes.get(args.root_id)
+                    last_scope = coverage(result, count=len(result["comments"]), position=page, mode="page")
+                    page += 1
+                    if root is None:
+                        if last_scope["completion"] == "complete":
+                            break
+                        continue
+                    known_children = len(nodes) - 1
+                    if (root["has_more"] is False and (root["children_count"] is None or known_children >= root["children_count"])) or (root["children_count"] is not None and known_children >= root["children_count"]):
+                        last_scope["completion"] = "complete"
+                        break
+                    phase = "replies"
+                    last_scope["completion"] = "more" if root["has_more"] is True else "unknown"
+                else:
+                    query = {"root_comment_id": args.root_id, "hide_cy": "0", "h_src": ""}
+                    if cursor is not None:
+                        query["lastval"] = cursor
+                    raw, result, evidence = self.fetch("/bbs/app/comment/sub/comments", query, budget)
+                    records = rows(result, ("comments",))
+                    for item in records:
+                        node = comment(item, args.link_id, args.root_id)
+                        nodes[node["id"]] = node
+                    last_scope = coverage(result, count=len(records), position=cursor, mode="cursor")
+                    if last_scope["completion"] == "complete" or last_scope["next"] is None:
+                        break
+                    if last_scope["next"] == cursor:
+                        last_scope["stop_reason"] = "cursor_stalled"
+                        break
+                    cursor = last_scope["next"]
+            except ReadLimit as error:
+                last_scope["stop_reason"] = error.reason
+                break
+            except XhhError as error:
+                if not nodes:
+                    raise
+                last_scope["stop_reason"] = "platform_error"
+                last_scope["error"] = {"type": type(error).__name__, "status": getattr(error, "status", None)}
+                break
+        target = args.around or args.root_id
+        ancestors, missing, visited = [], [], set()
+        node = nodes.get(target)
+        while node and node["id"] not in visited:
+            visited.add(node["id"])
+            ancestors.append(node["id"])
+            parent = node["reply_to_id"] or (args.root_id if node["id"] != args.root_id else None)
+            if parent is None:
+                break
+            if parent in visited:
+                last_scope["gaps"].append("cyclic_reply_reference")
+                break
+            if parent not in nodes:
+                missing.append(parent)
+                break
+            node = nodes[parent]
+        if target not in nodes:
+            last_scope["gaps"].append("target_not_observed")
+        if missing:
+            last_scope["gaps"].append("ancestors_missing")
+        last_scope["continuation"] = {"command": phase, "post_id": args.link_id, "root_id": args.root_id,
+                                      "page": page if phase == "comments" else None, "cursor": cursor} if last_scope["completion"] != "complete" else None
+        last_scope["budget"] = budget.view()
+        return {"post_id": args.link_id, "root_id": args.root_id, "target_id": target, "target_observed": target in nodes,
+                "ancestor_ids": ancestors, "missing_ancestor_ids": missing, "items": list(nodes.values())}, last_scope

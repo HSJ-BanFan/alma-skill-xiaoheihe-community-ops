@@ -61,26 +61,41 @@ class Markup(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.parts, self.links, self.images = [], [], []
+        self.events, self.chunk = [], []
+
+    def flush(self):
+        text = "".join(self.chunk).strip()
+        if text:
+            self.events.append({"type": "text", "text": text})
+        self.chunk = []
 
     def handle_starttag(self, tag, attributes):
         attributes = dict(attributes)
         if tag in {"br", "p", "div", "li", "blockquote"}:
             self.parts.append("\n")
+            self.chunk.append("\n")
         if tag == "a" and attributes.get("href"):
             self.links.append(attributes["href"])
+            self.flush()
+            self.events.append({"type": "link", "url": attributes["href"]})
         if tag == "img" and attributes.get("src"):
             self.images.append({"url": attributes["src"], "alt": attributes.get("alt", "")})
+            self.flush()
+            self.events.append({"type": "image", "url": attributes["src"], "alt": attributes.get("alt", "")})
         if tag not in {"a", "b", "i", "u", "em", "strong", "p", "div", "span", "img", "font", "color", "size",
                        "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote", "code", "pre",
                        "s", "strike", "del", "ins", "table", "thead", "tbody", "tr", "td", "th", "hr", "br"}:
             self.parts.append(self.get_starttag_text())
+            self.chunk.append(self.get_starttag_text())
 
     def handle_endtag(self, tag):
         if tag in {"p", "div", "li", "blockquote", "pre"}:
             self.parts.append("\n")
+            self.chunk.append("\n")
 
     def handle_data(self, data):
         self.parts.append(data)
+        self.chunk.append(data)
 
 
 def plain(value):
@@ -124,7 +139,8 @@ def summary(raw):
                    for topic in row.get("topics", []) if isinstance(topic, dict)]
     article = truth(row.get("is_article"))
     kind = "article" if article is True or str(row.get("post_type")) == "3" else "dynamic" if article is False or str(row.get("link_tag")) == "27" else "unknown"
-    images = [asset for asset in (media(item) for item in row.get("imgs", []) if isinstance(row.get("imgs"), list)) if asset]
+    raw_images = row.get("imgs") if isinstance(row.get("imgs"), list) else []
+    images = [asset for asset in (media(item) for item in raw_images) if asset]
     return {"id": uid, "url": "https://www.xiaoheihe.cn/app/bbs/link/" + uid, "title": plain(row.get("title")),
             "excerpt": plain(row.get("description")), "content_type": kind, "author": author(row),
             "created_at": integer(row.get("create_at")), "updated_at": integer(row.get("modify_at")),
@@ -169,15 +185,16 @@ def document(link, evidence):
                     continue
                 parsed = Markup()
                 parsed.feed(markup)
-                text = plain(markup)
-                if text:
-                    blocks.append({"type": "text", "text": text, "position": position})
-                for url in parsed.links:
-                    blocks.append({"type": "link", "url": url, "position": position})
-                for image in parsed.images:
-                    asset = media(image, position)
-                    if asset:
-                        blocks.append({"type": "image", **asset})
+                parsed.flush()
+                for event in parsed.events:
+                    if event["type"] == "image":
+                        asset = media(event, position)
+                        if asset:
+                            blocks.append({"type": "image", **asset})
+                        else:
+                            gaps.append("image_url_missing")
+                    else:
+                        blocks.append({**event, "position": position})
             else:
                 blocks.append({"type": "unknown", "platform_type": kind, "position": position})
                 gaps.append("unsupported_body_block")
