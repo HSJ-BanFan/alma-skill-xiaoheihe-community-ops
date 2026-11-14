@@ -70,6 +70,13 @@ class LatestReviewFixTests(unittest.TestCase):
         with self.assertRaises(XhhConfigError):
             Browser(Fixture()).execute(xhh.parser().parse_args(["user", "202", "--view", "posts"]))
 
+    def test_posts_view_rejects_missing_author_identity(self):
+        class Fixture(PagedFixture):
+            def signed_request(self, path, query=None):
+                return {"post_links": [{"linkid": 1}]}
+        with self.assertRaises(XhhConfigError):
+            Browser(Fixture()).execute(xhh.parser().parse_args(["user", "202", "--view", "posts"]))
+
 
 if __name__ == "__main__":
     unittest.main()
