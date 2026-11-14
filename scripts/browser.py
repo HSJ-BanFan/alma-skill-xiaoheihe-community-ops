@@ -234,6 +234,10 @@ class Browser:
             if args.raw and "raw" in page:
                 raw_pages.append(page.pop("raw"))
             scope = current
+            if paged and mode == "cursor" and current["next"] is not None and current["next"] == position:
+                scope["stop_reason"] = "cursor_stalled"
+                scope["gaps"].append("repeated_continuation")
+                scope["next"] = None
             returned_total += current.get("returned", 0)
             excluded_total += current.get("excluded", 0)
             if not paged:

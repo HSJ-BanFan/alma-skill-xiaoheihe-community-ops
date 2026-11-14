@@ -174,17 +174,20 @@ def summary(raw):
     uid = identifier(row.get("linkid") or row.get("link_id") or row.get("id"))
     if not uid:
         raise XhhConfigError("post record has no valid ID")
+    topics = row.get("topics")
     communities = [{"id": identifier(topic.get("topic_id") or topic.get("id")),
                     "name": topic.get("name") or topic.get("topic_name")}
-                   for topic in row.get("topics", []) if isinstance(topic, dict)]
+                   for topic in topics if isinstance(topic, dict)] if isinstance(topics, list) else None
     article = truth(row.get("is_article"))
-    kind = "article" if article is True or str(row.get("post_type")) == "3" else "dynamic" if article is False or str(row.get("link_tag")) == "27" else "unknown"
+    kind = "article" if article is True or str(row.get("post_type")) == "3" else "dynamic" if article is False or str(row.get("link_tag")) == "27" else None
     raw_images = row.get("imgs") if isinstance(row.get("imgs"), list) else []
     images = [asset for asset in (media(item) for item in raw_images) if asset]
-    return {"id": uid, "url": "https://www.xiaoheihe.cn/app/bbs/link/" + uid, "title": plain(row.get("title")),
-            "excerpt": plain(row.get("description")), "content_type": kind, "author": author(row),
+    title, excerpt, hashtags = row.get("title"), row.get("description"), row.get("hashtags")
+    return {"id": uid, "url": "https://www.xiaoheihe.cn/app/bbs/link/" + uid,
+            "title": plain(title) if title is not None else None,
+            "excerpt": plain(excerpt) if excerpt is not None else None, "content_type": kind, "author": author(row),
             "created_at": integer(row.get("create_at")), "updated_at": integer(row.get("modify_at")),
-            "communities": communities, "hashtags": row.get("hashtags") if isinstance(row.get("hashtags"), list) else [],
+            "communities": communities, "hashtags": hashtags if isinstance(hashtags, list) else None,
             "statistics": {"comments": integer(row.get("comment_num")), "charges": integer(row.get("link_award_num")),
                            "favourites": integer(row.get("favour_count")), "views": integer(row.get("click"))},
             "media": images, "has_video": truth(row.get("has_video"))}
@@ -289,9 +292,11 @@ def comment(raw, post_id, root_id):
     inline = [asset for asset in (media(event, index) for index, event in enumerate(parsed.events)
                                  if event["type"] == "image") if asset]
     explicit = [asset for asset in (media(item) for item in assets) if asset]
+    text = raw.get("text")
     return {"id": uid, "post_id": post_id, "root_id": root_id,
             "reply_to_id": identifier(raw.get("replyid") or raw.get("reply_id")) if uid != root_id else None,
-            "reply_to_uid": identifier(raw.get("replyuserid")), "author": author(raw), "text": plain(raw.get("text")),
+            "reply_to_uid": identifier(raw.get("replyuserid")), "author": author(raw),
+            "text": plain(text) if text is not None else None,
             "created_at": integer(raw.get("create_at")), "children_count": integer(raw.get("child_num")),
             "has_more": truth(raw.get("has_more")), "statistics": {"up": integer(raw.get("up"))},
             "media": merge_media(inline, explicit)}
