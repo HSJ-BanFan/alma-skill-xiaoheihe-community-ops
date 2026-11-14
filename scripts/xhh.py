@@ -59,6 +59,10 @@ def parser():
     command.add_argument("url")
     command.add_argument("--refresh", action="store_true")
     command.add_argument("--seconds", type=positive, default=20)
+    command = commands.add_parser("snapshot", help="read or resume an account-scoped public browsing snapshot")
+    command.add_argument("action", choices=("list", "show", "diff", "resume"))
+    command.add_argument("name", nargs="?")
+    command.add_argument("other", nargs="?")
     for name in ("inbox", "drafts", "my-posts", "my-comments"):
         command = commands.add_parser(name)
         command.add_argument("--offset", type=nonnegative, default=0)
@@ -153,6 +157,30 @@ def main(argv=None, *, client_factory=XhhClient):
             return 0
         config = load_config(args)
         secret = config.pkey
+        if args.command == "snapshot":
+            from observations import Store, difference
+            store = Store(args.data_dir)
+            if args.action == "list":
+                emit(True, args.command, {"items": store.list(config.heybox_id)}, secret=secret)
+                return 0
+            saved = store.get(config.heybox_id, args.name)
+            if args.action == "show":
+                emit(True, args.command, saved, secret=secret)
+                return 0
+            if args.action == "diff":
+                other = store.get(config.heybox_id, args.other)
+                if saved["query_key"] != other["query_key"]:
+                    raise XhhConfigError("snapshots belong to different queries")
+                emit(True, args.command, difference(saved["data"], other["data"]), secret=secret)
+                return 0
+            token = saved["coverage"].get("resume")
+            if not token:
+                raise XhhConfigError("snapshot has no resumable continuation")
+            resumed = parser().parse_args([*saved["request"], "--resume", token, "--snapshot", args.name])
+            data, coverage = browser.Browser(client_factory(config)).execute(resumed)
+            store.save(config.heybox_id, args.name, saved["query_key"], redact(data, secret), coverage, browser.request_arguments(resumed))
+            emit(coverage.get("stop_reason") != "platform_error", args.command, data, coverage=coverage, secret=secret)
+            return 1 if coverage.get("stop_reason") == "platform_error" else 0
         if args.command == "operation":
             value = Journal(args.data_dir).read(config.heybox_id, args.operation_id)
             emit(value is not None, args.command, value, error=None if value else {"code": "operation_not_found"}, secret=secret)
@@ -164,7 +192,17 @@ def main(argv=None, *, client_factory=XhhClient):
             data = Journal(args.data_dir).execute(config.heybox_id, args.operation_id, args.command, payload, send)
             coverage = {"public_visibility": "not_checked"}
         elif args.command in browser.COMMANDS:
+            from observations import Store, difference
+            store = Store(args.data_dir)
+            key = browser.query_key(args) + ":" + config.protocol_mode
+            previous = store.get(config.heybox_id, args.since) if args.since else None
+            if previous is not None and previous["query_key"] != key:
+                raise XhhConfigError("baseline snapshot belongs to a different query")
             data, coverage = browser.Browser(client).execute(args)
+            if previous is not None:
+                coverage["delta"] = difference(previous["data"], data)
+            if args.snapshot:
+                store.save(config.heybox_id, args.snapshot, key, redact(data, secret), coverage, browser.request_arguments(args))
             if coverage.get("stop_reason") == "platform_error":
                 emit(False, args.command, data, coverage=coverage, error={"code": "platform_read_stopped", "retry_allowed": False}, secret=secret)
                 return 1

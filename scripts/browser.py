@@ -30,6 +30,8 @@ def register(commands):
         parser.add_argument("--seconds", type=bounded, default=30)
         parser.add_argument("--pages", type=bounded, default=1)
         parser.add_argument("--resume")
+        parser.add_argument("--snapshot", help="save this public observation and continuation locally")
+        parser.add_argument("--since", help="compare with a same-query snapshot")
         if name == "community":
             parser.add_argument("action", choices=("list", "search", "info", "children"))
             parser.add_argument("target", nargs="?")
@@ -106,6 +108,26 @@ def communities(value):
     return list(found.values())
 
 
+def query_key(args):
+    return hashlib.sha256(json.dumps({key: value for key, value in vars(args).items()
+                if key not in {"snapshot", "since", "resume", "pages", "requests", "seconds", "raw", "page", "offset", "cursor",
+                               "account", "config", "env", "protocol", "data_dir"}}, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def request_arguments(args):
+    command = args.command
+    positions = {"community": ("action", "target"), "topics": ("query",), "feed": ("topic_id",), "search": ("query",),
+                 "post": ("link_id",), "comments": ("link_id",), "replies": ("root_id",), "thread": ("link_id", "root_id"),
+                 "user": ("user_id",), "favourites": ("action", "folder_id"), "hot": ()}
+    result = [command] + [str(getattr(args, name)) for name in positions[command] if getattr(args, name, None) is not None]
+    for name in ("requests", "seconds", "pages", "page", "offset", "limit", "sort", "content_type", "after", "min_comments",
+                 "type", "post_id", "cursor", "reader", "section", "body_format", "around", "view"):
+        value = getattr(args, name, None)
+        if value is not None:
+            result.extend(["--" + name.replace("_", "-"), str(value)])
+    return result
+
+
 class Browser:
     def __init__(self, client):
         self.client = client
@@ -130,7 +152,8 @@ class Browser:
         mode = "page" if args.command == "comments" else "cursor" if args.command == "replies" else "offset"
         position_key = {"page": "page", "cursor": "cursor", "offset": "offset"}[mode]
         binding = hashlib.sha256(json.dumps({key: value for key, value in vars(args).items()
-                    if key not in {"resume", "pages", "requests", "seconds", "raw", position_key}},
+                    if key not in {"resume", "pages", "requests", "seconds", "raw", "snapshot", "since", position_key,
+                                   "account", "config", "env", "protocol", "data_dir"}},
                     sort_keys=True, default=str).encode()).hexdigest()
         if args.resume:
             token = decode_resume(args.resume, args.command, self.client.config.heybox_id)
