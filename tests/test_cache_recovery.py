@@ -78,6 +78,8 @@ class CacheRecoveryTests(unittest.TestCase):
             self.assertEqual(code, 0)
             saved = Store(root).get("101", "read")
             self.assertEqual([item["id"] for item in saved["data"]["items"]], ["9", "10", "11"])
+            self.assertEqual(saved["coverage"]["observed_positions"], [1, 2])
+            self.assertEqual(saved["coverage"]["duplicates_removed_since_snapshot"], 1)
 
     def test_named_thread_resumes_with_prior_ancestry(self):
         with tempfile.TemporaryDirectory() as temporary:
