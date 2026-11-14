@@ -79,6 +79,25 @@ class PagingTests(unittest.TestCase):
         self.assertTrue(data["target_observed"])
         self.assertEqual(scope["completion"], "complete")
 
+    def test_thread_sparse_duplicate_preserves_prior_parent_and_media(self):
+        class SparseDuplicate(PagedFixture):
+            def signed_request(self, path, query=None):
+                if path.endswith("tree"):
+                    root = {"commentid": 9, "text": "root", "child_num": 1, "has_more": 1}
+                    reply = {"commentid": 10, "text": "target", "replyid": 9,
+                             "imgs": [{"url": "https://cdn.max-c.com/target.png"}]}
+                    return {"result": {"comments": [{"comment": [root, reply]}], "total_page": 1}}
+                return {"result": {"comments": [{"commentid": 10, "text": "sparse duplicate"}], "has_more": False}}
+
+        data, scope = Browser(SparseDuplicate()).execute(
+            xhh.parser().parse_args(["thread", "123", "9", "--around", "10", "--pages", "2"]))
+        target = next(item for item in data["items"] if item["id"] == "10")
+        self.assertEqual(target["reply_to_id"], "9")
+        self.assertEqual(target["media"][0]["url"], "https://cdn.max-c.com/target.png")
+        self.assertEqual(data["ancestor_ids"], ["10", "9"])
+        self.assertTrue(data["ancestry_complete"])
+        self.assertEqual(scope["completion"], "complete")
+
     def test_unobserved_target_never_invented(self):
         client = PagedFixture()
         data, scope = Browser(client).execute(xhh.parser().parse_args(["thread", "123", "9", "--around", "999"]))

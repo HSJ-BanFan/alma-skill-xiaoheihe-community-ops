@@ -88,6 +88,24 @@ class CacheRecoveryTests(unittest.TestCase):
             self.assertEqual(value["data"]["ancestor_ids"], ["11", "10", "9"])
             self.assertTrue(value["data"]["ancestry_complete"])
 
+    def test_source_distinguishes_configured_namespace_from_verified_identity(self):
+        class WrongIdentity(PagedFixture):
+            def account_info(self):
+                return {"userid": "999"}
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            code, ordinary = self.run_cli(root, ["comments", "123"], client=WrongIdentity())
+            self.assertEqual(code, 0)
+            self.assertEqual(ordinary["data"]["source"]["configured_uid"], "101")
+            self.assertFalse(ordinary["data"]["source"]["identity_verified"])
+            self.assertNotIn("account_uid", ordinary["data"]["source"])
+
+            code, verified = self.run_cli(root, ["comments", "123", "--snapshot", "verified"])
+            self.assertEqual(code, 0)
+            self.assertEqual(verified["data"]["source"]["configured_uid"], "101")
+            self.assertTrue(verified["data"]["source"]["identity_verified"])
+
     def test_identity_mismatch_prevents_snapshot_creation(self):
         class WrongIdentity(PagedFixture):
             def account_info(self):

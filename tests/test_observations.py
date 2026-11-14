@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import xhh
-from observations import Store, difference
+from observations import Store, difference, merge
 from test_paging import PagedFixture
 from xhh_sdk.exceptions import XhhConfigError
 
@@ -33,6 +33,15 @@ class ObservationTests(unittest.TestCase):
             self.assertEqual(store.get("101", "baseline")["data"]["id"], "1")
             with self.assertRaises(XhhConfigError):
                 store.get("202", "baseline")
+
+    def test_sparse_observation_does_not_erase_or_change_known_evidence(self):
+        before = {"items": [{"id": "10", "reply_to_id": "9",
+                             "media": [{"url": "https://cdn.max-c.com/target.png"}]}]}
+        after = {"items": [{"id": "10", "reply_to_id": None, "media": []}]}
+        saved = merge(before, after)
+        self.assertEqual(saved["items"][0]["reply_to_id"], "9")
+        self.assertEqual(saved["items"][0]["media"], before["items"][0]["media"])
+        self.assertEqual(difference(before, after)["unchanged"], ["10"])
 
     def test_cli_persisted_resume_after_new_client(self):
         with tempfile.TemporaryDirectory() as temporary:
