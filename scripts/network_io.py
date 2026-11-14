@@ -12,7 +12,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from xhh_sdk.exceptions import XhhAPIError, XhhAuthError, XhhConfigError, XhhTransportError
+from xhh_sdk.exceptions import (
+    XhhAPIError,
+    XhhAuthError,
+    XhhConfigError,
+    XhhRateLimitError,
+    XhhTransportError,
+)
 
 NETWORK_ENV = {"PATH", "SYSTEMROOT", "WINDIR", "SYSTEMDRIVE", "COMSPEC", "PATHEXT", "TEMP", "TMP", "TMPDIR",
                "LANG", "LC_ALL", "TZ", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"}
@@ -73,10 +79,21 @@ def read_http(request, timeout, *, profile="api", http_timeout=None):
         kind, status = value.get("kind"), value.get("status") or ""
     except (ValueError, KeyError, TypeError):
         raise XhhTransportError("bounded reader protocol failed") from None
-    if kind == "XhhAuthError":
+    if kind == "XhhRateLimitError" or status.upper() == "HTTP_429":
+        raise XhhRateLimitError("platform throttled the request")
+    if (kind == "XhhAuthError"
+            or status.upper() in {"HTTP_401", "HTTP_403"}):
         raise XhhAuthError("platform rejected the session")
     if kind in ("XhhAPIError", "HTTPError"):
-        raise XhhAPIError("HTTP read rejected", status=status)
+        try:
+            status_code = int(str(status).upper().removeprefix("HTTP_"))
+        except ValueError:
+            status_code = 0
+        raise XhhAPIError(
+            "HTTP read rejected",
+            status=status,
+            retry_allowed=status_code >= 500 or status_code == 408,
+        )
     if kind == "XhhConfigError":
         raise XhhConfigError("bounded reader request invalid")
     raise XhhTransportError("HTTP read failed" + (": " + status if status else ""))

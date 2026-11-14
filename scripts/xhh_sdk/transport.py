@@ -115,10 +115,19 @@ class Transport:
             with urllib.request.urlopen(request, timeout=self.config.timeout) as r:
                 return r.read(4 * 1024 * 1024 + 1)
         except urllib.error.HTTPError as exc:
+            if exc.code == 429:
+                raise XhhRateLimitError(
+                    "platform throttled the request",
+                    code="rate_limited",
+                ) from exc
             if exc.code in (401, 403):
                 raise XhhAuthError(
                     "platform rejected the session (login required or expired)") from exc
-            raise XhhAPIError(f"HTTP {exc.code}", status=f"HTTP_{exc.code}") from exc
+            raise XhhAPIError(
+                f"HTTP {exc.code}",
+                status=f"HTTP_{exc.code}",
+                retry_allowed=exc.code >= 500 or exc.code == 408,
+            ) from exc
         except (urllib.error.URLError, http.client.HTTPException, TimeoutError,
                 socket.timeout, ConnectionError, OSError) as exc:
             raise XhhTransportError(f"request failed: {exc}") from exc

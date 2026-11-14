@@ -8,18 +8,25 @@ import re
 import time
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
+from typing import Callable
 
 from documents import author, comment, document, floors, identifier, integer, link_id, merge_media, result_object, source, summary, entity_id, enrich_observation
 from network_io import read_http
-from paging import Budget, ReadLimit, coverage, decode_resume, encode_resume
+from paging import (
+    Budget,
+    ReadLimit,
+    StopKind,
+    StopState,
+    coverage,
+    decode_resume,
+    finalize_coverage,
+)
 from xhh_sdk.exceptions import (
-    XhhAuthError,
-    XhhCaptchaError,
     XhhConfigError,
     XhhError,
-    XhhRateLimitError,
 )
 from xhh_sdk.web_signer import sign_web_request
 
@@ -28,6 +35,14 @@ COMMANDS = {
     "replies", "thread", "user", "favourites", "hashtags", "stories",
     "banners", "recommended-users", "games",
 }
+
+
+@dataclass(frozen=True)
+class ReaderSpec:
+    reader: str
+    protocol: str
+    route: str
+    handler: Callable
 
 
 def bounded(value):
@@ -100,11 +115,12 @@ def platform_parameters(args):
 def _fit_items(data, args, scope, *, matched):
     limit = getattr(args, "limit", None)
     if not isinstance(data.get("items"), list) or not isinstance(limit, int):
-        return
+        return False
     selected = data["items"][:limit]
     data["items"] = selected
     scope.update(matched_total=matched, selected=len(selected), limit=limit,
                  limit_reached=matched > limit, truncated=matched > limit)
+    return matched > limit
 
 
 class PublicPageParser(HTMLParser):
@@ -212,7 +228,11 @@ def register(commands):
             parser.add_argument("--limit", type=bounded, default=50)
             parser.add_argument("--sort", choices=("hot", "time_aes", "time_desc"), default="hot")
             if name == "post":
-                parser.add_argument("--reader", choices=("native", "website", "html", "auto"), default="native")
+                parser.add_argument(
+                    "--reader",
+                    choices=("native", "website", "html", "auto"),
+                    default="auto",
+                )
                 parser.add_argument("--section", choices=("all", "body", "metadata"), default="all")
                 parser.add_argument("--body-format", choices=("text", "blocks", "both"), default="both")
             if name == "thread":
@@ -222,6 +242,7 @@ def register(commands):
             parser.add_argument("root_id", type=numeric_argument)
             parser.add_argument("--post-id", type=post_argument)
             parser.add_argument("--cursor")
+            parser.add_argument("--limit", type=bounded, default=20)
         else:
             parser.add_argument("--offset", type=int, default=0)
             parser.add_argument("--limit", type=bounded, default=20)
@@ -423,6 +444,11 @@ class Browser:
         self.clients = dict(clients or {client.config.protocol_mode: client})
         self.identity_verified = False
 
+    @staticmethod
+    def _session_revision(client):
+        extra = getattr(client.config, "extra", None)
+        return (extra or {}).get("session_revision")
+
     def fetch(self, route, query, budget, *, client=None):
         selected = client or self.client
         raw = budget.call(selected, lambda: selected.transport.signed_request(route, query=query))
@@ -432,18 +458,25 @@ class Browser:
             result = result_object(raw)
         evidence = source(selected, route)
         evidence["identity_verified"] = self.identity_verified
+        evidence["session_revision"] = self._session_revision(selected)
         return raw, result, evidence
 
     def execute(self, args, *, verify_account=False, prior_data=None):
-        budget = Budget(args.requests, args.seconds)
+        budget = Budget(
+            args.requests,
+            args.seconds,
+            pages=args.pages,
+            items=getattr(args, "limit", 100),
+        )
+        post_plan = self._reader_plan(args) if args.command == "post" else None
         if verify_account:
             from operations import verify_identity
             if args.requests < 2:
                 raise XhhConfigError("saving, resuming, or comparing observations requires at least two requests including account verification")
             budget.call(self.client, lambda: verify_identity(self.client))
             self.identity_verified = True
-        if args.command == "post" and args.reader == "auto":
-            return self.post_auto(args, budget)
+        if args.command == "post":
+            return self.post(args, budget, plan=post_plan)
         if args.command == "thread":
             return self.thread(args, budget, prior_data)
         paged = (args.command in ("comments", "replies", "feed", "hot", "stories",
@@ -462,16 +495,37 @@ class Browser:
                     if key not in {"resume", "pages", "requests", "seconds", "raw", "snapshot", "since", position_key,
                                    "account", "config", "env", "protocol", "data_dir"}},
                     sort_keys=True, default=str).encode()).hexdigest()
+        item_window = None
         if args.resume:
             token = decode_resume(args.resume, args.command, self.client.config.heybox_id)
-            if set(token) != {"binding", "position", "protocol"} or token["binding"] != binding or token["protocol"] != self.client.config.protocol_mode:
+            required = {"binding", "position", "protocol"}
+            if (not required <= set(token)
+                    or set(token) - required - {"item_window"}
+                    or token["binding"] != binding
+                    or token["protocol"] != self.client.config.protocol_mode):
                 raise XhhConfigError("resume does not match the requested resource or filters")
             value = token["position"]
             if mode == "cursor":
-                if not isinstance(value, str) or len(value) > 4096:
+                if (value is not None
+                        and (not isinstance(value, str) or len(value) > 4096)):
+                    raise XhhConfigError("invalid continuation cursor")
+                if value is None and "item_window" not in token:
                     raise XhhConfigError("invalid continuation cursor")
             elif type(value) is not int or value < (1 if mode == "page" else 0):
                 raise XhhConfigError("invalid continuation position")
+            if "item_window" in token:
+                item_window = token["item_window"]
+                if (not isinstance(item_window, dict)
+                        or set(item_window) != {"position", "consumed"}
+                        or item_window["position"] != value
+                        or not isinstance(item_window["consumed"], list)
+                        or len(item_window["consumed"]) > 10000
+                        or not all(
+                            isinstance(key, str) and 0 < len(key) <= 256
+                            for key in item_window["consumed"]
+                        )):
+                    raise XhhConfigError(
+                        "item continuation is invalid or belongs to another position")
             setattr(args, position_key, value)
         items, identities, positions, raw_pages = [], set(), set(), []
         observed_positions = []
@@ -479,23 +533,40 @@ class Browser:
         duplicates = 0
         identity_positions = {}
         returned_total, excluded_total = 0, 0
+        matched_total = 0
+        stop = None
+        resume_parameters = None
+        skipped = set(item_window["consumed"] if item_window else [])
+        next_position = getattr(args, position_key, None)
         for _ in range(args.pages):
+            if paged:
+                try:
+                    budget.reserve_page()
+                except ReadLimit as error:
+                    stop = StopState.budget_pause(error.reason)
+                    if next_position is not None:
+                        resume_parameters = {"position": next_position}
+                    break
             position = getattr(args, position_key, None)
             if position in positions and paged:
-                scope["stop_reason"] = "cursor_stalled"
+                stop = StopState.cursor_stalled()
                 scope["gaps"].append("repeated_continuation")
                 break
             positions.add(position)
             try:
                 page, current = self.page(args, budget)
             except ReadLimit as error:
-                scope["stop_reason"] = error.reason
+                stop = StopState.budget_pause(error.reason)
+                if next_position is not None:
+                    resume_parameters = {"position": next_position}
                 break
             except XhhError as error:
                 if data is None:
                     raise
-                scope["stop_reason"] = "platform_error"
-                scope["error"] = error.public()
+                stop = StopState.from_error(error)
+                if (stop.kind == StopKind.RETRYABLE_FAILURE
+                        and next_position is not None):
+                    resume_parameters = {"position": next_position}
                 break
             data = page
             if paged:
@@ -503,28 +574,94 @@ class Browser:
             if args.raw and "raw" in page:
                 raw_pages.append(page.pop("raw"))
             scope = current
-            if paged and mode == "cursor" and current["next"] is not None and current["next"] == position:
-                scope["stop_reason"] = "cursor_stalled"
+            next_position = current.get("next")
+            if paged and mode == "cursor" and next_position is not None and next_position == position:
+                stop = StopState.cursor_stalled()
                 scope["gaps"].append("repeated_continuation")
                 scope["next"] = None
+                next_position = None
             returned_total += current.get("returned", 0)
             excluded_total += current.get("excluded", 0)
             if not paged:
                 break
+            page_keys = []
+            page_matched = 0
+            current_page_keys = []
+            unsafe_remainder = False
             for item in page["items"]:
+                key = self._item_window_key(args, item)
                 identity = entity_id(item) if isinstance(item, dict) else None
+                if key is not None and key in skipped:
+                    continue
                 if identity and identity in identities:
                     duplicates += 1
                     index = identity_positions[identity]
                     items[index] = enrich_observation(items[index], item)
                     continue
+                page_matched += 1
+                page_keys.append(key)
+                if len(items) >= budget.item_limit:
+                    if key is None:
+                        unsafe_remainder = True
+                    continue
                 if identity:
                     identities.add(identity)
                     identity_positions[identity] = len(items)
                 items.append(item)
-            if current["completion"] == "complete" or current["next"] is None:
+                current_page_keys.append(key)
+                if key is None:
+                    unsafe_remainder = True
+            matched_total += page_matched
+            if page_matched > len(current_page_keys):
+                if unsafe_remainder or any(key is None for key in page_keys):
+                    public = XhhConfigError(
+                        "item limit stopped inside a page that has no stable record keys",
+                        code="unsafe_item_continuation",
+                        fix="increase --limit or request a normalized command with stable IDs",
+                    ).public()
+                    stop = StopState(
+                        StopKind.FATAL,
+                        reason="unsafe_item_continuation",
+                        error=public,
+                    )
+                else:
+                    consumed = sorted(skipped | set(current_page_keys))
+                    resume_parameters = {
+                        "position": position,
+                        "item_window": {
+                            "position": position,
+                            "consumed": consumed,
+                        },
+                    }
+                    stop = StopState.budget_pause("item_budget")
                 break
-            setattr(args, position_key, current["next"])
+            if len(items) >= budget.item_limit:
+                if current["completion"] == "complete":
+                    stop = StopState.complete()
+                elif next_position is not None:
+                    stop = StopState.budget_pause("item_budget")
+                    resume_parameters = {"position": next_position}
+                else:
+                    public = XhhConfigError(
+                        "output limit reached without a safe continuation",
+                        code="unsafe_item_continuation",
+                        fix="increase --limit or correct the platform continuation",
+                    ).public()
+                    stop = StopState(
+                        StopKind.FATAL,
+                        reason="unsafe_item_continuation",
+                        error=public,
+                    )
+                break
+            if stop is not None:
+                break
+            if current["completion"] == "complete" or next_position is None:
+                if current["completion"] == "complete":
+                    stop = StopState.complete()
+                elif current["completion"] != "complete":
+                    stop = StopState.fatal("continuation_missing")
+                break
+            setattr(args, position_key, next_position)
         if data is None:
             data = {"items": []}
         if paged:
@@ -542,26 +679,74 @@ class Browser:
             data["items"] = items
             scope["duplicates_removed"] = duplicates
             scope["returned_total"] = returned_total
+            scope["matched_total"] = matched_total
+            scope.update(
+                limit=budget.item_limit,
+                limit_reached=matched_total > len(items),
+                truncated=matched_total > len(items),
+            )
             if args.command == "feed":
-                scope.update(selected=len(items), excluded=excluded_total)
-            matched_total = len(items)
-            _fit_items(data, args, scope, matched=matched_total)
-            if (scope.get("completion") != "complete"
-                    and scope.get("next") is not None
-                    and not scope.get("stop_reason")):
-                scope["stop_reason"] = "page_budget"
+                scope.update(selected=len(items), excluded=excluded_total,
+                             matched_total=matched_total)
+            else:
+                scope.update(selected=len(items), matched_total=matched_total)
         elif isinstance(data.get("items"), list) and hasattr(args, "limit"):
-            _fit_items(data, args, scope, matched=len(data["items"]))
+            if _fit_items(data, args, scope, matched=len(data["items"])):
+                public = XhhConfigError(
+                    "output limit truncated a response without a safe continuation",
+                    code="unsafe_item_continuation",
+                    fix="increase --limit before repeating this read",
+                ).public()
+                stop = StopState(
+                    StopKind.FATAL,
+                    reason="unsafe_item_continuation",
+                    error=public,
+                )
         if args.raw:
             data["raw_pages"] = raw_pages
-        if paged and scope.get("completion") != "complete" and scope.get("next") is not None and scope.get("stop_reason") != "cursor_stalled":
-            scope["resume"] = encode_resume(args.command, self.client.config.heybox_id,
-                                {"binding": binding, "position": scope["next"], "protocol": self.client.config.protocol_mode})
-        else:
-            scope["resume"] = None
+        if stop is None:
+            if not paged or scope.get("completion") == "complete":
+                stop = StopState.complete()
+            elif next_position is not None:
+                stop = StopState.budget_pause("page_budget")
+                resume_parameters = {"position": next_position}
+            else:
+                stop = StopState.fatal("continuation_missing")
+        budget.consume_items(len(data.get("items") or []))
         scope["budget"] = budget.view()
         scope["observed_positions"] = observed_positions
+        finalize_coverage(
+            scope,
+            stop,
+            command=args.command,
+            uid=self.client.config.heybox_id,
+            protocol=self.client.config.protocol_mode,
+            binding=binding,
+            resume_parameters=resume_parameters,
+        )
         return data, scope
+
+    @staticmethod
+    def _item_window_key(args, item):
+        identity = entity_id(item) if isinstance(item, dict) else None
+        if not identity:
+            return None
+        entity_type = {
+            "comments": "comment",
+            "replies": "comment",
+            "feed": "post",
+            "hot": "post",
+            "search": (
+                args.type if args.command == "search" else "post"
+            ),
+            "user": "user",
+            "favourites": "post",
+            "hashtags": "hashtag",
+            "games": "game",
+            "stories": "post",
+            "recommended-users": "user",
+        }.get(args.command, args.command)
+        return f"{entity_type}:{identity}"
 
     def website(self, query, budget, *, client=None):
         selected = client or self.client
@@ -579,6 +764,7 @@ class Browser:
         raw = budget.call(selected, lambda: transport._checked_response(route, transport._decode(transport._open(request))))
         evidence = source(selected, route)
         evidence["identity_verified"] = self.identity_verified
+        evidence["session_revision"] = self._session_revision(selected)
         evidence["reader"] = "website"
         return raw, result_object(raw), evidence
 
@@ -623,10 +809,10 @@ class Browser:
         text = article_body or re.sub(r"[ \t]+", " ", "".join(parser.parts))
         text = re.sub(r"\n{3,}", "\n\n", text).strip()
         link = {"id": post_id, "title": title, "text": text}
-        evidence = {"route": route, "protocol": "html", "observed_at": time.time(),
+        evidence = {"route": route, "protocol": "public", "observed_at": time.time(),
                     "configured_uid": str(self.client.config.heybox_id),
                     "identity_verified": False, "reader": "html",
-                    "credentials_sent": False}
+                    "credentials_sent": False, "session_revision": None}
         data = document(link, evidence)
         if not text:
             data["body"]["gaps"] = sorted(set(
@@ -669,78 +855,215 @@ class Browser:
         result["content_sha256"] = hashlib.sha256(json.dumps(
             {key: result[key] for key in ("id", "title", "body", "media")},
             sort_keys=True, ensure_ascii=False).encode()).hexdigest()
-        return result
+        return result, metadata_source
 
-    def post_auto(self, args, budget):
+    def _reader_client(self, protocol):
+        client = self.clients.get(protocol)
+        if client is None or client.config.protocol_mode != protocol:
+            raise XhhConfigError(
+                f"{protocol} reader requires an explicitly selected {protocol} session",
+                code=f"{protocol}_session_missing",
+            )
+        return client
+
+    def _read_native_post(self, args, budget):
         query = {"link_id": args.link_id, "page": str(args.page),
                  "limit": str(args.limit), "sort_filter": args.sort}
+        raw, result, evidence = self.native(
+            query, budget, client=self._reader_client("app"))
+        if not isinstance(result.get("link"), dict):
+            raise XhhConfigError("post missing from platform result")
+        return document(result["link"], evidence)
+
+    def _read_website_post(self, args, budget):
+        query = {"link_id": args.link_id, "page": str(args.page),
+                 "limit": str(args.limit), "sort_filter": args.sort}
+        raw, result, evidence = self.website(
+            query, budget, client=self._reader_client("web"))
+        if not isinstance(result.get("link"), dict):
+            raise XhhConfigError("post missing from platform result")
+        return document(result["link"], evidence)
+
+    def _read_html_post(self, args, budget):
+        return self.public_html(args.link_id, budget)
+
+    def _reader_specs(self):
+        return {
+            "native": ReaderSpec(
+                "native", "app", "/bbs/app/link/tree",
+                self._read_native_post),
+            "website": ReaderSpec(
+                "website", "web", "/bbs/app/link/tree",
+                self._read_website_post),
+            "html": ReaderSpec(
+                "html", "public", "/app/bbs/link/{post_id}",
+                self._read_html_post),
+        }
+
+    def _reader_plan(self, args):
+        specs = self._reader_specs()
+        if args.reader != "auto":
+            spec = specs[args.reader]
+            if spec.protocol == "public":
+                if args.protocol:
+                    raise XhhConfigError(
+                        "the html reader is public and cannot use --protocol")
+            else:
+                if args.protocol and args.protocol != spec.protocol:
+                    raise XhhConfigError(
+                        f"{spec.reader} reader requires the {spec.protocol} protocol")
+                self._reader_client(spec.protocol)
+            return [spec]
+
+        protocols = (args.protocol,) if args.protocol else ("app", "web")
+        plan = []
+        for protocol in protocols:
+            client = self.clients.get(protocol)
+            if client is not None and client.config.protocol_mode == protocol:
+                plan.append(
+                    specs["native"] if protocol == "app" else specs["website"])
+        if not plan:
+            selected = args.protocol or "app/web"
+            raise XhhConfigError(
+                f"auto reader has no available {selected} session",
+                code=f"{args.protocol}_session_missing"
+                if args.protocol else "session_missing",
+            )
+        plan.append(specs["html"])
+        return plan
+
+    @staticmethod
+    def _reader_provenance(attempt):
+        return {
+            key: attempt.get(key)
+            for key in (
+                "reader", "protocol", "status", "body_status",
+                "completeness", "body_characters", "route",
+                "session_revision",
+            )
+        }
+
+    def post(self, args, budget, *, plan=None):
         attempts, documents, errors = [], [], []
-        order = [protocol for protocol in ("app", "web") if protocol in self.clients]
-        for protocol in order:
-            reader = "native" if protocol == "app" else "website"
+        binding = query_key(args)
+        if args.resume:
+            token = decode_resume(
+                args.resume, "post", self.client.config.heybox_id)
+            if (token.get("binding") != binding
+                    or token.get("protocol") != self.client.config.protocol_mode
+                    or type(token.get("position")) is not int
+                    or token["position"] < 1):
+                raise XhhConfigError(
+                    "post continuation does not match this read")
+        stop = None
+        plan = plan or self._reader_plan(args)
+        for spec in plan:
+            session_revision = (
+                self._session_revision(self.clients[spec.protocol])
+                if spec.protocol in self.clients else None
+            )
+            attempt = {
+                "reader": spec.reader,
+                "protocol": spec.protocol,
+                "route": (
+                    spec.route.format(post_id=args.link_id)
+                    if "{post_id}" in spec.route else spec.route
+                ),
+                "session_revision": session_revision,
+                "status": "pending",
+                "body_status": None,
+                "completeness": None,
+                "body_characters": None,
+                "error": None,
+            }
+            attempts.append(attempt)
             try:
-                raw, result, evidence = (
-                    self.native(query, budget, client=self.clients[protocol])
-                    if protocol == "app"
-                    else self.website(query, budget, client=self.clients[protocol])
-                )
-                if not isinstance(result.get("link"), dict):
-                    raise XhhConfigError("post missing from platform result")
-                value = document(result["link"], evidence)
+                value = spec.handler(args, budget)
                 documents.append(value)
-                attempts.append({
-                    "reader": reader, "protocol": protocol, "status": "ok",
+                attempt.update({
+                    "status": "ok",
                     "body_status": value["body"]["status"],
                     "completeness": value["body"]["completeness"],
                     "body_characters": len(value["body"]["text"]),
                 })
-            except (XhhCaptchaError, XhhRateLimitError):
-                raise
             except ReadLimit as error:
-                attempts.append({
-                    "reader": reader, "protocol": protocol, "status": "budget_stop",
+                attempt.update({
+                    "status": "budget_stop",
                     "reason": error.reason,
+                    "error": error.public(),
                 })
+                stop = StopState.budget_pause(error.reason)
                 break
             except XhhError as error:
-                attempts.append({
-                    "reader": reader, "protocol": protocol, "status": "error",
+                attempt.update({
+                    "status": "error",
                     "error": error.public(),
                 })
                 errors.append(error)
-        needs_html = not documents or self._reader_score(
-            max(documents, key=self._reader_score))[0] < 3
-        if needs_html:
-            try:
-                html = self.public_html(args.link_id, budget)
-                documents.append(html)
-                attempts.append({
-                    "reader": "html", "protocol": "html", "status": "ok",
-                    "body_status": html["body"]["status"],
-                    "completeness": html["body"]["completeness"],
-                    "body_characters": len(html["body"]["text"]),
-                })
-            except XhhCaptchaError:
-                raise
-            except ReadLimit as error:
-                attempts.append({"reader": "html", "protocol": "html",
-                                 "status": "budget_stop", "reason": error.reason})
-            except XhhError as error:
-                attempts.append({"reader": "html", "protocol": "html",
-                                 "status": "error", "error": error.public()})
-                errors.append(error)
+                if not error.retry_allowed:
+                    stop = StopState(
+                        StopKind.BLOCKED,
+                        reason="platform_error",
+                        error=error.public(),
+                    )
+                    break
+                continue
+            if value["body"]["completeness"] == "complete":
+                stop = StopState.complete()
+                break
         if not documents:
-            raise errors[0] if errors else XhhConfigError(
+            if errors:
+                raise errors[0]
+            if len(attempts) == 1 and attempts[0]["status"] == "budget_stop":
+                raise ReadLimit(attempts[0]["reason"])
+            raise XhhConfigError(
                 "no reader is available; store an App or Web session")
-        selected = max(enumerate(documents), key=lambda pair: (
-            self._reader_score(pair[1]), -pair[0]))[1]
-        data = self._merge_post_documents(documents, selected)
+        if stop is None:
+            stop = (
+                StopState.complete()
+                if args.reader != "auto"
+                else StopState(StopKind.BUDGET_PAUSE)
+            )
+        selected_index, selected = max(
+            enumerate(documents),
+            key=lambda pair: (self._reader_score(pair[1]), -pair[0]),
+        )
+        data, metadata_source = self._merge_post_documents(
+            documents, selected)
+        successful = [
+            attempt for attempt in attempts if attempt["status"] == "ok"
+        ]
+        selected_attempt = successful[selected_index]
+        metadata_attempt = next(
+            (
+                attempt for attempt in successful
+                if attempt["protocol"] == metadata_source["source"]["protocol"]
+                and attempt["route"] == metadata_source["source"]["route"]
+            ),
+            selected_attempt,
+        )
         data["reader_attempts"] = attempts
         data["selected_reader"] = data["source"]["reader"]
+        data["provenance"] = {
+            "metadata": self._reader_provenance(metadata_attempt),
+            "body": self._reader_provenance(selected_attempt),
+        }
         scope = coverage({"has_more": False}, count=0, position=args.page, mode="page")
         scope.update(body=data["body"]["completeness"], gaps=list(data["body"]["gaps"]),
                      reader=data["source"]["reader"], readers_attempted=len(attempts),
                      sort=args.sort, budget=budget.view())
+        finalize_coverage(
+            scope,
+            stop,
+            command="post",
+            uid=self.client.config.heybox_id,
+            protocol=self.client.config.protocol_mode,
+            binding=binding,
+            resume_parameters=(
+                {"position": args.page}
+                if stop.kind == StopKind.BUDGET_PAUSE else None
+            ),
+        )
         if args.body_format != "both":
             data["body"].pop("text" if args.body_format == "blocks" else "blocks")
         if args.section == "metadata":
@@ -748,7 +1071,7 @@ class Browser:
         elif args.section == "body":
             data = {key: data[key] for key in (
                 "id", "url", "body", "source", "content_sha256",
-                "reader_attempts", "selected_reader")}
+                "reader_attempts", "selected_reader", "provenance")}
         return data, scope
 
     def page(self, args, budget):
@@ -945,30 +1268,17 @@ class Browser:
                 }
                 scope = coverage(result, count=len(records),
                                  position=args.offset)
-        elif args.command in ("post", "comments"):
+        elif args.command == "comments":
             query = {"link_id": args.link_id, "page": str(args.page), "limit": str(args.limit), "sort_filter": args.sort}
-            reader = getattr(args, "reader", "native")
-            if reader == "auto":
-                reader = "website" if self.client.config.protocol_mode == "web" else "native"
-            raw, result, evidence = self.website(query, budget) if reader == "website" else self.fetch("/bbs/app/link/tree", query, budget)
-            if args.command == "post" and not isinstance(result.get("link"), dict):
-                raise XhhConfigError("post missing from platform result")
-            nodes = floors(result.get("comments"), args.link_id) if args.command == "comments" else []
-            data = document(result["link"], evidence) if args.command == "post" else {"post_id": args.link_id, "items": nodes, "source": evidence}
+            raw, result, evidence = self.fetch(
+                "/bbs/app/link/tree", query, budget)
+            nodes = floors(result.get("comments"), args.link_id)
+            data = {"post_id": args.link_id, "items": nodes,
+                    "source": evidence}
             scope = coverage(result, count=len(result.get("comments", [])), position=args.page, mode="page")
             if "comments" not in result:
                 scope["gaps"].append("comments_not_returned")
             scope["sort"] = args.sort
-            if args.command == "post":
-                evidence["reader"] = reader
-                scope["body"] = data["body"]["completeness"]
-                scope["gaps"].extend(data["body"]["gaps"])
-                if args.body_format != "both":
-                    data["body"].pop("text" if args.body_format == "blocks" else "blocks")
-                if args.section == "metadata":
-                    data.pop("body")
-                elif args.section == "body":
-                    data = {key: data[key] for key in ("id", "url", "body", "source", "content_sha256")}
             data["available_sorts"] = result.get("sort_filter", [])
         elif args.command == "replies":
             query = {"root_comment_id": args.root_id, "hide_cy": "0", "h_src": ""}
@@ -1053,7 +1363,9 @@ class Browser:
                         excluded=len(records) - len(items),
                         sorting_scope="returned_items",
                         sort=args.sort,
-                        platform_order=query.get("sort_filter", "default"))
+                        platform_order=getattr(args, "order", None) or "default",
+                        platform_sort_filter=query.get(
+                            "sort_filter", "default"))
                 data = {
                     "items": items,
                     "source": evidence,
@@ -1081,7 +1393,11 @@ class Browser:
         binding = query_key(args)
         root_page = args.page
         observed = set()
-        resumable = True
+        new_items = set()
+        stop = None
+        item_window = None
+        skipped = set()
+        resume_parameters = None
         if args.resume:
             token = decode_resume(args.resume, "thread", self.client.config.heybox_id)
             if (token.get("binding") != binding or token.get("protocol") != self.client.config.protocol_mode
@@ -1090,6 +1406,31 @@ class Browser:
                 raise XhhConfigError("thread continuation does not match resource or filters")
             phase, page, cursor = token["phase"], token["page"], token.get("cursor")
             root_page = page
+            if "item_window" in token:
+                item_window = token["item_window"]
+                item_phase = (
+                    item_window.get("phase")
+                    if isinstance(item_window, dict) else None
+                )
+                position = page if item_phase == "comments" else cursor
+                if (not isinstance(item_window, dict)
+                        or set(item_window) != {
+                            "phase", "position", "consumed"}
+                        or not (
+                            item_phase == phase
+                            or phase == "replies"
+                            and item_phase == "comments"
+                        )
+                        or item_window["position"] != position
+                        or not isinstance(item_window["consumed"], list)
+                        or len(item_window["consumed"]) > 10000
+                        or not all(
+                            isinstance(key, str) and 0 < len(key) <= 256
+                            for key in item_window["consumed"]
+                        )):
+                    raise XhhConfigError(
+                        "thread item continuation is invalid or belongs to another position")
+                skipped = set(item_window["consumed"])
             if prior_data is not None:
                 if prior_data.get("post_id") != args.link_id or prior_data.get("root_id") != args.root_id:
                     raise XhhConfigError("stored thread belongs to a different target")
@@ -1099,26 +1440,73 @@ class Browser:
                     reply_location = prior_data.get("reply_location")
         for _ in range(args.pages):
             try:
+                budget.reserve_page()
+            except ReadLimit as error:
+                stop = StopState.budget_pause(error.reason)
+                break
+            try:
                 if root is None:
                     raw, result, evidence = self.fetch("/bbs/app/link/tree", {"link_id": args.link_id,
                                 "page": str(page), "limit": str(args.limit), "sort_filter": args.sort}, budget)
                     if args.raw:
                         raw_pages.append(raw)
                     parsed = floors(result.get("comments"), args.link_id)
+                    page_keys, remainder = [], False
                     for node in parsed:
                         if node["root_id"] == args.root_id:
+                            key = "comment:" + node["id"]
+                            duplicate = node["id"] in nodes
+                            if (not duplicate and node["id"] != args.root_id
+                                    and key in skipped):
+                                continue
+                            if (not duplicate and node["id"] != args.root_id
+                                    and len(nodes) >= budget.item_limit):
+                                remainder = True
+                                continue
                             node["source"] = evidence
                             nodes[node["id"]] = (enrich_observation(nodes[node["id"]], node)
                                                  if node["id"] in nodes else node)
                             observed.add(node["id"])
+                            if not duplicate:
+                                page_keys.append(key)
+                                new_items.add(key)
                             if node["id"] == target:
                                 reply_location = {"page": page, "limit": args.limit, "sort": args.sort, "cursor": None}
                     root = nodes.get(args.root_id)
                     last_scope = coverage(result, count=len(result["comments"]), position=page, mode="page")
                     page += 1
+                    if remainder:
+                        if budget.item_limit <= 1:
+                            public = XhhConfigError(
+                                "thread item limit cannot retain the root and a safe remainder",
+                                code="unsafe_item_continuation",
+                                fix="increase --limit to at least 2",
+                            ).public()
+                            stop = StopState(
+                                StopKind.FATAL,
+                                reason="unsafe_item_continuation",
+                                error=public,
+                            )
+                        else:
+                            stop = StopState.budget_pause("item_budget")
+                            resume_parameters = {
+                                "phase": "comments",
+                                "page": root_page,
+                                "cursor": None,
+                                "item_window": {
+                                    "phase": "comments",
+                                    "position": root_page,
+                                    "consumed": sorted(skipped | set(page_keys)),
+                                },
+                            }
+                        break
                     if root is None:
                         if last_scope["completion"] == "complete" or last_scope["next"] is None:
-                            resumable = False
+                            stop = (
+                                StopState.complete()
+                                if last_scope["completion"] == "complete"
+                                else StopState.fatal("continuation_missing")
+                            )
                             break
                         continue
                     known_children = len(nodes) - 1
@@ -1126,6 +1514,21 @@ class Browser:
                     if root["has_more"] is not True and (root["has_more"] is False and (root["children_count"] is None or known_children >= root["children_count"])
                             or root["children_count"] is not None and known_children >= root["children_count"]):
                         last_scope["completion"] = "complete"
+                        stop = StopState.complete()
+                        break
+                    if len(nodes) >= budget.item_limit:
+                        stop = StopState.budget_pause("item_budget")
+                        resume_parameters = {
+                            "phase": "replies",
+                            "page": root_page,
+                            "cursor": None,
+                            "item_window": {
+                                "phase": "comments",
+                                "position": root_page,
+                                "consumed": sorted(
+                                    skipped | set(page_keys)),
+                            },
+                        }
                         break
                     phase = "replies"
                     last_scope["completion"] = "more" if root["has_more"] is True else "unknown"
@@ -1137,32 +1540,96 @@ class Browser:
                     if args.raw:
                         raw_pages.append(raw)
                     records = rows(result, ("comments",))
+                    page_keys, remainder = [], False
                     for item in records:
                         node = comment(item, args.link_id, args.root_id)
+                        key = "comment:" + node["id"]
+                        duplicate = node["id"] in nodes
+                        if not duplicate and key in skipped:
+                            continue
+                        if not duplicate and len(nodes) >= budget.item_limit:
+                            remainder = True
+                            continue
                         node["source"] = evidence
                         nodes[node["id"]] = (enrich_observation(nodes[node["id"]], node)
                                              if node["id"] in nodes else node)
                         observed.add(node["id"])
+                        if not duplicate:
+                            page_keys.append(key)
+                            new_items.add(key)
                         if node["id"] == target:
                             reply_location = {"page": root_page, "limit": args.limit, "sort": args.sort, "cursor": cursor}
                     last_scope = coverage(result, count=len(records), position=cursor, mode="cursor")
+                    if remainder:
+                        if budget.item_limit <= 1:
+                            public = XhhConfigError(
+                                "thread item limit cannot retain the root and a safe remainder",
+                                code="unsafe_item_continuation",
+                                fix="increase --limit to at least 2",
+                            ).public()
+                            stop = StopState(
+                                StopKind.FATAL,
+                                reason="unsafe_item_continuation",
+                                error=public,
+                            )
+                        else:
+                            stop = StopState.budget_pause("item_budget")
+                            resume_parameters = {
+                                "phase": "replies",
+                                "page": root_page,
+                                "cursor": cursor,
+                                "item_window": {
+                                    "phase": "replies",
+                                    "position": cursor,
+                                    "consumed": sorted(skipped | set(page_keys)),
+                                },
+                            }
+                        break
                     if last_scope["completion"] == "complete" or last_scope["next"] is None:
-                        resumable = False
+                        stop = (
+                            StopState.complete()
+                            if last_scope["completion"] == "complete"
+                            else StopState.fatal("continuation_missing")
+                        )
                         break
                     if last_scope["next"] == cursor:
-                        last_scope["stop_reason"] = "cursor_stalled"
-                        resumable = False
+                        stop = StopState.cursor_stalled()
+                        break
+                    if len(nodes) >= budget.item_limit:
+                        stop = StopState.budget_pause("item_budget")
+                        resume_parameters = {
+                            "phase": "replies",
+                            "page": root_page,
+                            "cursor": last_scope["next"],
+                        }
                         break
                     cursor = last_scope["next"]
             except ReadLimit as error:
-                last_scope["stop_reason"] = error.reason
+                stop = StopState.budget_pause(error.reason)
                 break
             except XhhError as error:
                 if not nodes:
                     raise
-                last_scope["stop_reason"] = "platform_error"
-                last_scope["error"] = error.public()
+                stop = StopState.from_error(error)
+                if stop.kind == StopKind.RETRYABLE_FAILURE:
+                    resume_parameters = {
+                        "phase": phase,
+                        "page": page if phase == "comments" else root_page,
+                        "cursor": cursor,
+                    }
                 break
+        if resume_parameters is None:
+            resume_parameters = {
+                "phase": phase,
+                "page": page if phase == "comments" else root_page,
+                "cursor": cursor,
+            }
+        if stop is None:
+            if last_scope.get("completion") == "complete":
+                stop = StopState.complete()
+            else:
+                stop = StopState.budget_pause("page_budget")
+        target = args.around or args.root_id
         ancestors, missing, visited, unknown_parents = [], [], set(), []
         node = nodes.get(target)
         while node and node["id"] not in visited:
@@ -1185,12 +1652,27 @@ class Browser:
             last_scope["gaps"].append("target_not_observed")
         if missing:
             last_scope["gaps"].append("ancestors_missing")
-        last_scope["continuation"] = {"command": phase, "post_id": args.link_id, "root_id": args.root_id,
-                                      "page": page if phase == "comments" else None, "cursor": cursor} if resumable and last_scope["completion"] != "complete" else None
+        budget.consume_items(len(new_items))
         last_scope["budget"] = budget.view()
-        last_scope["resume"] = encode_resume("thread", self.client.config.heybox_id,
-                {"binding": binding, "protocol": self.client.config.protocol_mode, "phase": phase,
-                 "page": page if phase == "comments" else root_page, "cursor": cursor}) if resumable and last_scope["completion"] != "complete" else None
+        finalize_coverage(
+            last_scope,
+            stop,
+            command="thread",
+            uid=self.client.config.heybox_id,
+            protocol=self.client.config.protocol_mode,
+            binding=binding,
+            resume_parameters=resume_parameters,
+        )
+        last_scope["continuation"] = (
+            {
+                "command": phase,
+                "post_id": args.link_id,
+                "root_id": args.root_id,
+                "page": page if phase == "comments" else None,
+                "cursor": cursor,
+            }
+            if last_scope.get("resume") else None
+        )
         data = {"post_id": args.link_id, "root_id": args.root_id, "target_id": target, "target_observed": target in nodes,
                 "target_observed_this_read": target in observed,
                 "reply_location": reply_location,

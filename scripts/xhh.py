@@ -17,6 +17,7 @@ from xhh_sdk.client import XhhClient
 from xhh_sdk.config import XhhConfig
 from xhh_sdk.exceptions import XhhError, XhhConfigError
 from documents import link_id
+from paging import delivery_ok, project_coverage
 import browser
 
 WRITES = {"comment", "reply", "like", "favourite", "unfavourite", "delete-comment", "delete-post", "upload", "publish"}
@@ -105,29 +106,61 @@ def load_config(args):
             args.account, protocol=args.protocol)
     elif args.config:
         config = XhhConfig.from_file(args.config)
+        if args.protocol and config.protocol_mode != args.protocol:
+            raise XhhConfigError(
+                "explicit protocol does not match the legacy credential")
     elif args.env:
         config = XhhConfig.from_env()
+        if args.protocol and config.protocol_mode != args.protocol:
+            raise XhhConfigError(
+                "explicit protocol does not match the environment credential")
     else:
         raise OperationError("account_selection_required")
-    if args.protocol:
-        config.protocol_mode = args.protocol
     config.validate()
     return config
 
 
 def load_clients(args, config, client_factory):
-    if not (args.command == "post" and args.reader == "auto"):
+    if args.command != "post":
         return {config.protocol_mode: client_factory(config)}
-    protocols = ("app", "web")
-    if args.protocol:
-        protocols = (args.protocol,)
+    if args.reader == "html":
+        if args.protocol:
+            raise XhhConfigError(
+                "the html reader is public and cannot use --protocol")
+        return {config.protocol_mode: client_factory(config)}
+
+    provider = {"native": "app", "website": "web"}.get(args.reader)
+    if provider and args.protocol and args.protocol != provider:
+        raise XhhConfigError(
+            f"{args.reader} reader requires the {provider} protocol",
+            code=f"{provider}_session_missing",
+        )
     if args.account:
         store = AccountStore(args.data_dir)
         account = store.get(args.account)
+        if provider:
+            protocols = (provider,)
+        elif args.protocol:
+            protocols = (args.protocol,)
+        else:
+            protocols = tuple(
+                protocol for protocol in ("app", "web")
+                if protocol in account.sessions
+            )
+        if not protocols:
+            raise XhhConfigError(
+                "auto reader has no stored App or Web session",
+                code="session_missing",
+            )
         return {
             protocol: client_factory(store.get_config(args.account, protocol=protocol))
-            for protocol in protocols if protocol in account.sessions
+            for protocol in protocols
         }
+    if provider and config.protocol_mode != provider:
+        raise XhhConfigError(
+            f"{args.reader} reader requires the {provider} protocol",
+            code=f"{provider}_session_missing",
+        )
     return {config.protocol_mode: client_factory(config)}
 
 
@@ -135,8 +168,12 @@ def public_error(error, protocol=None):
     if isinstance(error, XhhError):
         value = error.public()
     else:
-        value = {"code": type(error).__name__, "message": str(error),
-                 "retry_allowed": True}
+        value = {
+            "code": "internal_error",
+            "message": str(error),
+            "type": type(error).__name__,
+            "retry_allowed": False,
+        }
     if value.get("code") in {"session_expired", "auth_expired"} and protocol:
         value["code"] = f"{protocol}_session_expired"
         value["fix"] = f"log in again with the {protocol} protocol"
@@ -144,28 +181,39 @@ def public_error(error, protocol=None):
 
 
 def coverage_error(scope, protocol):
-    reason = scope.get("stop_reason")
-    if not reason:
+    scope = project_coverage(scope)
+    if delivery_ok(scope):
         return None
+    reason = scope.get("stop_reason")
     if reason == "platform_error" and isinstance(scope.get("error"), dict):
-        return scope["error"]
+        value = dict(scope["error"])
+        if value.get("code") in {"session_expired", "auth_expired"} and protocol:
+            value["code"] = f"{protocol}_session_expired"
+            value["fix"] = f"log in again with the {protocol} protocol"
+        return value
     if reason in {"request_budget", "time_budget", "page_budget"}:
-        code = {
-            "request_budget": "request_budget_exhausted",
-            "time_budget": "time_budget_exhausted",
-            "page_budget": "page_budget_exhausted",
-        }[reason]
-        return {
-            "code": code,
-            "message": reason.replace("_", " ") + " stopped the read",
-            "retry_allowed": True,
-            "fix": "use coverage.resume with the same query or explicitly raise the budget",
-        }
+        return None
+    error = scope.get("error")
+    if isinstance(error, dict):
+        return error
     return {
-        "code": reason,
+        "code": reason or "read_stopped",
         "message": "read stopped before platform completion",
-        "retry_allowed": reason != "captcha_required",
+        "retry_allowed": scope.get("status") == "retryable_failure",
     }
+
+
+def project_delivery(coverage, error=None):
+    projected = project_coverage(coverage)
+    if delivery_ok(projected):
+        return projected, None, True
+    projected_error = coverage_error(projected, None)
+    stopped = (
+        projected_error
+        if isinstance(projected.get("error"), dict)
+        else error or projected_error
+    )
+    return projected, stopped, False
 
 
 def redact(value, secret=""):
@@ -245,9 +293,15 @@ def main(argv=None, *, client_factory=XhhClient):
                 return 0
             if saved["pending_response"] is not None:
                 pending = saved["pending_response"]
-                emit(pending["ok"], args.command, pending["data"], coverage={**pending["coverage"], "replayed_delivery": True}, error=pending.get("error"), secret=secret)
+                projected, pending_error, ok = project_delivery(
+                    pending.get("coverage") or {},
+                    pending.get("error"),
+                )
+                emit(ok, args.command, pending["data"],
+                     coverage={**projected, "replayed_delivery": True},
+                     error=pending_error, secret=secret)
                 acknowledge_delivery(store, config.heybox_id, args.name, saved["revision"])
-                return 0 if pending["ok"] else 1
+                return 0 if ok else 1
             token = saved["coverage"].get("resume")
             if not token:
                 raise XhhConfigError("snapshot has no resumable continuation")
@@ -262,26 +316,27 @@ def main(argv=None, *, client_factory=XhhClient):
             merge_resumed_coverage(saved, coverage, delta)
             if isinstance(data.get("items"), list):
                 data["items"] = [item for item in data["items"] if record_key(item) not in delta["unchanged"]]
-            stopped = coverage_error(coverage, config.protocol_mode)
-            ok = stopped is None
-            pending = {"ok": ok, "data": redact(data, secret), "coverage": coverage,
-                       "error": stopped}
+            coverage, stopped, ok = project_delivery(coverage)
+            pending = {"ok": ok, "data": redact(data, secret),
+                       "coverage": coverage, "error": stopped}
             try:
                 revision = store.save(config.heybox_id, args.name, saved["query_key"], redact(combined, secret), coverage,
                                       browser.request_arguments(resumed), expected_revision=saved["revision"], pending_response=pending)
             except SnapshotConflict as error:
                 emit(False, args.command, data, coverage=coverage, error={"code": "snapshot_conflict", "current_revision": error.revision}, secret=secret)
                 return 1
-            emit(stopped is None, args.command, data, coverage=coverage,
+            emit(ok, args.command, data, coverage=coverage,
                  error=pending["error"], secret=secret)
             acknowledge_delivery(store, config.heybox_id, args.name, revision)
-            return 1 if stopped is not None else 0
+            return 0 if ok else 1
         if args.command == "operation":
             value = Journal(args.data_dir).read(config.heybox_id, args.operation_id)
             emit(value is not None, args.command, value, error=None if value else {"code": "operation_not_found"}, secret=secret)
             return 0 if value else 1
         clients = load_clients(args, config, client_factory)
         client = next(iter(clients.values()))
+        config = client.config
+        secret = config.pkey
         if args.command in WRITES:
             verify_identity(client)
             payload, send = prepare_write(client, args.command, args)
@@ -299,9 +354,15 @@ def main(argv=None, *, client_factory=XhhClient):
                 if existing["query_key"] != key:
                     raise XhhConfigError("snapshot has undelivered data; replay it with snapshot resume before replacing it")
                 pending = existing["pending_response"]
-                emit(pending["ok"], args.command, pending["data"], coverage={**pending["coverage"], "replayed_delivery": True}, error=pending.get("error"), secret=secret)
+                projected, pending_error, ok = project_delivery(
+                    pending.get("coverage") or {},
+                    pending.get("error"),
+                )
+                emit(ok, args.command, pending["data"],
+                     coverage={**projected, "replayed_delivery": True},
+                     error=pending_error, secret=secret)
                 acknowledge_delivery(store, config.heybox_id, args.snapshot, existing["revision"])
-                return 0 if pending["ok"] else 1
+                return 0 if ok else 1
             if args.resume and existing is not None and existing["query_key"] != key:
                 raise XhhConfigError("resumed snapshot belongs to a different query")
             data, coverage = browser.Browser(client, clients=clients).execute(
@@ -313,8 +374,8 @@ def main(argv=None, *, client_factory=XhhClient):
                 combined = merge(existing["data"], data) if args.resume and existing else data
                 if args.resume and existing:
                     merge_resumed_coverage(existing, coverage, difference(existing["data"], data))
-                stopped = coverage_error(coverage, config.protocol_mode)
-                pending = {"ok": stopped is None, "data": redact(data, secret),
+                coverage, stopped, ok = project_delivery(coverage)
+                pending = {"ok": ok, "data": redact(data, secret),
                            "coverage": coverage, "error": stopped}
                 try:
                     revision = store.save(config.heybox_id, args.snapshot, key, redact(combined, secret), coverage,
@@ -322,8 +383,8 @@ def main(argv=None, *, client_factory=XhhClient):
                 except SnapshotConflict as error:
                     emit(False, args.command, data, coverage=coverage, error={"code": "snapshot_conflict", "current_revision": error.revision}, secret=secret)
                     return 1
-            stopped = coverage_error(coverage, config.protocol_mode)
-            if stopped is not None:
+            coverage, stopped, ok = project_delivery(coverage)
+            if not ok:
                 emit(False, args.command, data, coverage=coverage,
                      error=stopped, secret=secret)
                 if args.snapshot:

@@ -253,8 +253,6 @@ class DiscussionRegressionTests(unittest.TestCase):
 
     def test_read_reply_and_readback_loop_reuses_message_operation_id(self):
         self.fixture.article = True
-        post = self.assert_success(self.run_cli("post", "501", "--reader", "native"))
-        self.assertEqual(post["data"]["body"]["status"], "missing")
         post = self.assert_success(self.run_cli("post", "501", "--reader", "website"))
         self.assertEqual(post["data"]["body"]["status"], "available")
         self.assertIn("fixture article body", post["data"]["body"]["text"])
@@ -283,15 +281,22 @@ class DiscussionRegressionTests(unittest.TestCase):
         self.assertEqual(len(post["data"]["media"]), 1)
         self.assertEqual(len(self.fixture.calls), 1)
 
-    def test_explicit_native_reader_keeps_native_identity_without_retry(self):
+    def test_explicit_native_without_app_session_never_uses_web_session(self):
         self.fixture.article = True
-        post = self.assert_success(self.run_cli("post", "501", "--reader", "native"))
-        self.assertEqual(post["data"]["body"]["status"], "missing")
-        self.assertEqual(len(self.fixture.calls), 1)
+        code, value = self.run_cli("post", "501", "--reader", "native")
+        self.assertEqual(code, 1)
+        self.assertEqual(value["error"]["code"], "app_session_missing")
+        self.assertEqual(self.fixture.calls, [])
 
     def test_app_default_reader_uses_the_native_session(self):
         calls = []
-        config = SimpleNamespace(protocol_mode="app", heybox_id="101", timeout=5)
+        config = SimpleNamespace(
+            protocol_mode="app",
+            heybox_id="101",
+            timeout=5,
+            web_origin="https://www.xiaoheihe.cn",
+            user_agent_web="fixture",
+        )
         def native(route, query=None):
             calls.append((route, query))
             return {"status": "ok", "result": {"link": {"id": "501", "text": "native body"},

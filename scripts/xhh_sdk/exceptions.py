@@ -23,6 +23,7 @@ class XhhError(Exception):
 
     def public(self) -> dict:
         value = {"code": self.code, "message": str(self),
+                 "type": type(self).__name__,
                  "retry_allowed": self.retry_allowed}
         if self.fix:
             value["fix"] = self.fix
@@ -33,6 +34,7 @@ class XhhConfigError(XhhError):
     """Configuration is missing or invalid."""
 
     code = "configuration_error"
+    retry_allowed = False
 
 
 class XhhSignerError(XhhError):
@@ -40,6 +42,7 @@ class XhhSignerError(XhhError):
 
     code = "signer_error"
     default_fix = "verify the signer path, SHA-256, Java installation, and account/device binding"
+    retry_allowed = False
 
 
 class XhhTransportError(XhhError):
@@ -54,6 +57,7 @@ class XhhAuthError(XhhError):
 
     code = "session_expired"
     default_fix = "run account status --online, then log in again for the selected protocol"
+    retry_allowed = False
 
 
 class XhhRateLimitError(XhhError):
@@ -64,7 +68,7 @@ class XhhRateLimitError(XhhError):
     retry_allowed = False
 
 
-class XhhCaptchaError(XhhAuthError):
+class XhhCaptchaError(XhhError):
     """The platform requires interactive human verification."""
 
     code = "captcha_required"

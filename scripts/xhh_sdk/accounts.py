@@ -34,11 +34,70 @@ class ManagedAccount:
     sessions: dict[str, str] = field(default_factory=dict, repr=False)
     risk_token: str | None = field(default=None, repr=False)
 
-    @property
-    def pkey(self) -> str | None:
-        mode = self.config.get("protocol_mode", "app")
-        return (self.sessions.get(mode) or self.sessions.get("app")
-                or self.sessions.get("web"))
+    def select_session(self, protocol: str | None = None) -> "SessionSelection":
+        if protocol is not None:
+            if protocol not in _PROTOCOLS:
+                raise XhhConfigError("protocol must be app or web")
+            if protocol not in self.sessions:
+                raise _missing_session(self, protocol)
+            return SessionSelection(
+                protocol=protocol,
+                explicit=True,
+                preferred=self.config.get("protocol_mode"),
+                fallback=False,
+            )
+
+        preferred = self.config.get("protocol_mode")
+        if preferred in self.sessions:
+            return SessionSelection(
+                protocol=preferred,
+                explicit=False,
+                preferred=preferred,
+                fallback=False,
+            )
+        for candidate in ("app", "web"):
+            if candidate in self.sessions:
+                return SessionSelection(
+                    protocol=candidate,
+                    explicit=False,
+                    preferred=preferred,
+                    fallback=preferred in _PROTOCOLS,
+                )
+        raise XhhSessionMissingError(
+            "Account has no stored App or Web session",
+            code="session_missing",
+            fix=(
+                f"run account login {self.alias} --method sms for App, or "
+                f"run account login {self.alias} --method creator for Web"
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class SessionSelection:
+    protocol: str
+    explicit: bool
+    preferred: str | None
+    fallback: bool
+
+    def public(self) -> dict:
+        return {
+            "protocol": self.protocol,
+            "explicit": self.explicit,
+            "preferred": self.preferred,
+            "fallback": self.fallback,
+        }
+
+
+def _missing_session(account, protocol):
+    return XhhSessionMissingError(
+        f"Account has no stored {protocol} session",
+        code=f"{protocol}_session_missing",
+        fix=(
+            f"run account login {account.alias} --method "
+            + ("sms" if protocol == "app" else "creator")
+        ),
+    )
 
 
 class _Blob(C.Structure):
@@ -321,9 +380,7 @@ class AccountStore:
 
     def logout(self, alias: str, *, protocol: str | None = None) -> dict:
         def update(account):
-            selected = protocol or account.config.get("protocol_mode", "app")
-            if selected not in _PROTOCOLS:
-                raise XhhConfigError("protocol_mode must be app or web")
+            selected = account.select_session(protocol).protocol
             account.sessions.pop(selected, None)
         return self._change(alias, update)
 
@@ -347,20 +404,15 @@ class AccountStore:
 
     def get_config(self, alias: str, *, protocol: str | None = None) -> XhhConfig:
         account = self.get(alias)
-        selected = protocol or account.config.get("protocol_mode")
-        if selected not in _PROTOCOLS:
-            selected = "app" if "app" in account.sessions else "web" if "web" in account.sessions else "app"
-        pkey = account.sessions.get(selected)
+        selection = account.select_session(protocol)
+        selected = selection.protocol
+        pkey = account.sessions[selected]
         if not pkey:
-            raise XhhSessionMissingError(
-                f"Account has no stored {selected} session",
-                code=f"{selected}_session_missing",
-                fix=f"run account login {account.alias} --method "
-                    + ("sms" if selected == "app" else "creator"),
-            )
+            raise _missing_session(account, selected)
         try:
             config = XhhConfig(pkey=pkey, heybox_id=account.identity,
-                               **{**account.config, "protocol_mode": selected})
+                               **{**account.config, "protocol_mode": selected},
+                               extra={"session_revision": account.revision})
             config.validate()
             return config
         except (XhhConfigError, TypeError, ValueError):

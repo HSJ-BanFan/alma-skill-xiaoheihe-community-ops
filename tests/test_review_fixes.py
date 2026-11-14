@@ -32,7 +32,10 @@ class ReviewFixTests(unittest.TestCase):
                 with contextlib.redirect_stdout(output):
                     code = xhh.main(["--config", str(config), "--data-dir", str(root), *arguments])
                 self.assertEqual(code, 1)
-                self.assertEqual(json.loads(output.getvalue())["error"]["code"], "XhhConfigError")
+                self.assertEqual(
+                    json.loads(output.getvalue())["error"]["code"],
+                    "configuration_error",
+                )
 
     def test_snapshot_continuation_beyond_page_one_hundred(self):
         class Fixture(PagedFixture):
