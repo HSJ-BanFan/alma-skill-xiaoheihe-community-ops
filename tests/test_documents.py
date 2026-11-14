@@ -50,6 +50,17 @@ class DocumentTests(unittest.TestCase):
         with self.assertRaises(XhhConfigError):
             link_id("https://example.com/app/bbs/link/123")
 
+    def test_literal_paths_are_text_not_host_file_requests(self):
+        post = document({"id": "1", "text": [{"type": "text", "text": "/data/project is my example path"}]}, {})
+        self.assertEqual(post["body"]["text"], "/data/project is my example path")
+
+    def test_legacy_image_references_and_missing_metadata_are_preserved(self):
+        post = document({"id": "1", "text": [{"type": "img", "url": "http://cdn.max-c.com/old.png"},
+                        {"type": "img", "width": 32, "text": "/storage/example.png"}]}, {})
+        self.assertEqual(post["media"][0]["url"], "http://cdn.max-c.com/old.png")
+        self.assertEqual(post["body"]["blocks"][1]["data"]["width"], 32)
+        self.assertIn("image_url_missing", post["body"]["gaps"])
+
 
 if __name__ == "__main__":
     unittest.main()

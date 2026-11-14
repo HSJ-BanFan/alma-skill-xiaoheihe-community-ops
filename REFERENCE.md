@@ -130,6 +130,7 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 | `hot` | 热点条目，支持 `--offset`、`--limit`、`--pages` |
 | `feed ID` | 轻量帖子条目；`--content-type all/article/dynamic`、`--after UNIX`、`--min-comments N` |
 | `feed ID --sort created/comments/charges` | 对当前返回范围排序，`sorting_scope=returned_items`；默认 `platform` 保留服务器顺序 |
+| `feed ID --order recommended/newest/recent-replies` | 平台原生推荐、发布时间或回复时间排序；与返回范围内的 `--sort` 分开 |
 | `post LINK --section all/body/metadata` | LINK 可为 ID、标准小黑盒 HTTPS 链接或含 ID 的 heybox 链接；不跟随缩短链接 |
 | `post LINK --body-format text/blocks/both` | 控制正文输出，默认 `both`；未知平台块保留 `data` 并标记缺口 |
 | `post LINK --reader native/website` | 显式选择读取身份，网站方式要求 Web 会话，无自动 fallback |
@@ -149,6 +150,8 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 
 `--page` 是绝对页号，不受单次 `--pages` 最多 100 页的预算限制。多页信息流排序在汇总并去重后执行；`returned_total` 报告本次各页实际返回数之和。App 签名调用使用剩余时间，发起 HTTP 前再次检查截止时间。`thread --raw` 返回根楼层和子评论的全部已取得原始页。
 
+时间预算覆盖网络建立和完整响应接收；超时会终止该网络读取并保留之前完成的页。空评论页如果仍有明确总页数证据会继续。`unknown_parent_ids` 和 `ancestry_complete` 描述精确父节点是否已知，根楼层归属不会被当作直接回复关系。影音块保留可播放地址与原始元数据，无法解析时报告缺口。评论中的内嵌图片也会保留，HTML 标题和表格单元格不会被拼成无分隔文字。
+
 预算和页数停止后，可重复同一查询并提供 `--resume <value>`。`thread` 的 `coverage.continuation` 返回可继续的 comments 页或 replies 游标。错误发生在后续页时，已读条目保留，`ok=false`，停止原因是 `platform_error`；不自动换账号、协议或入口。
 
 媒体依赖按需安装，核心读取和 Web 签名没有新增依赖。
@@ -159,6 +162,8 @@ python -I -X utf8 "<skill>/scripts/xhh.py" asset "https://imgheybox.max-c.com/�
 ```
 
 媒体来源必须为 HTTPS 的 `max-c.com` 或其子域，重定向也遵守该范围。下载上限 16 MiB、像素上限 4000 万，预览最长边 1600、最大 512 KiB。PNG、JPEG、GIF、WebP 可用于预览，动画标记 `first_frame`。按 URL 缓存，缓存源和预览摘要都会核对；`--refresh` 才重新下载。
+
+正文数据保留平台返回的旧 HTTP 图片引用，但 `asset` 仍要求 HTTPS，不能把已知引用当成已成功下载。正文中作者写出的文件路径仅作为文本返回，不读取对应的宿主文件。
 
 浏览快照保存在独立 `browsing.sqlite3`，与发送日志分开。不同真实 UID 无法读取彼此的命名快照。`--since` 和 `snapshot diff` 只比较相同资源与筛选的查询。
 

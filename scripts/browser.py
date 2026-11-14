@@ -88,6 +88,7 @@ def register(commands):
             if name == "feed":
                 parser.add_argument("topic_id", type=numeric_argument)
                 parser.add_argument("--sort", choices=("platform", "created", "comments", "charges"), default="platform")
+                parser.add_argument("--order", choices=("recommended", "newest", "recent-replies"), help="platform feed order; --sort only arranges retrieved items")
                 parser.add_argument("--content-type", choices=("all", "article", "dynamic"), default="all")
                 parser.add_argument("--after", type=int)
                 parser.add_argument("--min-comments", type=int, default=0)
@@ -339,7 +340,7 @@ class Browser:
         elif args.command in ("post", "comments"):
             query = {"link_id": args.link_id, "page": str(args.page), "limit": str(args.limit), "sort_filter": args.sort}
             raw, result, evidence = self.website(query, budget) if getattr(args, "reader", "native") == "website" else self.fetch("/bbs/app/link/tree", query, budget)
-            if not isinstance(result.get("link"), dict):
+            if args.command == "post" and not isinstance(result.get("link"), dict):
                 raise XhhConfigError("post missing from platform result")
             nodes = floors(result.get("comments"), args.link_id) if args.command == "comments" else []
             data = document(result["link"], evidence) if args.command == "post" else {"post_id": args.link_id, "items": nodes, "source": evidence}
@@ -373,6 +374,8 @@ class Browser:
                      "search": ("/bbs/app/api/general/search/v1", {"q": getattr(args, "query", ""),
                                 "search_type": getattr(args, "type", "link"), "request_source": "edit_link"})}
             route, query = specs[args.command]
+            if args.command == "feed" and args.order:
+                query["sort_filter"] = {"recommended": "hot-rank", "newest": "create", "recent-replies": "reply"}[args.order]
             raw, result, evidence = self.fetch(route, {**query, "offset": str(args.offset), "limit": str(args.limit)}, budget)
             records = rows(result, ("links", "search_result", "items", "list", "news"))
             items = [summary(row) for row in records] if args.command != "search" or args.type == "link" else records
@@ -381,7 +384,8 @@ class Browser:
                 items = [item for item in items if (args.content_type == "all" or item["content_type"] == args.content_type)
                          and (args.after is None or item["created_at"] is not None and item["created_at"] >= args.after)
                          and (item["statistics"]["comments"] or 0) >= args.min_comments]
-                scope.update(selected=len(items), excluded=len(records) - len(items), sorting_scope="returned_items", sort=args.sort)
+                scope.update(selected=len(items), excluded=len(records) - len(items), sorting_scope="returned_items", sort=args.sort,
+                             platform_order=args.order or "default")
             data = {"items": items, "source": evidence, "navigation": {"sorts": result.get("sort_filter", result.get("sort_filter_list")),
                     "filters": result.get("filters", result.get("filter_list")), "time_ranges": result.get("time_range_list")}}
         if args.raw:
@@ -448,13 +452,16 @@ class Browser:
                 last_scope["error"] = {"type": type(error).__name__, "status": getattr(error, "status", None)}
                 break
         target = args.around or args.root_id
-        ancestors, missing, visited = [], [], set()
+        ancestors, missing, visited, unknown_parents = [], [], set(), []
         node = nodes.get(target)
         while node and node["id"] not in visited:
             visited.add(node["id"])
             ancestors.append(node["id"])
-            parent = node["reply_to_id"] or (args.root_id if node["id"] != args.root_id else None)
+            parent = node["reply_to_id"]
             if parent is None:
+                if node["id"] != args.root_id:
+                    unknown_parents.append(node["id"])
+                    last_scope["gaps"].append("reply_target_unknown")
                 break
             if parent in visited:
                 last_scope["gaps"].append("cyclic_reply_reference")
@@ -471,7 +478,9 @@ class Browser:
                                       "page": page if phase == "comments" else None, "cursor": cursor} if last_scope["completion"] != "complete" else None
         last_scope["budget"] = budget.view()
         data = {"post_id": args.link_id, "root_id": args.root_id, "target_id": target, "target_observed": target in nodes,
-                "ancestor_ids": ancestors, "missing_ancestor_ids": missing, "items": list(nodes.values())}
+                "ancestor_ids": ancestors, "missing_ancestor_ids": missing, "unknown_parent_ids": unknown_parents,
+                "ancestry_complete": bool(ancestors) and ancestors[-1] == args.root_id and not missing and not unknown_parents,
+                "items": list(nodes.values())}
         if args.raw:
             data["raw_pages"] = raw_pages
         return data, last_scope

@@ -80,6 +80,17 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(scope["completion"], "unknown")
         self.assertEqual(data["navigation"]["filters"][0]["key"], "sort_filter")
 
+    def test_native_order_controls_retrieved_feed(self):
+        fixture = Fixture()
+        def provider(path, query=None):
+            fixture.calls.append((path, query))
+            chosen = "99" if query.get("sort_filter") == "create" else "10"
+            return {"result": {"links": [{"linkid": chosen}], "has_more": False}}
+        fixture.signed_request = provider
+        data, scope = Browser(fixture).execute(xhh.parser().parse_args(["feed", "7214", "--order", "newest"]))
+        self.assertEqual(data["items"][0]["id"], "99")
+        self.assertEqual(scope["platform_order"], "newest")
+
 
 if __name__ == "__main__":
     unittest.main()

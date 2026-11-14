@@ -17,8 +17,24 @@ def identifier(value):
 
 
 def entity_id(item):
-    return next((str(item[key]) for key in ("id", "uid", "topic_id", "topicid", "linkid", "appid", "folder_id")
-                 if item.get(key) is not None), None)
+    known = next((str(item[key]) for key in ("id", "uid", "topic_id", "topicid", "linkid", "appid", "folder_id")
+                  if item.get(key) is not None), None)
+    return known or identifier(item.get("userid"))
+
+
+def merge_media(primary, supplemental):
+    result = [dict(asset) for asset in primary]
+    positions = {asset.get("url"): index for index, asset in enumerate(result)}
+    for asset in supplemental:
+        if asset["url"] in positions:
+            existing = result[positions[asset["url"]]]
+            for key in ("width", "height", "preview_url", "alt"):
+                if existing.get(key) is None and asset.get(key) is not None:
+                    existing[key] = asset[key]
+        else:
+            positions[asset["url"]] = len(result)
+            result.append(dict(asset))
+    return result
 
 
 def link_id(value):
@@ -76,7 +92,7 @@ class Markup(HTMLParser):
 
     def handle_starttag(self, tag, attributes):
         attributes = dict(attributes)
-        if tag in {"br", "p", "div", "li", "blockquote"}:
+        if tag in {"br", "p", "div", "li", "blockquote", "pre", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "table"}:
             self.parts.append("\n")
             self.chunk.append("\n")
         if tag == "a" and attributes.get("href"):
@@ -87,6 +103,7 @@ class Markup(HTMLParser):
             self.images.append({"url": attributes["src"], "alt": attributes.get("alt", "")})
             self.flush()
             self.events.append({"type": "image", "url": attributes["src"], "alt": attributes.get("alt", "")})
+            self.parts.append("\n")
         if tag not in {"a", "b", "i", "u", "em", "strong", "p", "div", "span", "img", "font", "color", "size",
                        "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote", "code", "pre",
                        "s", "strike", "del", "ins", "table", "thead", "tbody", "tr", "td", "th", "hr", "br"}:
@@ -94,9 +111,12 @@ class Markup(HTMLParser):
             self.chunk.append(self.get_starttag_text())
 
     def handle_endtag(self, tag):
-        if tag in {"p", "div", "li", "blockquote", "pre"}:
+        if tag in {"p", "div", "li", "blockquote", "pre", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "table"}:
             self.parts.append("\n")
             self.chunk.append("\n")
+        if tag in {"td", "th"}:
+            self.parts.append("\t")
+            self.chunk.append("\t")
 
     def handle_data(self, data):
         self.parts.append(data)
@@ -124,7 +144,7 @@ def media(raw, position=None):
     if not isinstance(raw, dict):
         return None
     url = raw.get("url") or raw.get("src") or raw.get("img_url")
-    if not isinstance(url, str) or not url.startswith("https://"):
+    if not isinstance(url, str) or not url.startswith(("https://", "http://")):
         return None
     return {"url": url, "width": integer(raw.get("width")), "height": integer(raw.get("height")),
             "position": position, "alt": raw.get("alt") or None, "preview_url": raw.get("thumb_url") or None}
@@ -181,13 +201,16 @@ def document(link, evidence):
                     blocks.append({"type": "image", **asset})
                 else:
                     gaps.append("image_url_missing")
+                    blocks.append({"type": "unknown", "platform_type": kind, "position": position, "data": node})
             elif kind in ("video", "audio"):
-                blocks.append({"type": kind, "url": node.get("url"), "position": position})
+                asset = media(node, position)
+                if asset:
+                    blocks.append({"type": kind, **asset, "data": node})
+                else:
+                    blocks.append({"type": "unknown", "platform_type": kind, "position": position, "data": node})
+                    gaps.append("playable_url_missing")
             elif kind in ("text", "html", None):
                 markup = str(node.get("text") or "")
-                if markup.startswith(("/storage/", "/data/", "/sdcard/")):
-                    gaps.append("local_body_path")
-                    continue
                 parsed = Markup()
                 parsed.feed(markup)
                 parsed.flush()
@@ -216,9 +239,7 @@ def document(link, evidence):
     post.update(body={"status": status, "completeness": completeness, "text": text, "blocks": blocks,
                       "gaps": sorted(set(gaps)), "source_field": "link.text", "excerpt_is_body": False}, source=evidence)
     body_media = [{**block, "origin": "body"} for block in blocks if block["type"] in ("image", "video", "audio")]
-    known_urls = {asset.get("url") for asset in body_media}
-    post["media"] = body_media + [{"type": "image", **asset, "origin": "link.imgs"} for asset in post["media"]
-                                  if asset["url"] not in known_urls]
+    post["media"] = merge_media(body_media, [{"type": "image", **asset, "origin": "link.imgs"} for asset in post["media"]])
     post["content_sha256"] = hashlib.sha256(json.dumps({k: post[k] for k in ("id", "title", "body", "media")},
                                              sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     return post
@@ -231,12 +252,18 @@ def comment(raw, post_id, root_id):
     assets = raw.get("imgs") or raw.get("images") or []
     if not isinstance(assets, list):
         assets = [assets]
+    parsed = Markup()
+    parsed.feed(str(raw.get("text") or ""))
+    parsed.flush()
+    inline = [asset for asset in (media(event, index) for index, event in enumerate(parsed.events)
+                                 if event["type"] == "image") if asset]
+    explicit = [asset for asset in (media(item) for item in assets) if asset]
     return {"id": uid, "post_id": post_id, "root_id": root_id,
             "reply_to_id": identifier(raw.get("replyid") or raw.get("reply_id")) if uid != root_id else None,
             "reply_to_uid": identifier(raw.get("replyuserid")), "author": author(raw), "text": plain(raw.get("text")),
             "created_at": integer(raw.get("create_at")), "children_count": integer(raw.get("child_num")),
             "has_more": truth(raw.get("has_more")), "statistics": {"up": integer(raw.get("up"))},
-            "media": [asset for asset in (media(item) for item in assets) if asset]}
+            "media": merge_media(inline, explicit)}
 
 
 def floors(rows, post_id):

@@ -9,6 +9,7 @@ from documents import integer, truth
 from xhh_sdk.exceptions import XhhConfigError
 from xhh_sdk.transport import Transport
 from xhh_sdk.signer import Signer
+from network_io import read_http, NetworkDeadline
 
 
 class ReadLimit(RuntimeError):
@@ -41,7 +42,13 @@ class Budget:
             if remaining <= 0:
                 raise ReadLimit("time_budget")
             client.config.timeout = min(original, remaining)
-            return original_open(request)
+            try:
+                data = read_http(request, remaining)
+            except NetworkDeadline:
+                raise ReadLimit("time_budget") from None
+            if time.monotonic() >= self.deadline:
+                raise ReadLimit("time_budget")
+            return data
 
         try:
             if original_open is not None:
@@ -79,7 +86,7 @@ def coverage(result, *, count, position, mode="offset"):
     if mode == "cursor":
         next_position = str(cursor) if cursor not in (None, "") else None
     else:
-        next_position = position + (1 if mode == "page" else count) if count else None
+        next_position = position + 1 if mode == "page" and more is True else position + (1 if mode == "page" else count) if count else None
     if more is True and next_position is None:
         gaps = ["continuation_missing"]
     else:

@@ -10,6 +10,7 @@ import uuid
 from pathlib import Path
 
 from xhh_sdk.exceptions import XhhConfigError
+from network_io import read_http, NetworkDeadline
 
 MAX_BYTES = 16 * 1024 * 1024
 MAX_PIXELS = 40_000_000
@@ -68,9 +69,14 @@ def fetch(url, root, *, refresh=False, seconds=20, opener=None):
     except ImportError:
         raise XhhConfigError("media previews require Pillow; install requirements-media.txt") from None
     request = urllib.request.Request(url, headers={"User-Agent": "xiaoheihe-tools-media/1.0"})
-    open_url = opener or urllib.request.build_opener(Redirects()).open
-    with open_url(request, timeout=seconds) as response:
-        data = response.read(MAX_BYTES + 1)
+    if opener is None:
+        try:
+            data = read_http(request, seconds, profile="asset")
+        except NetworkDeadline:
+            raise XhhConfigError("media download deadline exceeded") from None
+    else:
+        with opener(request, timeout=seconds) as response:
+            data = response.read(MAX_BYTES + 1)
     if not data or len(data) > MAX_BYTES:
         raise XhhConfigError("media source exceeds 16 MiB or is empty")
     try:
