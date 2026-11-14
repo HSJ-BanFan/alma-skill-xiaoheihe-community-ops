@@ -30,6 +30,9 @@ class PagedFixture:
             return {"result": {"comments": [{"commentid": 11, "replyid": 10, "text": "target"}], "has_more": False}}
         raise AssertionError(path)
 
+    def account_info(self):
+        return {"userid": self.config.heybox_id}
+
 
 class PagingTests(unittest.TestCase):
     def test_budget_preserves_data_and_usable_resume(self):

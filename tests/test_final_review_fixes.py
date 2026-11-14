@@ -2,6 +2,7 @@ import base64
 import io
 import json
 import sys
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -22,9 +23,11 @@ from xhh_sdk.transport import Transport
 
 class FinalReviewFixTests(unittest.TestCase):
     def test_complete_network_worker_is_terminated_on_deadline(self):
-        command = [sys.executable, "-I", "-S", "-c", "import time;time.sleep(3)"]
-        with self.assertRaises(NetworkDeadline):
-            read_http(Request("https://api.xiaoheihe.cn/bbs/app/link/tree"), .05, _command=command)
+        actual_run = subprocess.run
+        def slow_worker(command, **kwargs):
+            return actual_run([sys.executable, "-I", "-S", "-c", "import time;time.sleep(3)"], **kwargs)
+        with patch("network_io.subprocess.run", side_effect=slow_worker), self.assertRaises(NetworkDeadline):
+            read_http(Request("https://api.xiaoheihe.cn/bbs/app/link/tree"), .05)
 
     def test_reader_relays_bytes_and_never_places_cookie_in_arguments(self):
         captured = []
@@ -41,7 +44,7 @@ class FinalReviewFixTests(unittest.TestCase):
         clock = [0.0]
         config = XhhConfig(pkey="fixture", heybox_id="101", protocol_mode="web")
         transport = Transport(config)
-        def delayed(request, timeout):
+        def delayed(request, timeout, **kwargs):
             clock[0] = 1.2
             return b'{"status":"ok","result":{"comments":[],"link":{"id":123},"total_page":1}}'
         with patch("paging.time.monotonic", side_effect=lambda: clock[0]), patch("paging.read_http", side_effect=delayed):

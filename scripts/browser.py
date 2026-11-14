@@ -7,7 +7,7 @@ import json
 import urllib.parse
 import urllib.request
 
-from documents import author, comment, document, floors, identifier, integer, link_id, result_object, source, summary, entity_id
+from documents import author, comment, document, floors, identifier, integer, link_id, result_object, source, summary, entity_id, enrich_observation
 from paging import Budget, ReadLimit, coverage, decode_resume, encode_resume
 from xhh_sdk.exceptions import XhhConfigError, XhhError
 from xhh_sdk.web_signer import sign_web_request
@@ -169,10 +169,15 @@ class Browser:
             result = result_object(raw)
         return raw, result, source(self.client, route)
 
-    def execute(self, args):
+    def execute(self, args, *, verify_account=False, prior_data=None):
         budget = Budget(args.requests, args.seconds)
+        if verify_account:
+            from operations import verify_identity
+            if args.requests < 2:
+                raise XhhConfigError("saving or resuming observations requires at least two requests including account verification")
+            budget.call(self.client, lambda: verify_identity(self.client))
         if args.command == "thread":
-            return self.thread(args, budget)
+            return self.thread(args, budget, prior_data)
         paged = (args.command in ("comments", "replies", "feed", "hot", "search")
                  or args.command == "user" and args.view != "profile"
                  or args.command == "favourites" and args.action == "posts")
@@ -199,6 +204,7 @@ class Browser:
         observed_positions = []
         data, scope = None, {"completion": "unknown", "gaps": [], "next": getattr(args, position_key, None)}
         duplicates = 0
+        identity_positions = {}
         returned_total, excluded_total = 0, 0
         for _ in range(args.pages):
             position = getattr(args, position_key, None)
@@ -232,9 +238,12 @@ class Browser:
                 identity = entity_id(item) if isinstance(item, dict) else None
                 if identity and identity in identities:
                     duplicates += 1
+                    index = identity_positions[identity]
+                    items[index] = enrich_observation(items[index], item)
                     continue
                 if identity:
                     identities.add(identity)
+                    identity_positions[identity] = len(items)
                 items.append(item)
             if current["completion"] == "complete" or current["next"] is None:
                 break
@@ -302,6 +311,9 @@ class Browser:
             if args.view in ("profile", "posts"):
                 raw, result, evidence = self.fetch("/bbs/app/profile/user/link/list", {"userid": args.user_id,
                             "offset": str(args.offset), "limit": "1" if args.view == "profile" else str(args.limit)}, budget)
+                returned_user = result.get("user")
+                if isinstance(returned_user, dict) and author(returned_user)["uid"] != args.user_id:
+                    raise XhhConfigError("returned author identity does not match requested user")
                 if args.view == "posts":
                     records = rows(result, ("links",))
                     data = {"user_id": args.user_id, "items": [summary(row) for row in records], "source": evidence}
@@ -392,13 +404,28 @@ class Browser:
             data["raw"] = raw
         return data, scope
 
-    def thread(self, args, budget):
-        if args.resume:
-            raise XhhConfigError("thread resumes through the comments/replies continuation returned in coverage")
+    def thread(self, args, budget, prior_data=None):
         nodes, root, page, cursor = {}, None, args.page, None
         raw_pages = []
         last_scope = {"completion": "unknown", "gaps": []}
         phase = "comments"
+        binding = query_key(args)
+        root_page = args.page
+        observed = set()
+        resumable = True
+        if args.resume:
+            token = decode_resume(args.resume, "thread", self.client.config.heybox_id)
+            if (token.get("binding") != binding or token.get("protocol") != self.client.config.protocol_mode
+                    or token.get("phase") not in ("comments", "replies") or type(token.get("page")) is not int or token["page"] < 1
+                    or token.get("cursor") is not None and (not isinstance(token["cursor"], str) or len(token["cursor"]) > 4096)):
+                raise XhhConfigError("thread continuation does not match resource or filters")
+            phase, page, cursor = token["phase"], token["page"], token.get("cursor")
+            root_page = page
+            if prior_data is not None:
+                if prior_data.get("post_id") != args.link_id or prior_data.get("root_id") != args.root_id:
+                    raise XhhConfigError("stored thread belongs to a different target")
+                nodes = {node["id"]: node for node in prior_data.get("items", [])}
+                root = nodes.get(args.root_id) if phase == "replies" else None
         for _ in range(args.pages):
             try:
                 if root is None:
@@ -409,15 +436,19 @@ class Browser:
                     parsed = floors(result.get("comments"), args.link_id)
                     for node in parsed:
                         if node["root_id"] == args.root_id:
+                            node["source"] = evidence
                             nodes[node["id"]] = node
+                            observed.add(node["id"])
                     root = nodes.get(args.root_id)
                     last_scope = coverage(result, count=len(result["comments"]), position=page, mode="page")
                     page += 1
                     if root is None:
-                        if last_scope["completion"] == "complete":
+                        if last_scope["completion"] == "complete" or last_scope["next"] is None:
+                            resumable = False
                             break
                         continue
                     known_children = len(nodes) - 1
+                    root_page = page - 1
                     if root["has_more"] is not True and (root["has_more"] is False and (root["children_count"] is None or known_children >= root["children_count"])
                             or root["children_count"] is not None and known_children >= root["children_count"]):
                         last_scope["completion"] = "complete"
@@ -434,12 +465,16 @@ class Browser:
                     records = rows(result, ("comments",))
                     for item in records:
                         node = comment(item, args.link_id, args.root_id)
+                        node["source"] = evidence
                         nodes[node["id"]] = node
+                        observed.add(node["id"])
                     last_scope = coverage(result, count=len(records), position=cursor, mode="cursor")
                     if last_scope["completion"] == "complete" or last_scope["next"] is None:
+                        resumable = False
                         break
                     if last_scope["next"] == cursor:
                         last_scope["stop_reason"] = "cursor_stalled"
+                        resumable = False
                         break
                     cursor = last_scope["next"]
             except ReadLimit as error:
@@ -475,9 +510,13 @@ class Browser:
         if missing:
             last_scope["gaps"].append("ancestors_missing")
         last_scope["continuation"] = {"command": phase, "post_id": args.link_id, "root_id": args.root_id,
-                                      "page": page if phase == "comments" else None, "cursor": cursor} if last_scope["completion"] != "complete" else None
+                                      "page": page if phase == "comments" else None, "cursor": cursor} if resumable and last_scope["completion"] != "complete" else None
         last_scope["budget"] = budget.view()
+        last_scope["resume"] = encode_resume("thread", self.client.config.heybox_id,
+                {"binding": binding, "protocol": self.client.config.protocol_mode, "phase": phase,
+                 "page": page if phase == "comments" else root_page, "cursor": cursor}) if resumable and last_scope["completion"] != "complete" else None
         data = {"post_id": args.link_id, "root_id": args.root_id, "target_id": target, "target_observed": target in nodes,
+                "target_observed_this_read": target in observed,
                 "ancestor_ids": ancestors, "missing_ancestor_ids": missing, "unknown_parent_ids": unknown_parents,
                 "ancestry_complete": bool(ancestors) and ancestors[-1] == args.root_id and not missing and not unknown_parents,
                 "items": list(nodes.values())}

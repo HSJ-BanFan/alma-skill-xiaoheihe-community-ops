@@ -37,6 +37,20 @@ def merge_media(primary, supplemental):
     return result
 
 
+def enrich_observation(previous, latest):
+    result = dict(previous)
+    for key, value in latest.items():
+        if value is None:
+            continue
+        if key == "media" and isinstance(value, list):
+            result[key] = merge_media(value, previous.get(key) or [])
+        elif isinstance(value, dict) and isinstance(previous.get(key), dict):
+            result[key] = enrich_observation(previous[key], value)
+        else:
+            result[key] = value
+    return result
+
+
 def link_id(value):
     if identifier(value):
         return str(value)
@@ -85,7 +99,7 @@ class Markup(HTMLParser):
         self.events, self.chunk = [], []
 
     def flush(self):
-        text = "".join(self.chunk).strip()
+        text = "".join(self.chunk)
         if text:
             self.events.append({"type": "text", "text": text})
         self.chunk = []
@@ -180,13 +194,17 @@ def document(link, evidence):
     value = link.get("text")
     blocks, gaps = [], []
     status = "available"
-    if isinstance(value, str) and value.lstrip().startswith("["):
+    if isinstance(value, str) and (re.match(r"^\s*\[\s*\{", value) or value.strip() == "[]"):
+        original = value
         try:
-            value = json.loads(value)
+            decoded = json.loads(value)
+            if isinstance(decoded, list) and (not decoded or any(isinstance(node, dict) and any(key in node for key in ("type", "text", "url")) for node in decoded)):
+                value = decoded
         except ValueError:
             value = None
             gaps.append("invalid_body_json")
             status = "invalid"
+            blocks.append({"type": "unknown", "platform_type": "unparsed_body", "data": original, "position": 0})
     if isinstance(value, str) and value:
         value = [{"type": "html", "text": value}]
     if isinstance(value, list):
@@ -229,13 +247,23 @@ def document(link, evidence):
     elif value is not None and value != "":
         gaps.append("invalid_body_shape")
         status = "invalid"
-    text = "\n".join(block["text"] for block in blocks if block["type"] == "text")
+    pieces, previous_position = [], None
+    for block in blocks:
+        position = block.get("position")
+        if previous_position is not None and position != previous_position and pieces and not pieces[-1].endswith("\n"):
+            pieces.append("\n")
+        if block["type"] == "text":
+            pieces.append(block["text"])
+        elif block["type"] in ("image", "video", "audio"):
+            pieces.append("\n")
+        previous_position = position
+    text = "".join(pieces).strip()
     if not blocks and status != "invalid":
         status = "missing"
         gaps.append("body_not_returned")
     partial = truth(link.get("is_summary")) is True or truth(link.get("has_more_text")) is True
     full = truth(link.get("is_full_text")) is True
-    completeness = "partial" if partial or gaps else "complete" if full else "unknown"
+    completeness = "unknown" if status in ("missing", "invalid") else "partial" if partial or gaps else "complete" if full else "unknown"
     post.update(body={"status": status, "completeness": completeness, "text": text, "blocks": blocks,
                       "gaps": sorted(set(gaps)), "source_field": "link.text", "excerpt_is_body": False}, source=evidence)
     body_media = [{**block, "origin": "body"} for block in blocks if block["type"] in ("image", "video", "audio")]
@@ -246,6 +274,8 @@ def document(link, evidence):
 
 
 def comment(raw, post_id, root_id):
+    if not isinstance(raw, dict):
+        raise XhhConfigError("comment node must be an object")
     uid = identifier(raw.get("commentid") or raw.get("comment_id") or raw.get("id"))
     if not uid:
         raise XhhConfigError("comment record has no valid ID")
@@ -274,6 +304,8 @@ def floors(rows, post_id):
         nodes = floor.get("comment") if isinstance(floor, dict) else None
         if not isinstance(nodes, list) or not nodes:
             raise XhhConfigError("invalid comment floor")
+        if not all(isinstance(node, dict) for node in nodes):
+            raise XhhConfigError("comment floor contains a non-object node")
         root = identifier(nodes[0].get("commentid") or nodes[0].get("comment_id") or nodes[0].get("id"))
         for node in nodes:
             result.append(comment(node, post_id, root))

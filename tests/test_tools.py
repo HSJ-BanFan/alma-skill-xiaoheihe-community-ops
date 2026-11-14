@@ -100,7 +100,7 @@ class ToolsTest(unittest.TestCase):
 
     def run_cli(self, *arguments):
         output = io.StringIO()
-        with patch("urllib.request.urlopen", self.fixture), patch("paging.read_http", side_effect=lambda request, timeout: self.fixture(request, timeout).read()), contextlib.redirect_stdout(output):
+        with patch("urllib.request.urlopen", self.fixture), patch("paging.read_http", side_effect=lambda request, timeout, **kwargs: self.fixture(request, timeout).read()), contextlib.redirect_stdout(output):
             code = xhh.main(["--config", str(self.config), "--data-dir", str(self.folder / "data"), *arguments])
         return code, json.loads(output.getvalue())
 

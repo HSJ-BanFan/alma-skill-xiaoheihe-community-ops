@@ -43,7 +43,7 @@ class Budget:
                 raise ReadLimit("time_budget")
             client.config.timeout = min(original, remaining)
             try:
-                data = read_http(request, remaining)
+                data = read_http(request, remaining, http_timeout=client.config.timeout)
             except NetworkDeadline:
                 raise ReadLimit("time_budget") from None
             if time.monotonic() >= self.deadline:

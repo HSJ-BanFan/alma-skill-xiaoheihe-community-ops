@@ -12,6 +12,13 @@ from pathlib import Path
 
 from xhh_sdk.exceptions import XhhConfigError
 from documents import entity_id
+from local_files import protect
+
+
+class SnapshotConflict(XhhConfigError):
+    def __init__(self, revision):
+        self.revision = revision
+        super().__init__("snapshot changed concurrently; existing observations retained")
 
 
 def stable(value):
@@ -69,33 +76,45 @@ def merge(previous, current):
 
 class Store:
     def __init__(self, root):
-        self.path = Path(root) / "browsing.sqlite3"
+        self.path = Path(root) / "browsing" / "snapshots.sqlite3"
 
     @contextmanager
     def connect(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        protect(self.path.parent)
         connection = sqlite3.connect(self.path, timeout=10)
         connection.row_factory = sqlite3.Row
         try:
             connection.execute("""CREATE TABLE IF NOT EXISTS snapshots (
                 uid TEXT NOT NULL, name TEXT NOT NULL, query_key TEXT NOT NULL,
                 data TEXT NOT NULL, coverage TEXT NOT NULL, request TEXT NOT NULL, updated_at REAL NOT NULL,
+                revision INTEGER NOT NULL, pending_response TEXT,
                 PRIMARY KEY (uid,name))""")
             connection.commit()
+            protect(self.path)
             with connection:
                 yield connection
         finally:
             connection.close()
 
-    def save(self, uid, name, query_key, data, coverage, request):
+    def save(self, uid, name, query_key, data, coverage, request, *, expected_revision=0, pending_response=None):
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", name):
             raise XhhConfigError("snapshot name must use 1-64 letters, digits, underscores or hyphens")
         records(data)
         with self.connect() as connection:
-            connection.execute("""INSERT INTO snapshots VALUES (?,?,?,?,?,?,?)
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT revision,pending_response FROM snapshots WHERE uid=? AND name=?", (uid, name)).fetchone()
+            current = row["revision"] if row else 0
+            if current != expected_revision or row is not None and row["pending_response"] is not None:
+                raise SnapshotConflict(current)
+            revision = current + 1
+            connection.execute("""INSERT INTO snapshots VALUES (?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(uid,name) DO UPDATE SET query_key=excluded.query_key,data=excluded.data,
-                coverage=excluded.coverage,request=excluded.request,updated_at=excluded.updated_at""",
-                (uid, name, query_key, json.dumps(data, ensure_ascii=False), json.dumps(coverage), json.dumps(request), time.time()))
+                coverage=excluded.coverage,request=excluded.request,updated_at=excluded.updated_at,
+                revision=excluded.revision,pending_response=excluded.pending_response""",
+                (uid, name, query_key, json.dumps(data, ensure_ascii=False), json.dumps(coverage), json.dumps(request), time.time(), revision,
+                 json.dumps(pending_response, ensure_ascii=False) if pending_response is not None else None))
+        return revision
 
     def get(self, uid, name):
         if not self.path.exists():
@@ -105,7 +124,19 @@ class Store:
         if row is None:
             raise XhhConfigError("snapshot not found for selected account")
         return {"name": row["name"], "query_key": row["query_key"], "data": json.loads(row["data"]),
-                "coverage": json.loads(row["coverage"]), "request": json.loads(row["request"]), "updated_at": row["updated_at"]}
+                "coverage": json.loads(row["coverage"]), "request": json.loads(row["request"]), "updated_at": row["updated_at"],
+                "revision": row["revision"], "pending_response": json.loads(row["pending_response"]) if row["pending_response"] else None}
+
+    def optional(self, uid, name):
+        if not self.path.exists():
+            return None
+        with self.connect() as connection:
+            exists = connection.execute("SELECT 1 FROM snapshots WHERE uid=? AND name=?", (uid, name)).fetchone()
+        return self.get(uid, name) if exists else None
+
+    def delivered(self, uid, name, revision):
+        with self.connect() as connection:
+            connection.execute("UPDATE snapshots SET pending_response=NULL WHERE uid=? AND name=? AND revision=?", (uid, name, revision))
 
     def list(self, uid):
         if not self.path.exists():

@@ -125,8 +125,16 @@ def redact(value, secret=""):
 
 
 def emit(ok, kind, data=None, *, coverage=None, error=None, secret=""):
-    print(json.dumps(redact({"version": 2, "ok": ok, "kind": kind, "data": data,
-                     "coverage": coverage or {}, "error": error}, secret), ensure_ascii=False))
+    version = 2 if kind in browser.COMMANDS or kind in {"asset", "snapshot"} else 1
+    print(json.dumps(redact({"version": version, "ok": ok, "kind": kind, "data": data,
+                     "coverage": coverage or {}, "error": error}, secret), ensure_ascii=False), flush=True)
+
+
+def acknowledge_delivery(store, uid, name, revision):
+    try:
+        store.delivered(uid, name, revision)
+    except (sqlite3.Error, OSError, XhhConfigError):
+        pass
 
 
 def main(argv=None, *, client_factory=XhhClient):
@@ -158,7 +166,7 @@ def main(argv=None, *, client_factory=XhhClient):
         config = load_config(args)
         secret = config.pkey
         if args.command == "snapshot":
-            from observations import Store, difference, merge, record_key
+            from observations import Store, difference, merge, record_key, SnapshotConflict
             store = Store(args.data_dir)
             if args.action == "list":
                 emit(True, args.command, {"items": store.list(config.heybox_id)}, secret=secret)
@@ -173,19 +181,33 @@ def main(argv=None, *, client_factory=XhhClient):
                     raise XhhConfigError("snapshots belong to different queries")
                 emit(True, args.command, difference(saved["data"], other["data"]), secret=secret)
                 return 0
+            if saved["pending_response"] is not None:
+                pending = saved["pending_response"]
+                emit(pending["ok"], args.command, pending["data"], coverage={**pending["coverage"], "replayed_delivery": True}, error=pending.get("error"), secret=secret)
+                acknowledge_delivery(store, config.heybox_id, args.name, saved["revision"])
+                return 0 if pending["ok"] else 1
             token = saved["coverage"].get("resume")
             if not token:
                 raise XhhConfigError("snapshot has no resumable continuation")
             resumed = parser().parse_args([*saved["request"], "--resume", token, "--snapshot", args.name])
-            data, coverage = browser.Browser(client_factory(config)).execute(resumed)
+            data, coverage = browser.Browser(client_factory(config)).execute(resumed, verify_account=True, prior_data=saved["data"])
             delta = difference(saved["data"], data)
             combined = merge(saved["data"], data)
             coverage["observed_positions"] = list(dict.fromkeys(saved["coverage"].get("observed_positions", []) + coverage.get("observed_positions", [])))
             coverage["duplicates_removed_since_snapshot"] = len(delta["unchanged"])
-            store.save(config.heybox_id, args.name, saved["query_key"], redact(combined, secret), coverage, browser.request_arguments(resumed))
             if isinstance(data.get("items"), list):
                 data["items"] = [item for item in data["items"] if record_key(item) not in delta["unchanged"]]
-            emit(coverage.get("stop_reason") != "platform_error", args.command, data, coverage=coverage, secret=secret)
+            ok = coverage.get("stop_reason") != "platform_error"
+            pending = {"ok": ok, "data": redact(data, secret), "coverage": coverage,
+                       "error": None if ok else {"code": "platform_read_stopped", "retry_allowed": False}}
+            try:
+                revision = store.save(config.heybox_id, args.name, saved["query_key"], redact(combined, secret), coverage,
+                                      browser.request_arguments(resumed), expected_revision=saved["revision"], pending_response=pending)
+            except SnapshotConflict as error:
+                emit(False, args.command, data, coverage=coverage, error={"code": "snapshot_conflict", "current_revision": error.revision}, secret=secret)
+                return 1
+            emit(coverage.get("stop_reason") != "platform_error", args.command, data, coverage=coverage, error=pending["error"], secret=secret)
+            acknowledge_delivery(store, config.heybox_id, args.name, revision)
             return 1 if coverage.get("stop_reason") == "platform_error" else 0
         if args.command == "operation":
             value = Journal(args.data_dir).read(config.heybox_id, args.operation_id)
@@ -198,24 +220,48 @@ def main(argv=None, *, client_factory=XhhClient):
             data = Journal(args.data_dir).execute(config.heybox_id, args.operation_id, args.command, payload, send)
             coverage = {"public_visibility": "not_checked"}
         elif args.command in browser.COMMANDS:
-            from observations import Store, difference
+            from observations import Store, difference, merge, SnapshotConflict
             store = Store(args.data_dir)
             key = browser.query_key(args) + ":" + config.protocol_mode
             previous = store.get(config.heybox_id, args.since) if args.since else None
             if previous is not None and previous["query_key"] != key:
                 raise XhhConfigError("baseline snapshot belongs to a different query")
-            data, coverage = browser.Browser(client).execute(args)
+            existing = store.optional(config.heybox_id, args.snapshot) if args.snapshot else None
+            if existing is not None and existing["pending_response"] is not None:
+                if existing["query_key"] != key:
+                    raise XhhConfigError("snapshot has undelivered data; replay it with snapshot resume before replacing it")
+                pending = existing["pending_response"]
+                emit(pending["ok"], args.command, pending["data"], coverage={**pending["coverage"], "replayed_delivery": True}, error=pending.get("error"), secret=secret)
+                acknowledge_delivery(store, config.heybox_id, args.snapshot, existing["revision"])
+                return 0 if pending["ok"] else 1
+            if args.resume and existing is not None and existing["query_key"] != key:
+                raise XhhConfigError("resumed snapshot belongs to a different query")
+            data, coverage = browser.Browser(client).execute(args, verify_account=bool(args.snapshot or args.since), prior_data=existing["data"] if args.resume and existing else None)
             if previous is not None:
                 coverage["delta"] = difference(previous["data"], data)
             if args.snapshot:
-                store.save(config.heybox_id, args.snapshot, key, redact(data, secret), coverage, browser.request_arguments(args))
+                combined = merge(existing["data"], data) if args.resume and existing else data
+                pending = {"ok": coverage.get("stop_reason") != "platform_error", "data": redact(data, secret), "coverage": coverage,
+                           "error": {"code": "platform_read_stopped", "retry_allowed": False} if coverage.get("stop_reason") == "platform_error" else None}
+                try:
+                    revision = store.save(config.heybox_id, args.snapshot, key, redact(combined, secret), coverage,
+                            browser.request_arguments(args), expected_revision=existing["revision"] if existing else 0, pending_response=pending)
+                except SnapshotConflict as error:
+                    emit(False, args.command, data, coverage=coverage, error={"code": "snapshot_conflict", "current_revision": error.revision}, secret=secret)
+                    return 1
             if coverage.get("stop_reason") == "platform_error":
                 emit(False, args.command, data, coverage=coverage, error={"code": "platform_read_stopped", "retry_allowed": False}, secret=secret)
+                if args.snapshot:
+                    acknowledge_delivery(store, config.heybox_id, args.snapshot, revision)
                 return 1
         else:
             data, coverage = read(client, args.command, args)
         emit(True, args.command, data, coverage=coverage, secret=secret)
+        if args.command in browser.COMMANDS and args.snapshot:
+            acknowledge_delivery(store, config.heybox_id, args.snapshot, revision)
         return 0
+    except BrokenPipeError:
+        return 1
     except OperationError as error:
         emit(False, args.command, {"operation": error.operation, "receipt": error.receipt},
              error={"code": error.code, "retry_allowed": False}, secret=secret)
