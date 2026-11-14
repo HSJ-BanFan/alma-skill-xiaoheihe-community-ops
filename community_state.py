@@ -496,7 +496,7 @@ class State:
         now = time.time()
         if (scope.contract_version != 2 or not isinstance(scope.run_id, str) or not 0 < len(scope.run_id) <= 200 or
                 scope.account_alias not in {"alt", "main"} or type(scope.request_limit) is not int or not 1 <= scope.request_limit <= 120 or
-                type(scope.write_limit) is not int or not 1 <= scope.write_limit <= 3 or
+                type(scope.write_limit) is not int or not 1 <= scope.write_limit <= 20 or
                 any(type(value) not in {int, float} or not math.isfinite(value)
                     for value in (scope.started_at, scope.deadline, scope.minimum_write_interval)) or
                 not 0 < scope.started_at <= now + 5 or scope.deadline <= scope.started_at or scope.minimum_write_interval < 15):
@@ -561,6 +561,37 @@ class State:
                 "minimum_write_interval": row["minimum_write_interval"],
                 "next_write_at": latest + row["minimum_write_interval"] if latest is not None else None,
                 "queries_consume_budget": False}
+
+    def relation(self, post_id: str, author_uid: str, window_hours: float = 24) -> dict:
+        """Reply counts against one author, so density is a fact rather than a guess.
+
+        Deliberately says nothing about whether to answer. It reports how often
+        this account already engaged the same person in this post and recently,
+        which is what a judgement about continuing needs. Repeating a back-and-
+        forth past a couple of exchanges is a conversation-shape problem whether
+        or not the other side is a person.
+        """
+        if not isinstance(author_uid, str) or not author_uid:
+            return {"status": "unavailable", "reason": "no_author"}
+        since = time.time() - window_hours * 3600
+        try:
+            with self.connection() as conn:
+                in_post = conn.execute(
+                    "select count(*) from receipts r join nodes n on n.cid=r.target_cid "
+                    "where n.post_id=? and n.author_uid=?", (post_id, author_uid)).fetchone()[0]
+                recent = conn.execute(
+                    "select count(*), max(r.captured_at) from receipts r "
+                    "join nodes n on n.cid=r.target_cid "
+                    "where n.author_uid=? and r.captured_at>=?", (author_uid, since)).fetchone()
+                latest = conn.execute(
+                    "select max(created_at) from nodes where author_uid=? and post_id=?",
+                    (author_uid, post_id)).fetchone()[0]
+        except sqlite3.Error:
+            return {"status": "read_failed"}
+        return {"status": "available", "author_uid": author_uid, "post_id": post_id,
+                "replies_in_post": int(in_post or 0),
+                "replies_last_hours": {"hours": window_hours, "count": int(recent[0] or 0)},
+                "last_accepted_at": recent[1], "last_seen_at": latest}
 
     def run_usage(self, run_id: str) -> dict:
         with self.connection() as conn:
@@ -727,6 +758,11 @@ class State:
         row, delivery = self._context_row(conn, post_id, keys)
         refs = delivery.get("required_image_refs", [])
         if not refs and image_file is None and image_url is None:
+            return ImagePlan((), None, "v:" + row["view_id"])
+        # No host run envelope means there is no evidence channel to verify provider
+        # bytes through, so the image contract degrades to text-only instead of
+        # blocking every comment on a post that happens to carry an image.
+        if not run_id and delivery.get("image_run_id") in (None, ""):
             return ImagePlan((), None, "v:" + row["view_id"])
         if not self.image_contract or not run_id or delivery.get("image_run_id") != run_id:
             raise StateConflict("image_run_not_bound")

@@ -72,6 +72,21 @@ python -I -X utf8 "C:/Users/33308/.config/alma/skills/xiaoheihe-community-ops/co
 
 本说明对应 boundary 2 操作合同。账号绑定配置决定新排程是否启用，旧 boundary 1 在途排程保留旧入口。代码支持、部署读回与普通排程效果分别核实。
 
+## 回复密度
+
+`read i:<cid>` 的返回里带 `relation`，是技能提供的**事实**，不是建议：
+
+```json
+"relation": {"replies_in_post": 2,
+             "replies_last_hours": {"hours": 24, "count": 2},
+             "last_accepted_at": 1794632520.3}
+```
+
+- `replies_in_post`：本帖内我回过这个人几次
+- `replies_last_hours`：24 小时内我回过这个人几次
+
+**要不要继续接话由调用方判断。** 技能不设每轮条数目标，也不劝收手——但同一帖内来回超过两三轮通常已经没有新东西可说，值得先想一下再发。对方是真人还是另一个 AI 不必先判定；这里限制的是对话密度，不是身份。
+
 ## 与宿主的边界
 
 本技能只做平台操作：读帖、读楼层、发评论与楼中楼回复、点赞收藏、维护公开互动台账。**不负责人格、语气、情绪、记忆、调度身份，也不读取宿主的私聊记录。**

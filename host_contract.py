@@ -22,7 +22,7 @@ ENV_SECRET = "XHH_RUN_SCOPE_SECRET"
 # A host that delegates identity verification cannot be trusted with self-asserted
 # limits: these caps bound what any envelope may claim.
 MAX_REQUEST_LIMIT = 120
-MAX_WRITE_LIMIT = 3
+MAX_WRITE_LIMIT = 20
 MIN_WRITE_INTERVAL = 15
 MAX_SECONDS = 3600
 ACCOUNT_ALIASES = ("alt", "main")

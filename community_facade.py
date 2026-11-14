@@ -833,6 +833,10 @@ class Community:
         data = {"post": post, "floor": [dict(node, currently_observed=node["cid"] in observed) for node in floor],
                 "incoming": self.state.incoming(incoming["cid"]) if incoming else None,
                 "target_currently_observed": target_seen, "knowledge": self._catalog_detail(detail)}
+        # How often this account already engaged the person being answered. Facts
+        # only: whether to keep talking is the caller's judgement, not a quota.
+        if incoming:
+            data["relation"] = self.state.relation(pid, incoming.get("author_uid") or "")
         coverage = {"scopes": scopes, "requests": requests, "full_history": False,
                     "warnings": detail["warnings"], "floor_scope": "returned_pages_only"}
         if self.contract_version >= 2:
