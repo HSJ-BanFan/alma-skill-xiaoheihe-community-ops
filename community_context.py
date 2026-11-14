@@ -549,18 +549,47 @@ class SourceReader:
             configured = payload.get("agentTurn")
             if text.count(SOURCE_CONTRACT_MARKER) != 1 or not isinstance(configured, str) or configured.count(SOURCE_CONTRACT_MARKER) != 1:
                 raise SourceProblem("source_contract_not_verified")
-            return self._desktop_event(value, source_id)
-        data = self.for_source(source_id)
-        data["emotion_inputs"]["desktop_source"] = self._desktop_emotion(source_id)
-        self.diagnostic = {"status": "attached", "thread_id": value["threadId"],
-                           "records": len(data["conversation"]["records"]),
-                           "text_chars": data["conversation"].get("text_chars", 0), "redactions": data["conversation"].get("redactions", 0),
-                           "contextual_status": data["emotion_inputs"]["contextual"]["status"], "base_status": data["emotion_inputs"]["base"]["status"],
-                           "desktop_status": data["emotion_inputs"]["desktop_source"]["status"]}
+        data = self.state_only(source_id)
+        self.diagnostic = {"status": "state_only", "thread_id": value["threadId"],
+                           "conversation_injected": False, "source_contract_version": 2,
+                           "contextual_status": data["emotion_inputs"]["contextual"]["status"],
+                           "base_status": data["emotion_inputs"]["base"]["status"]}
         return data
+
+    def state_only(self, source_id: str) -> dict:
+        """Emotion state for public turns.
+
+        A turn that can publish into the community never receives private chat text.
+        Borrowing the owner's conversation to sound playful is the wrong source of
+        voice: it leaks private material and teaches tone instead of judgement.
+        Persona stays in SOUL; here we only hand over Alma's own current state.
+        `_desktop_event` / `for_source` are kept intact for a deliberate rollback.
+        """
+        try:
+            with closing(sqlite3.connect(self.db.as_uri() + "?mode=ro", uri=True, timeout=2)) as conn:
+                conn.row_factory = sqlite3.Row
+                conn.execute("pragma query_only=on")
+                conn.execute("begin")
+                emotions = self._emotion(conn, source_id)
+        except (OSError, ValueError, sqlite3.Error) as error:
+            emotions = {"base": {"status": "read_failed"}, "contextual": {"status": "read_failed"},
+                        "error_type": type(error).__name__, "native_effective_state_recomputed": False}
+        emotions["base"] = _native_emotion_time(emotions.get("base") or {"status": "unavailable"})
+        emotions["contextual"] = _native_emotion_time(emotions.get("contextual") or {"status": "unavailable"})
+        return {"version": 1, "kind": "public_turn_state", "source_contract_version": 2, "data_only": True,
+                "job_identity": {"job_id": JOB_ID, "source_thread_id": source_id},
+                "source_thread_id": None,
+                "source_selection": {"status": "withheld_public_turn",
+                                     "scope": "no_private_conversation_in_public_turns"},
+                "conversation": {"status": "withheld_public_turn", "records": [], "text_chars": 0},
+                "emotion_inputs": emotions,
+                "native_layer": {"persona_files_modified": False, "historical_message_objects_replayed": False,
+                                 "memory_query_rebuilt": False, "contextual_emotion_remapped": False}}
 
 
 def render_private_context(data: dict) -> str:
+    if data.get("kind") == "public_turn_state":
+        return render_public_state(data)
     job = data.get("job_identity") or {}
     selection = data.get("source_selection") or {}
     selected = data.get("source_thread_id")
@@ -585,6 +614,29 @@ def render_private_context(data: dict) -> str:
     names = (("base", "基础情绪 · base.md · 原生6小时"),
              ("contextual", "原生作业映射情绪 · 配置来源 · 原生2小时"),
              ("desktop_source", "桌面情绪 · context/" + (selected if isinstance(selected, str) else "无来源") + ".md · 原生2小时"))
+    for key, label in names:
+        record = inputs.get(key) or {}
+        lines.extend([label, "状态：" + str(record.get("status", "unavailable"))])
+        if isinstance(record.get("record_updated_at"), str):
+            lines.append("原始更新时间：" + record["record_updated_at"])
+        if isinstance(record.get("age_seconds"), (int, float)):
+            lines.append("记录年龄（秒）：" + str(record["age_seconds"]))
+        values = record.get("recorded_values")
+        if record.get("status") == "record_in_window" and isinstance(values, dict):
+            for field in ("mood", "energy", "valence"):
+                if field in values:
+                    lines.append(field + "：" + redact(str(values[field]))[0])
+        lines.append("")
+    return "\n".join(lines)
+
+
+def render_public_state(data: dict) -> str:
+    job = data.get("job_identity") or {}
+    inputs = data.get("emotion_inputs") or {}
+    lines = ["当前状态", "作业配置源：" + str(job.get("source_thread_id", "未提供")),
+             "私人对话：未提供（公开发言任务不接收对话正文）", ""]
+    names = (("base", "基础情绪 · base.md · 原生6小时"),
+             ("contextual", "作业映射情绪 · 原生2小时"))
     for key, label in names:
         record = inputs.get(key) or {}
         lines.extend([label, "状态：" + str(record.get("status", "unavailable"))])
