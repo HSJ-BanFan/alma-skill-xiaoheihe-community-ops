@@ -137,6 +137,12 @@ def acknowledge_delivery(store, uid, name, revision):
         pass
 
 
+def merge_resumed_coverage(snapshot, coverage, delta):
+    coverage["observed_positions"] = list(dict.fromkeys(
+        snapshot["coverage"].get("observed_positions", []) + coverage.get("observed_positions", [])))
+    coverage["duplicates_removed_since_snapshot"] = len(delta["unchanged"])
+
+
 def main(argv=None, *, client_factory=XhhClient):
     argv = list(sys.argv[1:] if argv is None else argv)
     root_parser = parser()
@@ -193,8 +199,7 @@ def main(argv=None, *, client_factory=XhhClient):
             data, coverage = browser.Browser(client_factory(config)).execute(resumed, verify_account=True, prior_data=saved["data"])
             delta = difference(saved["data"], data)
             combined = merge(saved["data"], data)
-            coverage["observed_positions"] = list(dict.fromkeys(saved["coverage"].get("observed_positions", []) + coverage.get("observed_positions", [])))
-            coverage["duplicates_removed_since_snapshot"] = len(delta["unchanged"])
+            merge_resumed_coverage(saved, coverage, delta)
             if isinstance(data.get("items"), list):
                 data["items"] = [item for item in data["items"] if record_key(item) not in delta["unchanged"]]
             ok = coverage.get("stop_reason") != "platform_error"
@@ -241,6 +246,8 @@ def main(argv=None, *, client_factory=XhhClient):
                 coverage["delta"] = difference(previous["data"], data)
             if args.snapshot:
                 combined = merge(existing["data"], data) if args.resume and existing else data
+                if args.resume and existing:
+                    merge_resumed_coverage(existing, coverage, difference(existing["data"], data))
                 pending = {"ok": coverage.get("stop_reason") != "platform_error", "data": redact(data, secret), "coverage": coverage,
                            "error": {"code": "platform_read_stopped", "retry_allowed": False} if coverage.get("stop_reason") == "platform_error" else None}
                 try:

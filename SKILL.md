@@ -42,7 +42,7 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
 
 `post --reader website` 显式选择网站正文读取方式，需要 Web 会话。该入口不会在失败后切换协议。`--section` 和 `--body-format` 可减少不需要的输出，`--raw` 仅用于检查原始响应。
 
-普通浏览的 `source.configured_uid` 是配置中的数据命名空间，`source.identity_verified=false` 只表示本次没有核验在线会话身份。需要持续浏览时用 `--snapshot <name>` 保存公开观察与断点，`--since <name>` 查看同一查询的新增、变化和未再次观察到的条目。保存和网络续读会先核验在线 UID；离线 `snapshot show/resume/diff/list` 按配置 UID 隔离，不表示身份已核验。缺失条目不推断为删除。
+普通浏览的 `source.configured_uid` 是配置中的数据命名空间，`source.identity_verified=false` 只表示本次没有核验在线会话身份。需要持续浏览时用 `--snapshot <name>` 保存公开观察与断点，`--since <name>` 查看同一查询的新增、变化和未再次观察到的条目。保存、`--since` 和网络续读会先核验在线 UID；离线 `snapshot show/resume/diff/list` 按配置 UID 隔离，不表示身份已核验。缺失条目不推断为删除。
 
 `coverage.full_history=false` 表示有限范围。空单页不能证明全量历史已查完。平台接口缺少预期消息字段时返回错误，不把协议异常当作空收件箱。
 

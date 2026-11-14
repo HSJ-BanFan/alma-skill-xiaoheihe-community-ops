@@ -177,7 +177,7 @@ class Browser:
         if verify_account:
             from operations import verify_identity
             if args.requests < 2:
-                raise XhhConfigError("saving or resuming observations requires at least two requests including account verification")
+                raise XhhConfigError("saving, resuming, or comparing observations requires at least two requests including account verification")
             budget.call(self.client, lambda: verify_identity(self.client))
             self.identity_verified = True
         if args.command == "thread":
