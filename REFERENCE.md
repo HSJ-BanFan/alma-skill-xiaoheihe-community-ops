@@ -1,150 +1,117 @@
-# 社区工具参考
+# 小黑盒命令参考
 
-日常入口和一轮操作见 `SKILL.md`。参数以 `community.py <scan|read|act> --help` 为准。
+`scripts/xhh.py` 是唯一技能入口。下面的示例均使用 Python 3.10 或更高版本，将 `<skill>` 替换为技能的绝对路径。平台命令参数可通过各子命令的 `--help` 查询。
 
-## 写入结果与停止
+## 账号和运行环境
 
-例行 `community.py` 返回 JSON。`ok=false`、异常名称、HTTP_5xx 或任意非 `ok` 状态不能证明未发送。
+所有平台命令显式选择账号来源。
 
-| 结果 | 事实与恢复边界 |
-|---|---|
-| `returned` | 有效 API CID 已取得；不证明当前可见。读回或本地结算失败仍保留 CID。 |
-| `acknowledged` | 有效点赞或收藏 ACK；无 CID，当前平台效果仍为 `not_observed`。 |
-| `reserved / uncertain / conflict` | 规范目标保持关闭。修改正文、重读详情或新开轮次不解除发送保留。 |
-| 发送前本地 `refused` | 只释放本次公开写 grant，不退已消耗的请求；原因修正后仍须完整详情与图片确认。 |
-| `platform_rejected` | 低层识别有限平台拒绝状态，但已经调用发送接口。本入口停止并保留关闭意图，不退款或重发。 |
-| `intent_persistence_failed` | JSON 或 SQLite 持久化失败，本轮停止。已知 CID 与失败状态同时返回。 |
+| 参数 | 来源 |
+| --- | --- |
+| `--account ALIAS` | `--data-dir` 下的 SDK 管理账号，别名由用户定义 |
+| `--config FILE` | 用户提供的 JSON，字段为 `pkey`、`heybox_id`、`protocol_mode` 等 |
+| `--env` | `XHH_PKEY`、`XHH_HEYBOX_ID`，可带 `XHH_PROTOCOL_MODE`、`XHH_SIGNER_JAR`、`XHH_JAVA` |
+| `--protocol web` | 当前调用使用内置 Python Web 签名器 |
+| `--protocol app` | 当前调用使用用户提供的 App 签名器 |
+| `--data-dir DIR` | 管理账号和写回执目录，优先于 `XHH_DATA_DIR` |
 
-`coverage.run_budget` 给出共享用量与 `stop_reason`。返回 `run_stopped` 后不继续其他后端入口。结果未知可能已生效，到对应帖子核对，不重复操作。有限范围未见评论、用户移除评论或进程退出都不是未发送证明。
+默认数据目录是 `~/.xiaoheihe-tools`。技能不搜索其他应用的数据目录。管理账号使用 Windows DPAPI；Linux 和 macOS 使用用户提供的配置文件或环境变量。
 
-### 发送意图台账
+账号与签名器管理复用随技能提供的 `xhh_sdk`，返回 SDK 自身的 JSON 或 CLI 帮助。安装 Creator 登录所需的可选依赖后，在用户的交互浏览器中登录。
 
-社区规范意图由 `State` 原子写入账号隔离的 `state/community/<uid>.db`。每个帖子 comment、每条精确 incoming CID reply、每种帖子 reaction 分别有规范目标。
-
-低层 comment 与 reply 的 `state/xhh_write_intents.json` 是兼容关闭记录。实际 UID、动作与精确目标决定键，既有 SDK mutex 保护读改写；未知、sent 及旧 rejected 记录都保留关闭。缺失 UID 的旧目标保持保守阻断，不误归属当前账号。损坏或无法持久化的记录不重置为空。
-
-当前 facade 的 fresh reservation 通过内部 State 与 operation scope 进入原 helper。裸 helper 同样检查旧 SQLite 意图，不能靠同一 PID 绕过 reserved。`pending_intents()` 只查询低层 JSON，不替代 `read op:<operation-id>`。删除、点赞与收藏不经过这份 JSON。
-
-## 收件箱的例行与低层入口
-
-例行更新使用 `scan incoming`，由统一 facade 核对账号、有限 profile、保留楼层与精确回复关系，返回台账和近期公开操作。`read inbox` 是本地查询。下面的消息队列函数只作旧 helper 的按需参考，不替换例行扫描、预算或规范意图。
-
-`fetch_messages()` 直接读 `/bbs/app/user/message`，一次请求拿到
-「谁回了我哪句、在哪个帖子的哪层楼」，字段是：
-
-- `comment_a_id` / `text`：来信人和内容（别人说的）
-- `comment_b_id` / `my_text`：被回复的那条（我说过的）
-- `root_comment_id`：回复要用的根楼层
-- `linkid` / `link_title`：哪个帖子
-
-注意正文在 **`result.messages`** 里，不在顶层。读错这一层会永远返回空，
-和"真的没消息"长得一模一样。
-
-`check_interactions()` 的帖子反查保留作回退：它要翻一堆帖子详情，还会漏掉
-我没评论过的帖子里对我的回复。`inbox_brief()` 自动优先走消息队列。
-
-## 深楼用游标，别一次翻到底
-
-`scan_sub_comments(root_id, pages=3, limit=20, cursor=None)` 顺着 `lastval`
-游标往下翻，一轮只翻有限页，返回 `{replies, cursor, done}`：
-
-- `done=True`：到底了；
-- `done=False`：把这个 `cursor` 存下来，下次带上去从断点继续。
-
-一次翻到底既慢又容易撞风控，中间断开还得从头再来。实测一个 5 层深的楼：
-第一轮 `limit=3` 拿 3 条 `done=False`，带游标第二轮拿 2 条，两轮零重复。
-
-## 楼中楼不传图
-
-小黑盒 App 协议里楼中楼没有图片字段。工具因此对 `reply` 完全跳过图片链路：不预取主帖图、不要求图片确认、不占图片预算。`read i:<cid>` 返回 `coverage.asset_access=reply_text_only`。要给帖子配图只能走顶楼一级评论 `comment`。
-
-一次读取后请用**同一批 `context.keys`** 直接发送，不要为了“刷新”再读一遍——重读会换新 key，旧 key 立刻失效并报 `context_confirmation_required`。
-
-## 分页取齐
-
-`read v:<hash> --page N` 的每页都是完整 JSON，形状为 `{"path":["data","items"],"items":[...]}`。多页结果的 `context.keys` 一次给出全部 page key，逐页传 `--context-key` 即可，不必再用正则从输出里抠 key。合并时按 `path` 把各页 `items` 依次拼回同一位置。
-
-## 资源与状态
-
-| 资源 | 数据 |
-|---|---|
-| `account` | 配置账号及在线身份核对 |
-| `inbox` | 已发现互动、历史处理、已知回复数量及发送证据；`--all` 包含已处理条目 |
-| `p:<id>` | 帖子正文、顺序块、图片地址和有限页评论 |
-| `i:<cid>` | 来信、根楼层、精确接话对象、当前返回范围和历史处理证据 |
-| `c:<cid>` | 当前账号的历史评论或 API 回执及最近有限范围可见性 |
-| `op:<operation-id>` | 发送保留、回执、拒绝、结果不明及读回状态 |
-| `shortcodes` | 当前官方短码目录 |
-| `stickers --query <公开正文>` | 本地表情库候选及资产元数据 |
-| `knowledge --query <公开内容>` | 只读词义查询（库由 `alma-meme-watcher` 拥有）及动态信息来源状态 |
-| `taste` | 现有兴趣画像；历史占比不是任务配额 |
-
-所有调用返回一行 JSON：`version / ok / kind / account / data / coverage / errors`。读回失败时 `ok` 可能为 `false`，`data` 仍保留已取得的回执和记录。
-
-`inbox` 的 `eligible` 始终是当前可处理数，`displayed` 是本次展示数；`--all` 与 `--limit` 只改变展示集合。统计范围是台账已观察的互动，不是全站总量。
-
-`reply_count_known` 是去重后的已知回复 ID 数；`reply_evidence` 区分 API 回执、精确目标观察与当前可见性。历史观察不等于当前仍可见。`handled` 来自精确回复证据、目标绑定回执或明确的本地 `close`，不由时间先后推断。
-
-`defer` 的决定记录保留，`defer_until` 是决定时间加 24 小时；到期后重新进入可处理集合。到期只恢复展示，不自动发送、不解除结果不明的发送保留。`close` 和已有回复证据没有这个到期机制。处置动作的语义见 `SKILL.md`「来信与处置动作」。
-
-`scan` 返回已观察范围、缺口和 `coverage.resume`；续读用 `scan incoming --resume <值>` 或对应的 `scan feed`。保存过的页内行和未完成子评论任务不会因为本轮预算结束而丢弃。每轮仍是有限范围，`full_history=false`。
-
-公开发送前读取完整详情。结果分页时用 `read v:<hash> --page N` 取齐每页，把所有页的 key 分别传作 `--context-key <key>`。原生排程要求这些页的输出**完整出现在本次 Bash 的 stdout 里**（不要 `tail`、重定向或二次解析）；被 `host_context_not_confirmed` 拒绝时，错误信息会直接列出还缺哪几页。
-
-对来信的发送还要求目标 CID 实际出现在最新返回楼层。`detail_required / context_confirmation_required / target_not_currently_observed / already_handled` 是目标状态；`account_binding_changed` 是账号绑定变化。State 在原子发送 reservation 中重查最新页、CID、图片计划与共享 grant。新详情读取失败也撤销旧授权，不移除历史记录。
-
-## 图片与官方短码
-
-一级评论的 `--image-file` 只选择本轮已发行的 `file` 快照。`--image-url` 只选择最新主帖已发行的 URL，发送时同样解析到快照，不重新下载可变 URL。两者互斥。楼中楼 `reply` 拒绝图片参数，返回 `reply_image_unsupported`。平台文本上限仍为 1000 字符，原始图片上限仍为 10 MB。
-
-`read p:<id>` 准备主帖图片。`read stickers --query <公开正文>` 准备本地候选。每次发行有新的 asset ID、源快照和 `preview_file`；源与预览分别记录完整 SHA256 和字节数。原始动画保留，EXIF 转正后的预览只描述首帧，PNG 最大边不超过 1600、大小不超过 320 KiB。
-
-用会话原生 `Read(file_path=<preview_file>)` 查看所有最新主帖图片，以及所选附图的预览。未挂载时通过会话 `ToolSearch` 查找原生 `Read`。caption、文件存在、upload 回执或读取 source 路径不代替预览字节证据。外部 CLI 和 caller-only 页确认不成为原生视觉证据。
-
-图像 gate 只认本次已完成原生 Read 的预览字节：完整 SHA256 与长度必须和发行预览一致，摘要前缀、缓存名称或残留路径都不算。主帖必需的图片未准备成功时不能发送，也不能跳过。楼层图片不强制，也不声称看过全部。
-
-发送期间快照与预览只读，防止被改写。超时或清理失败不解除未知意图，也不丢已知 CID。证据只到 `host_preview_bytes_verified`，不代表完整动画、上传后像素或模型理解。
-
-图片决定尚未完成时，`act` 可返回本地 `refused` 与候选资产。候选须先经 `read stickers` 发行并用原生 Read 查看对应预览，再传它的 `file`。不选附图时沿用 `--without-image <原因>`。官方短码仍是独立文本，由 `read shortcodes` 目录校验，不依赖图片参数。
-
-## 词义与动态来源
-
-词库由独立 `alma-meme-watcher` 拥有。社区消费的公开入口是 `node D:/02_Dev/Projects/alma-meme-watcher/scripts/lookup.mjs --text=<公开语义文本> --limit 3`。社区不传数据库路径，不导入梗内部模块或读取私有表，不执行采集、导入、补字段或维护。
-
-`read knowledge --query <公开内容>` 与读帖的 `knowledge` 字段返回 `terms`、`available`、`status` 和 `source`。词卡的公开字段为 `term / meaning / usage_context / avoid_when / origin / source_url / aliases / matched_keys / confidence / days_left`。未知旧字段保留空字符串，`days_left=null` 表示该卡不失效；社区不补写字段或生成额外 tone、brief。
-
-公开入口成功无命中与服务失败分开。stdout 有合法单个 `{"terms":[]}` 且退出 0 时 `available=true`。启动失败、非零退出、非空错误输出或协议失败时 `status=knowledge_unavailable`、`available=false`。读帖仍保留正文、台账与完整页恢复入口。接口尚未就绪也用同一降级，社区收尾不等待梗迁移。
-
-动态事实需要公开来源时按需使用现有检索工具；私有源对话不进入检索参数。本入口不宣称全量事实缓存或新建来源库。
-
-## 与宿主的边界
-
-本技能不读取、不保存、不转发宿主的私聊资料，也不提供人格、语气、情绪或记忆入口。这些由调用它的 agent 自己装配；技能只在平台侧读帖与执行公开操作。
-
-宿主若需要约束本轮预算，通过环境变量传入签名信封，细节见 `SKILL.md` 的「运行范围信封」。缺信封按普通交互运行，信封异常一律拒绝而不是降级猜测。
-
-社区台账、公开活动与词卡查询只保存公开内容与发送回执，不落私聊原文。
-
-## 帖子点赞与收藏
-
-boundary 2 的例行点赞使用 `act p:<id> like --context-key <key> --confirm`，收藏使用 `act p:<id> favourite --context-key <key> --confirm`。每页 key 都分别传入。两者仅针对帖子，不接受正文、图片、金额、充电量、收藏夹或取消收藏选项。
-
-底层原样调用 `xhh_tool.py.send_like(link_id)` 和 `send_favourite(link_id)`。like 是原 like/combo 充电接口，不宣称免费；favourite 保留默认收藏夹与原 helper 的确认参数。一个 send 后端 grant 不等于 helper 内部每个 HTTP 请求。
-
-点赞、收藏与评论共用真实账号绑定、完整详情与主帖图像确认、request 与 write grant、未知结果阻断和已接受的历史归属解析。有效 ACK 记为 `acknowledged`，无 CID、评论根或可见性证明，`effect_verification=not_observed`。不为恢复而改用旧 helper。旧 boundary 1 在途入口仍返回 `reaction_not_active`；部署与启用以实际配置和读回为准。
-
-## 其他平台操作与会话
-
-例行评论、回复、点赞和收藏使用 `community.py`。已有 `send_unfavourite / delete_comment` 等低层函数保留给用户明确授权的独立操作，不是被拦截或结果未知时的恢复入口。
-
-发帖、账号维护沿用 `D:/02_Dev/Projects/self-media-ops/tools/xiaoheihe/cli.py`；登录由用户提供手机号和验证码。检查会话的现有调用：
-
-```bash
-python -I -X utf8 "D:/02_Dev/Projects/self-media-ops/tools/xiaoheihe/cli.py" account status alt --online
+```console
+python -m pip install "playwright>=1.50,<2"
+python -m playwright install chromium
+python -I -X utf8 "<skill>/scripts/xhh.py" account add <alias>
+python -I -X utf8 "<skill>/scripts/xhh.py" account login <alias> --method creator --timeout 600 --confirm
+python -I -X utf8 "<skill>/scripts/xhh.py" account status <alias> --online
+python -I -X utf8 "<skill>/scripts/xhh.py" account --help
 ```
 
-发帖使用该 CLI 的 `--account alt publish - --confirm`，从 stdin 接收 JSON。会话失效交用户处理；修改登录状态和删除是独立的用户操作，不属于发送读回或结果不明时的恢复步骤。
+Creator 登录使用官方创作者页面，用户自行扫码或输入验证码。登录候选通过身份核对后才保存。凭据留在用户提供的配置或本地账号库，输出脱敏。
 
-## 自选板块
+Web 不需要 Java。App 需要独立配置，技能包不附带 JAR、APK 或用户凭据。
 
-`scan feed --topics <逗号分隔的ID>`：盒友杂谈 `7214`、校园生活 `549999`、PC游戏 `1`、主机游戏 `23563`、游戏开发 `615783`、独立游戏开发 `807953`、Steam `475516`、手机游戏 `21325`。
+```console
+python -I -X utf8 "<skill>/scripts/xhh.py" signer install <local.jar> --sha256 <trusted-sha256> --confirm
+python -I -X utf8 "<skill>/scripts/xhh.py" account configure <alias> --set signer_jar=managed:<sha256> --confirm
+python -I -X utf8 "<skill>/scripts/xhh.py" account configure <alias> --set java=<java-path> --confirm
+python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> doctor --offline
+```
+
+SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOME` 设置绝对目录。该目录只保存小黑盒签名器。显式外部文件路径仍依赖其位置。
+
+## 读取
+
+平台读取返回一行 JSON，字段为 `version`、`ok`、`kind`、`data`、`coverage`、`error`。账号管理和 doctor 返回 SDK 的格式。命令退出码 `0` 表示该次命令成功；参数解析错误使用标准 argparse 输出。
+
+| 命令 | 返回范围 |
+| --- | --- |
+| `account-info` | 在线账号身份核对 |
+| `feed TOPIC --offset N --limit N` | 指定板块单页原始数据 |
+| `search QUERY --type link --offset N --limit N` | 帖子、游戏或用户搜索单页 |
+| `post LINK --page N --limit N` | 帖子正文、图片与评论的完整单页 |
+| `comments LINK --page N --limit N` | 同一帖子树，保留根楼层及回复关系 |
+| `replies ROOT --cursor CURSOR` | 指定根楼层的游标页 |
+| `inbox --offset N --limit N` | 平台消息页，不标记已读 |
+| `my-posts --offset N --limit N` | 当前账号的帖子页 |
+| `my-comments --offset N --limit N` | 当前账号的评论页 |
+| `drafts --offset N --limit N` | 平台草稿页 |
+| `creator-options --link-id LINK` | 编辑器板块、标签、作者计划选项 |
+| `emojis` | 平台官方表情目录；服务器可能返回空组 |
+| `operation ID` | 本地按真实 UID 隔离的发送状态及回执 |
+
+收件箱的 `comment_a_id` 是来信 CID，`comment_b_id` 是被回复的 CID，`root_comment_id` 是根楼层，`linkid` 是帖子 ID。正文分别在 `comment_a_text` 和 `comment_b_text`，工具保持原始内容。
+
+`replies` 的续读位置取 `data.lastval`。`coverage.has_more` 缺失时完成状态未知。`inbox.next_offset` 仅提供下一读取位置，不能证明后续为空。板块 ID 由用户或平台查询选择，工具不内置兴趣板块。
+
+## 写入
+
+所有下列命令要求 `--confirm --operation-id ID`。正文文件使用 UTF-8，评论和回复最多 1000 字符。工具在写前在线核对账号，不要求调用方提供宿主会话证明。
+
+| 命令 | 参数 |
+| --- | --- |
+| `comment LINK` | `--text-file FILE`，可选互斥 `--image-file FILE` 或 `--image-url HTTPS_URL` |
+| `reply LINK ROOT REPLY` | `--text-file FILE`，可选 `--page N`、`--cursor CURSOR` 定位深楼 |
+| `like LINK` | 原平台 `like/combo` 接口，可能涉及充电，不保证免费 |
+| `favourite LINK` | 收藏到平台默认收藏夹 |
+| `unfavourite LINK` | 取消收藏 |
+| `upload FILE` | PNG、JPEG 或 GIF，本地文件最多 10 MiB，返回小黑盒 CDN URL |
+| `publish SPEC.json` | 默认保存平台草稿，加 `--public` 公开发布 |
+| `delete-comment LINK CID` | 先核对评论归当前账号所有 |
+| `delete-post LINK` | 先核对帖子归当前账号所有 |
+
+回复使用纯文本。一级评论配图只依据调用方传入的文件或 URL，工具不会搜索本地图库，也不要求写出不配图的理由。上传使用小黑盒自身的 COS 流程。
+
+发帖 JSON 使用 SDK 的 `Post` 字段。先单独上传本地图像，再把返回的 HTTPS URL 放入 `images`。下面的文件描述普通动态。
+
+```json
+{
+  "title": "标题",
+  "content": "正文",
+  "content_format": "text",
+  "topic_ids": ["真实板块ID"],
+  "hashtags": ["相关话题"],
+  "images": [],
+  "post_type": "1",
+  "original": false
+}
+```
+
+`topic_ids` 是板块 ID，`hashtags` 是话题文本，两者不同。Web 公开发帖至少选择一个平台板块。作者计划以平台资格为准。`--public` 决定草稿或公开状态，JSON 中的 `draft` 不覆盖该标志。通过 `edit_link_id` 修改自己的既有帖子时会先核对所有权。
+
+## 发送状态
+
+写入日志只保存操作类型、真实账号 UID、请求指纹和回执，不包含人格、情绪、运营偏好或调度信息。
+
+| 状态 | 含义 |
+| --- | --- |
+| `reserved` | 发送前已落盘，进程中断时可能已经发送 |
+| `returned` | API 回执已落盘；相同 ID 与相同请求返回已有回执，不再次发送 |
+| `uncertain` | 已进入写调用但没有完整成功回执，保持关闭 |
+| `operation_id_conflict` | 相同 UID 与 ID 使用了不同请求，被拒绝 |
+| `receipt_persistence_failed` | 取得回执但保存失败，输出保留该回执，旧 reservation 保持关闭 |
+
+日志使用 SQLite 原子 reservation，多个进程不能同时取得同一 UID 与 ID 的发送权。去重范围是调用方给出的操作 ID，不把永久禁止再次评论同一个帖子当作平台限制。新的独立用户操作使用新 ID；恢复结果未知的请求沿用旧 ID，并先人工核对平台。
+
+单次写入没有自动重试。验证码、限流和会话失效会结束当前命令。`public_visibility=not_checked` 表示未验证公开可见；平台 `ok`、CID 或本地记录都不是公开展示证据。
