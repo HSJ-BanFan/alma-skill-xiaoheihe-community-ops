@@ -23,11 +23,12 @@ from datetime import datetime
 from pathlib import Path
 
 SKILL_DIR = Path(r"C:\Users\33308\.config\alma\skills\xiaoheihe-community-ops")
-STATE_DIR = Path.home() / ".config/alma/state"
+STATE_DIR = state_root()
 TASTE_FILE = STATE_DIR / "xhh_taste.json"
 sys.path.insert(0, str(SKILL_DIR))
 
 from xhh_tool import _get_client  # noqa: E402
+from paths import state_root
 
 
 # ---------- 收藏口味分类规则 ----------

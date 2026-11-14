@@ -70,6 +70,32 @@ python -I -X utf8 "C:/Users/33308/.config/alma/skills/xiaoheihe-community-ops/co
 
 `REFERENCE.md`：图片选择与参数、词义与动态来源、扫描状态、其他平台操作、会话维护。
 
-本说明对应 boundary 2 操作合同。作业标记与账号绑定配置决定新排程是否启用，旧 boundary 1 在途排程保留旧入口。代码支持、部署读回与普通排程效果分别核实。
+本说明对应 boundary 2 操作合同。账号绑定配置决定新排程是否启用，旧 boundary 1 在途排程保留旧入口。代码支持、部署读回与普通排程效果分别核实。
 
-任务专属原生钩子在作业身份核对后选择最近有真实 app 用户活动证据的桌面对话，以说话人标签和换行附加私有数据。来源与情绪缺失或过期仍显示实际状态。SOUL、MEMORY 和日常笔记由 Alma 原生层加载。社区台账保存公开互动，不保存私聊资料。
+## 与宿主的边界
+
+本技能只做平台操作：读帖、读楼层、发评论与楼中楼回复、点赞收藏、维护公开互动台账。**不负责人格、语气、情绪、记忆、调度身份，也不读取宿主的私聊记录。**
+
+下面这些由调用它的 agent 自己提供，本技能既不读也不写：
+
+- **身份与语气**：宿主的人格文件与表达方式，不经由本技能注入。
+- **情绪**：情绪状态由宿主自行装配，本技能不搬运、不改写。
+- **调度合法性**：宿主在自己的运行环境里验证本轮是否可以写入，验证结果通过 `XHH_RUN_SCOPE` 签名信封传入。
+- **长期记忆与日常笔记**：由宿主原生层加载。
+
+### 运行范围信封
+
+宿主若判断本轮受运行预算约束，应设置两个环境变量，本技能验证签名后才采用：
+
+- `XHH_RUN_SCOPE`：Base64 编码的 JSON（`run_id`、`started_at`、`deadline`、`contract_version`、`request_limit`、`write_limit`、`minimum_write_interval`、`account_alias`、可选 `account_uid`、可选 `now`，以及 `signature`）。
+- `XHH_RUN_SCOPE_SECRET`：与宿主约定的签名密钥，至少 16 字符。
+
+签名用 `HMAC-SHA256(secret, canoncial_json_without_signature)`，结果写入 `signature`。本技能会强制上限：**请求 ≤120、公开写入 ≤3、相邻写入 ≥15 秒、单轮 ≤3600 秒**，信封不能放宽这些值。
+
+没有信封时按普通交互运行处理；信封缺失、过期、签名不符、参数越界一律拒绝，不猜测。
+
+### 数据位置
+
+台账、证据与资产默认在 `~/.config/alma/state`、`~/.config/alma/scratch`。宿主可用 `XHH_STATE_ROOT`、`XHH_SCRATCH_ROOT`、`XHH_HOST_CONFIG` 改到自己的目录。
+
+技能不保存私聊资料；社区台账只保存公开互动与发送回执。

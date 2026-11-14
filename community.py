@@ -212,7 +212,7 @@ def worker_main() -> int:
         result = worker_request(payload, emitter=emit)
     except BoundaryError as error:
         result, code = argument_result(kind, error), 2
-    except RuntimeProblem as error:
+    except (RuntimeProblem, HostProblem) as error:
         result, code = envelope(kind, errors=[{"code": error.code}]), 1
     except StateConflict as error:
         result, code = envelope(kind, errors=[error_data(error)]), 1
@@ -230,6 +230,7 @@ def main() -> int:
     kind = "arguments"
     sys.path.insert(0, str(HERE))
     from community_runtime import RuntimeProblem, current_run_scope, supervise_cli
+    from host_contract import HostProblem
     try:
         args = parser().parse_args()
         kind = args.command
@@ -244,7 +245,7 @@ def main() -> int:
             result = execute(args, validate(args))
     except BoundaryError as error:
         result, code = argument_result(kind, error), 2
-    except RuntimeProblem as error:
+    except (RuntimeProblem, HostProblem) as error:
         result, code = envelope(kind, errors=[{"code": error.code}]), 1
     except Exception as error:
         # Keep tracebacks, credentials and private context out of routine tool output.

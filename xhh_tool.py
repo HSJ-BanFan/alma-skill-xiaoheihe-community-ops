@@ -44,6 +44,7 @@ from xhh_sdk.accounts import AccountStore
 from xhh_sdk.client import XhhClient
 from xhh_sdk.interaction import _validate_text
 from xhh_sdk.exceptions import XhhAPIError, XhhTransportError
+from paths import scratch_root, state_root
 
 
 class _RawClient(XhhClient):
@@ -123,7 +124,7 @@ def _classify_write_error(exc: Exception, *, action: str = "写操作") -> Excep
                           kind=kind, platform_status=status)
 
 
-GATE_FILE = Path.home() / ".config/alma/state/xhh_risk_gate.json"
+GATE_FILE = state_root() / "xhh_risk_gate.json"
 GATE_FAILS = 2
 GATE_WINDOW = 900
 
@@ -370,7 +371,7 @@ def fetch_post(link_id: str) -> dict:
     local_images: list[str] = []
     if images:
         import urllib.request as _urllib_req
-        scratch_dir = Path.home() / ".config/alma/scratch"
+        scratch_dir = scratch_root()
         scratch_dir.mkdir(parents=True, exist_ok=True)
         for idx, img_url in enumerate(images[:4]):
             ext = os.path.splitext(urllib.parse.urlparse(str(img_url)).path)[1].lower()
@@ -406,7 +407,7 @@ def fetch_post(link_id: str) -> dict:
     }
 
 
-SEEN_FILE = Path.home() / ".config/alma/state/xhh_seen.json"
+SEEN_FILE = state_root() / "xhh_seen.json"
 
 
 def load_seen(keep: int = 2000) -> set:
@@ -437,9 +438,9 @@ def browse(topic_ids: list[str] | None = None, pages: int = 3,
     limit. Pagination keeps working well past offset=400 — verified.
 
     ``seen`` is a set of link_ids already handled. With ``remember=True`` it is
-    loaded from and saved back to ``~/.config/alma/state/xhh_seen.json``, so
-    consecutive heartbeats continue where the last one stopped instead of
-    re-walking the same top-of-feed posts.
+    loaded from and saved back to ``state_root()/xhh_seen.json``, so consecutive
+    runs continue where the last one stopped instead of re-walking the same
+    top-of-feed posts.
 
     Read-only; ~2.5s per page, no captcha seen across repeated runs.
     """
@@ -536,7 +537,7 @@ def sweep(topics: dict | list | None = None, per_topic: int = 15,
     return {"posts": collected, "seen": seen, "by_topic": by_topic}
 
 
-INBOX_SEEN = Path.home() / ".config/alma/state/xhh_inbox_seen.json"
+INBOX_SEEN = state_root() / "xhh_inbox_seen.json"
 
 
 def _load_seen() -> dict:
@@ -1038,204 +1039,6 @@ def read_floor(link_id: str, comment_id: str) -> str:
     raise ValueError("本页未找到 comment_id=%s 的楼层" % comment_id)
 
 
-def _source_thread() -> str:
-    """这一轮该继承谁的对话状态：环境变量，然后是定时任务指的那个线程。"""
-    env = os.environ.get("XHH_SOURCE_THREAD")
-    if env:
-        return env
-    try:
-        jobs = json.loads((Path.home() / ".config/alma/cron/jobs.json")
-                          .read_text(encoding="utf-8"))
-    except Exception:
-        jobs = []
-    if isinstance(jobs, dict):
-        jobs = jobs.get("jobs") or []
-    for job in jobs if isinstance(jobs, list) else []:
-        payload = (job or {}).get("payload") or {}
-        tid = payload.get("sourceThreadId") or payload.get("threadId")
-        if tid:
-            return str(tid)
-    return ""
-
-
-def inherit_emotion(source_thread: str | None = None, reason: str = "") -> dict:
-    """把 source_thread 的情绪语境带进当前线程，定时任务开局跑一次。
-
-    情绪按会话存。定时任务是新线程，默认从全局 base（calm）起步，跟刚才
-    聊天时的状态不一样。不带源线程时用定时任务自己指定的那个。
-    """
-    import shutil
-    import subprocess
-
-    me = os.environ.get("ALMA_THREAD_ID") or ""
-    source_thread = source_thread or _source_thread()
-    if not me or not source_thread:
-        return {"ok": False, "why": "缺 ALMA_THREAD_ID 或 source_thread"}
-    exe = shutil.which("alma") or r"C:\Users\33308\AppData\Local\Alma\bin\alma.cmd"
-    try:
-        out = subprocess.run([exe, "emotion", "get", source_thread],
-                             capture_output=True, text=True, encoding="utf-8", timeout=30)
-        data = json.loads(out.stdout)
-    except Exception as error:
-        return {"ok": False, "why": f"读不到情绪：{error}"}
-    ctx = data.get("context") or {}
-    if not ctx:
-        return {"ok": False, "why": "源线程没有情绪语境"}
-    mood = ctx.get("mood") or "calm"
-    valence = str(ctx.get("valence") or 5)
-    try:
-        run = subprocess.run([exe, "emotion", "set-context", me, mood, valence,
-                              reason or f"从 {source_thread} 带过来的状态"],
-                             capture_output=True, text=True, encoding="utf-8", timeout=30)
-    except Exception as error:
-        return {"ok": False, "why": f"写不进情绪：{error}"}
-    return {"ok": run.returncode == 0, "mood": mood, "valence": valence, "thread": me}
-
-
-CHAT_DB = ((Path(os.environ.get("APPDATA") or Path.home())
-            / "alma" / "chat_threads.db"))
-
-
-def _chat_turns(limit: int = 12) -> list[str]:
-    """最近几轮真正的私聊，按时间正序返回 "我：…" / "主人：…"。
-
-    跳过定时任务线程和汇报体长段，只留平时说话的手感。
-    """
-    import sqlite3
-
-    if not CHAT_DB.is_file():
-        return []
-    try:
-        conn = sqlite3.connect("file:%s?mode=ro" % CHAT_DB.as_posix(), uri=True)
-    except Exception:
-        return []
-    try:
-        threads = conn.execute("""
-            select id, title, metadata from chat_threads
-            where title not like '⏰ Cron:%'
-              and title not like '%Heartbeat%'
-              and title not like '%巡检%'
-            order by updated_at desc limit 40
-        """).fetchall()
-        for tid, _title, meta in threads:
-            try:
-                if json.loads(meta or "{}").get("isCron"):
-                    continue
-            except Exception:
-                pass
-            rows = conn.execute(
-                "select message from chat_messages where thread_id=? "
-                "order by created_at", (tid,)).fetchall()
-            turns: list[str] = []
-            for (raw,) in rows:
-                try:
-                    data = json.loads(raw)
-                except Exception:
-                    continue
-                role = data.get("role")
-                if role not in ("user", "assistant"):
-                    continue
-                text = "\n".join(
-                    p.get("text", "") for p in data.get("parts") or []
-                    if p.get("type") == "text" and p.get("text", "").strip())
-                text = text.strip()
-                if not text:
-                    continue
-                if role == "assistant" and len(text) > 400:
-                    continue
-                # 「我来看一下…」这类是开工前的脚手话，不是聊天的声音，别拿来当语气样本。
-                if role == "assistant" and re.match(
-                        r"^(我来|我先|我这就|好[，,]?\s*这就|收到.{0,8}正在|正在)", text):
-                    continue
-                turns.append(("我：" if role == "assistant" else "主人：") + text)
-            if len(turns) >= 6 and any(t.startswith("我：") for t in turns):
-                return turns[-limit:]
-        return []
-    except Exception:
-        return []
-    finally:
-        conn.close()
-
-
-def _identity_lines() -> list[str]:
-    """读 Alma 自己的身份文件，给定时线程一个性格锚点。"""
-    try:
-        text = (Path.home() / ".config" / "alma" / "SOUL.md").read_text(
-            encoding="utf-8").strip()
-    except OSError:
-        return []
-    return ["## 我是谁\n" + text] if text else []
-
-
-def _memory_index() -> str:
-    """长期记忆的目录，只给标题，不把整份记忆塞进上下文。"""
-    try:
-        text = (Path.home() / ".config" / "alma" / "MEMORY.md").read_text(
-            encoding="utf-8")
-    except OSError:
-        return ""
-    heads = [line.strip() for line in text.splitlines() if line.startswith("## ")]
-    return "## 长期记忆目录\n" + "\n".join(heads) if heads else ""
-
-
-def voice_anchor(comments: int = 12, turns: int = 12, echo: bool = True) -> str:
-    """开口之前先读的东西：身份文件、长期记忆目录、最近几轮私聊、自己的社区发言。
-
-    只读，不发送。默认自己 print 到 stdout，外面不要再套 print。
-    """
-    parts: list[str] = []
-
-    identity = _identity_lines()
-    if identity:
-        parts.extend(identity)
-
-    memory = _memory_index()
-    if memory:
-        parts.append(memory)
-
-    chat = _chat_turns(turns)
-    if chat:
-        parts.append("## 最近几轮私聊（原样）\n" + "\n\n".join(chat))
-
-    try:
-        client = _get_client()
-        texts = []
-        for mc in client.my_comments(limit=max(1, min(comments, 20))):
-            text = " ".join(_clean_text(mc.get("text")).split())
-            if len(text) > 2:
-                texts.append(text)
-        if texts:
-            lengths = sorted(len(t) for t in texts)
-            mid = lengths[len(lengths) // 2]
-            short_idx = {i for i, _ in sorted(
-                enumerate(texts), key=lambda pair: len(pair[1]))[:2]}
-            lines = [
-                "## 自己最近在社区说过什么（最近 %d 条）" % len(texts),
-                "长度：中位 %d 字，最短 %d，最长 %d，不到 100 字的有 %d 条。"
-                % (mid, lengths[0], lengths[-1],
-                   sum(1 for n in lengths if n < 100)),
-            ]
-            for i, text in enumerate(texts):
-                if i in short_idx:
-                    shown = text[:160] + ("…" if len(text) > 160 else "")
-                else:
-                    head = text.split("。")[0].split("！")[0].split("？")[0]
-                    shown = head[:40] + ("…" if len(head) > 40 or head != text else "")
-                lines.append("- [%d 字] %s" % (len(text), shown))
-            parts.append("\n".join(lines))
-    except Exception as error:
-        parts.append("（自己的评论没读到：%s）" % error)
-
-    if not parts:
-        text = "没找到身份文件、对话记录或旧评论。这一轮凭当时的感觉说话。"
-    else:
-        text = "\n\n".join(parts)
-    if echo:
-        print(text)
-        return ""
-    return text
-
-
 def inbox_brief(days: int = 3, max_lines: int = 30, text_len: int = 48) -> str:
     """收件箱的一页摘要，直接 print 就够看，不会撑爆 stdout。
 
@@ -1337,7 +1140,7 @@ def inbox_brief(days: int = 3, max_lines: int = 30, text_len: int = 48) -> str:
     return "\n".join(lines)
 
 
-TASTE_FILE = Path.home() / ".config/alma/state/xhh_taste.json"
+TASTE_FILE = state_root() / "xhh_taste.json"
 
 
 def taste_profile() -> dict | None:
@@ -1477,8 +1280,8 @@ STICKER_FLOOR = 0.42
 STICKER_STRONG = 0.55  # 高于它的候选值得驳一次"不配"
 STICKER_TOP = 4
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 小黑盒图床硬上限：超过直接报"文件大小不得超过10M"
-GATE_LOG = Path(os.path.expanduser("~/.config/alma/state/xhh_sticker_gate.log"))
-GATE_STATE = Path(os.path.expanduser("~/.config/alma/state/xhh_sticker_asked.json"))
+GATE_LOG = state_root() / "xhh_sticker_gate.log"
+GATE_STATE = state_root() / "xhh_sticker_asked.json"
 GATE_MAX_INSIST = 2  # 同一条评论最多驳回两次，第三次放行，避免卡死
 
 
@@ -1566,7 +1369,7 @@ def _gate_key(link_id: str, body: str) -> str:
 # 没有这一步，崩溃就等于丢掉唯一的重发防线。
 # ---------------------------------------------------------------------------
 
-INTENT_FILE = Path.home() / ".config/alma/state/xhh_write_intents.json"
+INTENT_FILE = state_root() / "xhh_write_intents.json"
 _DISPATCH_INTENT: ContextVar[tuple | None] = ContextVar("community_dispatch_intent", default=None)
 
 
@@ -1762,7 +1565,7 @@ def _guard_sticker(body: str, link_id: str, skip: bool, why_not: str = "") -> No
         "\n（分数只说明字面接近，不说明合不合适。）")
 
 
-EMOJI_WHITELIST = Path(os.path.expanduser("~/.config/alma/state/xhh_emoji_whitelist.json"))
+EMOJI_WHITELIST = state_root() / "xhh_emoji_whitelist.json"
 _EMOJI_GROUPS = ("cube_", "heygirl_", "grandemoji_", "bigemoji_")
 
 

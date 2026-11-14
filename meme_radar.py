@@ -25,8 +25,9 @@ import time
 from contextlib import closing
 from pathlib import Path
 from urllib.parse import urlparse
+from paths import state_root
 
-DB_PATH = Path.home() / ".config" / "alma" / "state" / "meme_radar.db"
+DB_PATH = state_root() / "meme_radar.db"
 
 # Admitted definitions only: reviewed and confident enough to state as fact.
 _ADMITTED_STATUS = ("local_reference", "accepted")

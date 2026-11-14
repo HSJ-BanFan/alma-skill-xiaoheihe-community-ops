@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from paths import state_root
 
 # Hard cap so a busy post can never flood the prompt with lore.
 MAX_ENTRY_CHARS = 320
@@ -48,7 +49,7 @@ _ASK_RE = re.compile(
 # 数值越大越放得开。它是**上限**，不是命令：帖文语气可以把实际尺度往下压，
 # 但永远不会往上抬。求助/排障帖另有一条硬规则，任何设置都绕过不了。
 
-CONFIG_PATH = Path.home() / ".config" / "alma" / "state" / "meme_tone.json"
+CONFIG_PATH = state_root() / "meme_tone.json"
 DEFAULT_PLAYFULNESS = 45
 
 _BANDS = (

@@ -16,8 +16,9 @@ import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
+from paths import home_config
 
-CONFIG_PATH = Path.home() / ".config" / "alma" / "imgbed.json"
+CONFIG_PATH = home_config() / "imgbed.json"
 
 
 def _config() -> dict:

@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from community_state import PreparedImage, REACTIONS, RunLimit, StateConflict, valid_reaction_ack
+from paths import scratch_root
 
 IMAGE_SOURCE_BYTES = 10 * 1024 * 1024
 IMAGE_PIXEL_LIMIT = 32_000_000
@@ -209,7 +210,7 @@ class SDKBackend:
         self.clean = helpers._clean_text if helpers is not None else plain
         self.store = helpers.AccountStore(helpers.STORE) if helpers is not None else None
         self.account_revision = self.store.get(alias).revision if self.store is not None else None
-        self.image_root = Path.home() / ".config/alma/scratch/community-assets-issued"
+        self.image_root = scratch_root() / "community-assets-issued"
 
     @contextmanager
     def bound_account(self):
@@ -600,7 +601,7 @@ class WorkingBackend(SDKBackend):
         return rows
 
     def asset_files(self, post: dict) -> dict:
-        folder = Path.home() / ".config/alma/scratch/community-assets"
+        folder = scratch_root() / "community-assets"
         folder.mkdir(parents=True, exist_ok=True)
         for asset in post["assets"][:4]:
             url = asset["url"]

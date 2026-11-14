@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TypedDict
 import copy
 import re
+from paths import state_root
 
 SCHEMA = """
 create table if not exists posts(
@@ -276,7 +277,7 @@ class State:
         if not str(uid).isdigit():
             raise ValueError("invalid_account_identity")
         self.uid = str(uid)
-        root = root or Path.home() / ".config/alma/state/community"
+        root = root or state_root() / "community"
         root.mkdir(parents=True, exist_ok=True)
         self.path = root / f"{self.uid}.db"
         with self.connection() as conn:
