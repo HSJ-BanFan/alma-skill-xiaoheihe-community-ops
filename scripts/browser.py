@@ -12,7 +12,7 @@ from paging import Budget, ReadLimit, coverage, decode_resume, encode_resume
 from xhh_sdk.exceptions import XhhConfigError, XhhError
 from xhh_sdk.web_signer import sign_web_request
 
-COMMANDS = {"community", "topics", "hot", "feed", "search", "post", "comments", "replies", "thread"}
+COMMANDS = {"community", "topics", "hot", "feed", "search", "post", "comments", "replies", "thread", "user", "favourites"}
 
 
 def bounded(value):
@@ -35,6 +35,15 @@ def register(commands):
             parser.add_argument("target", nargs="?")
         elif name == "topics":
             parser.add_argument("query")
+        elif name in ("user", "favourites"):
+            parser.add_argument("--offset", type=int, default=0)
+            parser.add_argument("--limit", type=bounded, default=20)
+            if name == "user":
+                parser.add_argument("user_id", type=link_id)
+                parser.add_argument("--view", choices=("profile", "posts", "followers", "following"), default="profile")
+            else:
+                parser.add_argument("action", choices=("folders", "posts"))
+                parser.add_argument("folder_id", nargs="?")
         elif name in ("post", "comments", "thread"):
             parser.add_argument("link_id", type=link_id)
             parser.add_argument("--page", type=bounded, default=1)
@@ -103,13 +112,19 @@ class Browser:
 
     def fetch(self, route, query, budget):
         raw = budget.call(self.client, lambda: self.client.transport.signed_request(route, query=query))
-        return raw, result_object(raw), source(self.client, route)
+        if route == "/bbs/app/profile/user/link/list" and isinstance(raw.get("post_links"), list):
+            result = {"links": raw["post_links"], "user": raw.get("user"), "has_more": raw.get("has_more")}
+        else:
+            result = result_object(raw)
+        return raw, result, source(self.client, route)
 
     def execute(self, args):
         budget = Budget(args.requests, args.seconds)
         if args.command == "thread":
             return self.thread(args, budget)
-        paged = args.command in ("comments", "replies", "feed", "hot", "search")
+        paged = (args.command in ("comments", "replies", "feed", "hot", "search")
+                 or args.command == "user" and args.view != "profile"
+                 or args.command == "favourites" and args.action == "posts")
         if not paged and (args.pages != 1 or args.resume):
             raise XhhConfigError("this command returns one resource; pages/resume are not applicable")
         mode = "page" if args.command == "comments" else "cursor" if args.command == "replies" else "offset"
@@ -218,6 +233,45 @@ class Browser:
                          {"q": args.query, "only_hashtag": "1"}, budget)
             data = {"items": rows(result, ("search_result", "hashtags", "topics")), "source": evidence}
             scope = {"completion": "unknown", "full_history": False}
+        elif args.command == "user":
+            if args.view in ("profile", "posts"):
+                raw, result, evidence = self.fetch("/bbs/app/profile/user/link/list", {"userid": args.user_id,
+                            "offset": str(args.offset), "limit": "1" if args.view == "profile" else str(args.limit)}, budget)
+                if args.view == "posts":
+                    records = rows(result, ("links",))
+                    data = {"user_id": args.user_id, "items": [summary(row) for row in records], "source": evidence}
+                    scope = coverage(result, count=len(records), position=args.offset)
+                else:
+                    user = result.get("user")
+                    if not isinstance(user, dict):
+                        raise XhhConfigError("public author profile not returned")
+                    if author(user)["uid"] != args.user_id:
+                        raise XhhConfigError("returned author identity does not match requested user")
+                    data = {**author(user), "bio": user.get("signature") or user.get("description"), "source": evidence,
+                            "statistics": {"followers": integer(user.get("fan_num")), "following": integer(user.get("follow_num")),
+                                           "posts": integer(user.get("post_link_num")), "articles": integer(user.get("post_article_num"))}}
+                    scope = {"completion": "unknown", "gaps": [], "full_history": False}
+            else:
+                route = "/bbs/app/profile/" + ("follower/list" if args.view == "followers" else "following/list")
+                raw, result, evidence = self.fetch(route, {"userid": args.user_id, "offset": str(args.offset), "limit": str(args.limit)}, budget)
+                records = rows(result, ("followers", "following", "users", "list"))
+                data = {"items": [author(row) for row in records], "user_id": args.user_id, "source": evidence}
+                scope = coverage(result, count=len(records), position=args.offset)
+        elif args.command == "favourites":
+            if args.action == "folders":
+                raw, result, evidence = self.fetch("/bbs/app/profile/fav/folders", {}, budget)
+                records = rows(result, ("folders", "folder_list", "list"))
+                data = {"items": [{"id": str(row.get("folder_id", row.get("id"))), "name": row.get("name") or row.get("title"),
+                                    "count": integer(row.get("link_num", row.get("count")))} for row in records], "source": evidence}
+                scope = {"completion": "unknown", "gaps": [], "full_history": False}
+            else:
+                if args.folder_id is None or not str(args.folder_id).isdigit():
+                    raise XhhConfigError("favourites posts requires a numeric folder ID")
+                raw, result, evidence = self.fetch("/bbs/app/profile/fav/folder/v2/links",
+                            {"folder_id": args.folder_id, "offset": str(args.offset), "limit": str(args.limit)}, budget)
+                records = rows(result, ("links", "list"))
+                data = {"items": [summary(row) for row in records], "folder_id": args.folder_id, "source": evidence}
+                scope = coverage(result, count=len(records), position=args.offset)
         elif args.command in ("post", "comments"):
             query = {"link_id": args.link_id, "page": str(args.page), "limit": str(args.limit), "sort_filter": args.sort}
             raw, result, evidence = self.website(query, budget) if getattr(args, "reader", "native") == "website" else self.fetch("/bbs/app/link/tree", query, budget)
