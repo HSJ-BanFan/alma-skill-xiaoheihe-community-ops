@@ -55,6 +55,10 @@ def parser():
             command.add_argument("operation_id")
     command = commands.add_parser("creator-options")
     command.add_argument("--link-id", type=numeric_id)
+    command = commands.add_parser("asset", help="download platform image and create local preview; no account required")
+    command.add_argument("url")
+    command.add_argument("--refresh", action="store_true")
+    command.add_argument("--seconds", type=positive, default=20)
     for name in ("inbox", "drafts", "my-posts", "my-comments"):
         command = commands.add_parser(name)
         command.add_argument("--offset", type=nonnegative, default=0)
@@ -142,6 +146,11 @@ def main(argv=None, *, client_factory=XhhClient):
     try:
         if args.command in WRITES and not args.confirm:
             raise OperationError("confirmation_required")
+        if args.command == "asset":
+            from assets import fetch
+            data = fetch(args.url, args.data_dir, refresh=args.refresh, seconds=args.seconds)
+            emit(True, args.command, data, coverage={"preview_scope": "first_frame"})
+            return 0
         config = load_config(args)
         secret = config.pkey
         if args.command == "operation":
