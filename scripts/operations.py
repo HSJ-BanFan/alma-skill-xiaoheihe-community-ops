@@ -124,9 +124,7 @@ def read(client, kind: str, args) -> tuple[object, dict]:
     coverage = {"full_history": False}
     if kind == "account-info":
         return verify_identity(client), {"identity_verified": True}
-    if kind == "feed":
-        data = client.transport.signed_request("/bbs/app/topic/feeds", query={**query, "topic_id": args.topic_id, "h_src": ""})
-    elif kind == "inbox":
+    if kind == "inbox":
         data = client.transport.signed_request("/bbs/app/user/message",
                     query={**query, "list_type": "0", "no_more": "false"})
         result = data.get("result")
@@ -134,15 +132,6 @@ def read(client, kind: str, args) -> tuple[object, dict]:
             raise OperationError("invalid_inbox_response")
         return result, {**coverage, "offset": args.offset, "limit": args.limit,
                         "next_offset": args.offset + len(result["messages"])}
-    elif kind in ("post", "comments"):
-        data = client.read_post(args.link_id, page=args.page, limit=args.limit)
-        return data, {**coverage, "page": args.page, "limit": args.limit}
-    elif kind == "replies":
-        data = client.sub_comments(args.root_id, lastval=args.cursor)
-        return data, {**coverage, "cursor": args.cursor, "next_cursor": data.get("lastval"),
-                      "has_more": data.get("has_more")}
-    elif kind == "search":
-        return client.search(args.query, search_type=args.type, offset=args.offset, limit=args.limit), coverage
     elif kind == "emojis":
         return client.emojis(), coverage
     elif kind == "creator-options":

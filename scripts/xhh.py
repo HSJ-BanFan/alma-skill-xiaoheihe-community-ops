@@ -15,7 +15,9 @@ from operations import Journal, OperationError, numeric_id, prepare_write, read,
 from xhh_sdk.accounts import AccountStore
 from xhh_sdk.client import XhhClient
 from xhh_sdk.config import XhhConfig
-from xhh_sdk.exceptions import XhhError
+from xhh_sdk.exceptions import XhhError, XhhConfigError
+from documents import link_id
+import browser
 
 WRITES = {"comment", "reply", "like", "favourite", "unfavourite", "delete-comment", "delete-post", "upload", "publish"}
 
@@ -53,23 +55,19 @@ def parser():
             command.add_argument("operation_id")
     command = commands.add_parser("creator-options")
     command.add_argument("--link-id", type=numeric_id)
-    for name in ("feed", "inbox", "search", "drafts", "my-posts", "my-comments"):
+    command = commands.add_parser("asset", help="download platform image and create local preview; no account required")
+    command.add_argument("url")
+    command.add_argument("--refresh", action="store_true")
+    command.add_argument("--seconds", type=positive, default=20)
+    command = commands.add_parser("snapshot", help="read or resume an account-scoped public browsing snapshot")
+    command.add_argument("action", choices=("list", "show", "diff", "resume"))
+    command.add_argument("name", nargs="?")
+    command.add_argument("other", nargs="?")
+    for name in ("inbox", "drafts", "my-posts", "my-comments"):
         command = commands.add_parser(name)
         command.add_argument("--offset", type=nonnegative, default=0)
         command.add_argument("--limit", type=positive, default=20)
-        if name == "feed":
-            command.add_argument("topic_id", type=numeric_id)
-        if name == "search":
-            command.add_argument("query")
-            command.add_argument("--type", choices=("link", "game", "user"), default="link")
-    for name in ("post", "comments"):
-        command = commands.add_parser(name)
-        command.add_argument("link_id", type=numeric_id)
-        command.add_argument("--page", type=positive, default=1)
-        command.add_argument("--limit", type=positive, default=50)
-    command = commands.add_parser("replies")
-    command.add_argument("root_id", type=numeric_id)
-    command.add_argument("--cursor")
+    browser.register(commands)
     for name in sorted(WRITES):
         command = commands.add_parser(name)
         command.add_argument("--confirm", action="store_true")
@@ -127,8 +125,22 @@ def redact(value, secret=""):
 
 
 def emit(ok, kind, data=None, *, coverage=None, error=None, secret=""):
-    print(json.dumps(redact({"version": 1, "ok": ok, "kind": kind, "data": data,
-                     "coverage": coverage or {}, "error": error}, secret), ensure_ascii=False))
+    version = 2 if kind in browser.COMMANDS or kind in {"asset", "snapshot"} else 1
+    print(json.dumps(redact({"version": version, "ok": ok, "kind": kind, "data": data,
+                     "coverage": coverage or {}, "error": error}, secret), ensure_ascii=False), flush=True)
+
+
+def acknowledge_delivery(store, uid, name, revision):
+    try:
+        store.delivered(uid, name, revision)
+    except (sqlite3.Error, OSError, XhhConfigError):
+        pass
+
+
+def merge_resumed_coverage(snapshot, coverage, delta):
+    coverage["observed_positions"] = list(dict.fromkeys(
+        snapshot["coverage"].get("observed_positions", []) + coverage.get("observed_positions", [])))
+    coverage["duplicates_removed_since_snapshot"] = len(delta["unchanged"])
 
 
 def main(argv=None, *, client_factory=XhhClient):
@@ -152,8 +164,56 @@ def main(argv=None, *, client_factory=XhhClient):
     try:
         if args.command in WRITES and not args.confirm:
             raise OperationError("confirmation_required")
+        if args.command == "asset":
+            from assets import fetch
+            data = fetch(args.url, args.data_dir, refresh=args.refresh, seconds=args.seconds)
+            emit(True, args.command, data, coverage={"preview_scope": "first_frame"})
+            return 0
         config = load_config(args)
         secret = config.pkey
+        if args.command == "snapshot":
+            from observations import Store, difference, merge, record_key, SnapshotConflict
+            store = Store(args.data_dir)
+            if args.action == "list":
+                emit(True, args.command, {"items": store.list(config.heybox_id)}, secret=secret)
+                return 0
+            saved = store.get(config.heybox_id, args.name)
+            if args.action == "show":
+                emit(True, args.command, saved, secret=secret)
+                return 0
+            if args.action == "diff":
+                other = store.get(config.heybox_id, args.other)
+                if saved["query_key"] != other["query_key"]:
+                    raise XhhConfigError("snapshots belong to different queries")
+                emit(True, args.command, difference(saved["data"], other["data"]), secret=secret)
+                return 0
+            if saved["pending_response"] is not None:
+                pending = saved["pending_response"]
+                emit(pending["ok"], args.command, pending["data"], coverage={**pending["coverage"], "replayed_delivery": True}, error=pending.get("error"), secret=secret)
+                acknowledge_delivery(store, config.heybox_id, args.name, saved["revision"])
+                return 0 if pending["ok"] else 1
+            token = saved["coverage"].get("resume")
+            if not token:
+                raise XhhConfigError("snapshot has no resumable continuation")
+            resumed = parser().parse_args([*saved["request"], "--resume", token, "--snapshot", args.name])
+            data, coverage = browser.Browser(client_factory(config)).execute(resumed, verify_account=True, prior_data=saved["data"])
+            delta = difference(saved["data"], data)
+            combined = merge(saved["data"], data)
+            merge_resumed_coverage(saved, coverage, delta)
+            if isinstance(data.get("items"), list):
+                data["items"] = [item for item in data["items"] if record_key(item) not in delta["unchanged"]]
+            ok = coverage.get("stop_reason") != "platform_error"
+            pending = {"ok": ok, "data": redact(data, secret), "coverage": coverage,
+                       "error": None if ok else {"code": "platform_read_stopped", "retry_allowed": False}}
+            try:
+                revision = store.save(config.heybox_id, args.name, saved["query_key"], redact(combined, secret), coverage,
+                                      browser.request_arguments(resumed), expected_revision=saved["revision"], pending_response=pending)
+            except SnapshotConflict as error:
+                emit(False, args.command, data, coverage=coverage, error={"code": "snapshot_conflict", "current_revision": error.revision}, secret=secret)
+                return 1
+            emit(coverage.get("stop_reason") != "platform_error", args.command, data, coverage=coverage, error=pending["error"], secret=secret)
+            acknowledge_delivery(store, config.heybox_id, args.name, revision)
+            return 1 if coverage.get("stop_reason") == "platform_error" else 0
         if args.command == "operation":
             value = Journal(args.data_dir).read(config.heybox_id, args.operation_id)
             emit(value is not None, args.command, value, error=None if value else {"code": "operation_not_found"}, secret=secret)
@@ -164,10 +224,51 @@ def main(argv=None, *, client_factory=XhhClient):
             payload, send = prepare_write(client, args.command, args)
             data = Journal(args.data_dir).execute(config.heybox_id, args.operation_id, args.command, payload, send)
             coverage = {"public_visibility": "not_checked"}
+        elif args.command in browser.COMMANDS:
+            from observations import Store, difference, merge, SnapshotConflict
+            store = Store(args.data_dir)
+            key = browser.query_key(args) + ":" + config.protocol_mode
+            previous = store.get(config.heybox_id, args.since) if args.since else None
+            if previous is not None and previous["query_key"] != key:
+                raise XhhConfigError("baseline snapshot belongs to a different query")
+            existing = store.optional(config.heybox_id, args.snapshot) if args.snapshot else None
+            if existing is not None and existing["pending_response"] is not None:
+                if existing["query_key"] != key:
+                    raise XhhConfigError("snapshot has undelivered data; replay it with snapshot resume before replacing it")
+                pending = existing["pending_response"]
+                emit(pending["ok"], args.command, pending["data"], coverage={**pending["coverage"], "replayed_delivery": True}, error=pending.get("error"), secret=secret)
+                acknowledge_delivery(store, config.heybox_id, args.snapshot, existing["revision"])
+                return 0 if pending["ok"] else 1
+            if args.resume and existing is not None and existing["query_key"] != key:
+                raise XhhConfigError("resumed snapshot belongs to a different query")
+            data, coverage = browser.Browser(client).execute(args, verify_account=bool(args.snapshot or args.since), prior_data=existing["data"] if args.resume and existing else None)
+            if previous is not None:
+                coverage["delta"] = difference(previous["data"], data)
+            if args.snapshot:
+                combined = merge(existing["data"], data) if args.resume and existing else data
+                if args.resume and existing:
+                    merge_resumed_coverage(existing, coverage, difference(existing["data"], data))
+                pending = {"ok": coverage.get("stop_reason") != "platform_error", "data": redact(data, secret), "coverage": coverage,
+                           "error": {"code": "platform_read_stopped", "retry_allowed": False} if coverage.get("stop_reason") == "platform_error" else None}
+                try:
+                    revision = store.save(config.heybox_id, args.snapshot, key, redact(combined, secret), coverage,
+                            browser.request_arguments(args), expected_revision=existing["revision"] if existing else 0, pending_response=pending)
+                except SnapshotConflict as error:
+                    emit(False, args.command, data, coverage=coverage, error={"code": "snapshot_conflict", "current_revision": error.revision}, secret=secret)
+                    return 1
+            if coverage.get("stop_reason") == "platform_error":
+                emit(False, args.command, data, coverage=coverage, error={"code": "platform_read_stopped", "retry_allowed": False}, secret=secret)
+                if args.snapshot:
+                    acknowledge_delivery(store, config.heybox_id, args.snapshot, revision)
+                return 1
         else:
             data, coverage = read(client, args.command, args)
         emit(True, args.command, data, coverage=coverage, secret=secret)
+        if args.command in browser.COMMANDS and args.snapshot:
+            acknowledge_delivery(store, config.heybox_id, args.snapshot, revision)
         return 0
+    except BrokenPipeError:
+        return 1
     except OperationError as error:
         emit(False, args.command, {"operation": error.operation, "receipt": error.receipt},
              error={"code": error.code, "retry_allowed": False}, secret=secret)

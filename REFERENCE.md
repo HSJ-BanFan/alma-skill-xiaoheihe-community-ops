@@ -48,10 +48,10 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 | 命令 | 返回范围 |
 | --- | --- |
 | `account-info` | 在线账号身份核对 |
-| `feed TOPIC --offset N --limit N` | 指定板块单页原始数据 |
-| `search QUERY --type link --offset N --limit N` | 帖子、游戏或用户搜索单页 |
-| `post LINK --page N --limit N` | 帖子正文、图片与评论的完整单页 |
-| `comments LINK --page N --limit N` | 同一帖子树，保留根楼层及回复关系 |
+| `feed TOPIC --offset N --limit N` | 指定社区的信息流；返回规范化条目、来源与分页覆盖 |
+| `search QUERY --type link --offset N --limit N` | 帖子、游戏或用户搜索；支持分页并按类型返回规范化或平台条目 |
+| `post LINK --page N --limit N` | 结构化正文、顺序块、媒体、来源与正文完整性 |
+| `comments LINK --page N --limit N` | 独立评论节点，保留根楼层及精确回复关系 |
 | `replies ROOT --cursor CURSOR` | 指定根楼层的游标页 |
 | `inbox --offset N --limit N` | 平台消息页，不标记已读 |
 | `my-posts --offset N --limit N` | 当前账号的帖子页 |
@@ -63,7 +63,7 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 
 收件箱的 `comment_a_id` 是来信 CID，`comment_b_id` 是被回复的 CID，`root_comment_id` 是根楼层，`linkid` 是帖子 ID。正文分别在 `comment_a_text` 和 `comment_b_text`，工具保持原始内容。
 
-`replies` 的续读位置取 `data.lastval`。`coverage.has_more` 缺失时完成状态未知。`inbox.next_offset` 仅提供下一读取位置，不能证明后续为空。板块 ID 由用户或平台查询选择，工具不内置兴趣板块。
+`replies` 的下一位置在 `coverage.next`，完整绑定账号、命令和查询的续读令牌在 `coverage.resume`；平台原始 `lastval` 只在 `--raw` 的原始页中保留。`coverage.has_more` 缺失时完成状态未知。`inbox.next_offset` 仅提供下一读取位置，不能证明后续为空。板块 ID 由用户或平台查询选择，工具不内置兴趣板块。
 
 ## 写入
 
@@ -115,3 +115,67 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 日志使用 SQLite 原子 reservation，多个进程不能同时取得同一 UID 与 ID 的发送权。去重范围是调用方给出的操作 ID，不把永久禁止再次评论同一个帖子当作平台限制。新的独立用户操作使用新 ID；恢复结果未知的请求沿用旧 ID，并先人工核对平台。
 
 单次写入没有自动重试。验证码、限流和会话失效会结束当前命令。`public_visibility=not_checked` 表示未验证公开可见；平台 `ok`、CID 或本地记录都不是公开展示证据。
+
+## Agent 浏览工具
+
+浏览入口输出版本为 `2`。账号管理仍使用 SDK 格式。所有浏览命令都有 `--raw`、`--requests 10`、`--seconds 30`，最大各 100。原始 SDK 文件保持不变。
+
+| 命令 | 数据与参数 |
+| --- | --- |
+| `community list` | 分类与社区条目，包含分类路径、ID、名称、图标和简介 |
+| `community search QUERY` | 社区名称搜索；包含平台返回的相关社区，不保证都是精确命中 |
+| `community info ID` | 社区详情 |
+| `community children ID` | 子社区与分类 |
+| `topics QUERY` | 编辑器话题搜索 |
+| `hot` | 热点条目，支持 `--offset`、`--limit`、`--pages` |
+| `feed ID` | 轻量帖子条目；`--content-type all/article/dynamic`、`--after UNIX`、`--min-comments N` |
+| `feed ID --sort created/comments/charges` | 对当前返回范围排序，`sorting_scope=returned_items`；默认 `platform` 保留服务器顺序 |
+| `feed ID --order recommended/newest/recent-replies` | 平台原生推荐、发布时间或回复时间排序；与返回范围内的 `--sort` 分开 |
+| `post LINK --section all/body/metadata` | LINK 可为 ID、标准小黑盒 HTTPS 链接或含 ID 的 heybox 链接；不跟随缩短链接 |
+| `post LINK --body-format text/blocks/both` | 控制正文输出，默认 `both`；未知平台块保留 `data` 并标记缺口 |
+| `post LINK --reader native/website` | 显式选择读取身份，网站方式要求 Web 会话，无自动 fallback |
+| `comments LINK --sort hot/time_aes/time_desc` | 单独读取评论，不重复整个正文 |
+| `replies ROOT --cursor VALUE` | 读取根楼层的游标页；未提供或未核实帖子 ID 时节点的帖子归属未知 |
+| `thread LINK ROOT --around CID` | 围绕精确 CID 读取祖先与后续节点，`--pages` 控制根楼层定位和深楼读取总页数 |
+| `user UID` | 返回作者公开资料，过滤草稿箱和编辑器字段 |
+| `user UID --view posts/followers/following` | 沿作者帖子和公开关系继续浏览 |
+| `favourites folders` | 当前账号的收藏夹 |
+| `favourites posts FOLDER` | 收藏夹条目，默认收藏夹 ID 可为 `0` |
+| `asset HTTPS_CDN_URL` | 下载图片、保留原图并生成 PNG 预览；无账号要求，不发送 Cookie |
+| `snapshot list/show/resume/diff` | 查询、继续或比较本地浏览观察 |
+
+信息流统计的 `charges` 来自 `link_award_num`，不把服务器的占位 `up=0` 当成点赞数。缺失的统计值是 `null`。正文摘要与正文分开，`body_not_returned`、`invalid_body_json` 和未知块均有明确缺口。非空正文自身不证明平台已给出全文。
+
+分页的 `completion=complete` 需要平台终点或总页数证据。空数组、缺少游标或达到预算只能产生 `unknown` 或停止状态，不能证明全量读取结束。`coverage.resume` 绑定真实账号、协议、资源和筛选；换资源或账号时被拒绝。页内与本次多页之间按 ID 去重。
+
+`--page` 是绝对页号，不受单次 `--pages` 最多 100 页的预算限制。多页信息流排序在汇总并去重后执行；`returned_total` 报告本次各页实际返回数之和。App 签名调用使用剩余时间，发起 HTTP 前再次检查截止时间。`thread --raw` 返回根楼层和子评论的全部已取得原始页。
+
+时间预算覆盖网络建立和完整响应接收；超时会终止该网络读取并保留之前完成的页。空评论页如果仍有明确总页数证据会继续。`unknown_parent_ids` 和 `ancestry_complete` 描述精确父节点是否已知，根楼层归属不会被当作直接回复关系。影音块保留可播放地址与原始元数据，无法解析时报告缺口。评论中的内嵌图片也会保留，HTML 标题和表格单元格不会被拼成无分隔文字。
+
+预算和页数停止后，可重复同一查询并提供 `--resume <value>`。`thread` 的 `coverage.continuation` 返回可继续的 comments 页或 replies 游标。错误发生在后续页时，已读条目保留，`ok=false`，停止原因是 `platform_error`；不自动换账号、协议或入口。
+
+媒体依赖按需安装，核心读取和 Web 签名没有新增依赖。
+
+```console
+python -m pip install -r "<skill>/requirements-media.txt"
+python -I -X utf8 "<skill>/scripts/xhh.py" asset "https://imgheybox.max-c.com/实际图片路径"
+```
+
+媒体来源必须为 HTTPS 的 `max-c.com` 或其子域，重定向也遵守该范围。下载上限 16 MiB、像素上限 4000 万，预览最长边 1600、最大 512 KiB。PNG、JPEG、GIF、WebP 可用于预览，动画标记 `first_frame`。按 URL 缓存，缓存源和预览摘要都会核对；`--refresh` 才重新下载。
+
+正文数据保留平台返回的旧 HTTP 图片引用，但 `asset` 仍要求 HTTPS，不能把已知引用当成已成功下载。正文中作者写出的文件路径仅作为文本返回，不读取对应的宿主文件。
+
+浏览来源的 `configured_uid` 是配置中的数据命名空间，`identity_verified` 表示该次读取是否已在网络中核对当前会话。浏览快照保存在独立的 `browsing/snapshots.sqlite3`，与发送日志分开。快照按配置 UID 分组，这属于数据命名空间，不是同一本地操作系统用户之间的身份权限边界。缓存目录和文件限制为本地所有者访问；Windows 使用受保护 DACL，POSIX 使用目录 0700、数据库 0600。离线查看不需要有效网络会话，也不能证明身份。新保存、`--since` 和网络续读会核对真实会话 UID，身份验证也计入请求预算，因此这些在线操作至少需要两个请求。`--since` 和 `snapshot diff` 只比较相同资源与筛选的查询。
+
+快照使用递增修订号拒绝并发陈旧更新，冲突时保留数据库与本次已读结果。续读既可以用 `snapshot resume`，也可以用原命令的 `--resume --snapshot`，均保留先前页。响应与下一断点在同一事务持久化，stdout 成功写出并刷新后才确认已交付；中断时下次调用先离线重放未交付响应，不跳过数据。原型期旧 `browsing.sqlite3` 路径不自动导入。
+
+```console
+python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> comments <link-id> --pages 3 --requests 2 --snapshot discussion
+python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> snapshot show discussion
+python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> snapshot resume discussion
+python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> feed <topic-id> --snapshot baseline
+python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> feed <topic-id> --since baseline --snapshot latest
+python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> snapshot diff baseline latest
+```
+
+差异为 `new`、`changed`、`unchanged`、`not_observed`，始终 `deletion_inferred=false`。来源检查时间不制造内容变化。未知身份只能使用明确标记的内容指纹，不能据此推断作者或帖子归属。快照记录公开观察，不维护人格、兴趣或互动处置策略。
