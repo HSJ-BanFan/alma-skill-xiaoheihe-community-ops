@@ -51,6 +51,23 @@ class LatestReviewFixTests(unittest.TestCase):
         self.assertIsNone(scope["resume"])
         self.assertIn("continuation_missing", scope["gaps"])
 
+    def test_single_page_reply_rejects_already_consumed_cursor(self):
+        class Fixture(PagedFixture):
+            def signed_request(self, path, query=None):
+                self.calls.append((path, query))
+                return {"result": {"comments": [{"commentid": 10, "replyid": 9}],
+                                   "lastval": "c1", "has_more": True}}
+
+        client = Fixture()
+        data, scope = Browser(client).execute(
+            xhh.parser().parse_args(["replies", "123", "--post-id", "122", "--cursor", "c1", "--pages", "1"]))
+        self.assertEqual(len(client.calls), 1)
+        self.assertEqual(data["items"][0]["id"], "10")
+        self.assertEqual(scope["stop_reason"], "cursor_stalled")
+        self.assertIn("repeated_continuation", scope["gaps"])
+        self.assertIsNone(scope["next"])
+        self.assertIsNone(scope["resume"])
+
     def test_non_object_comment_page_preserves_previous_data(self):
         class Fixture(PagedFixture):
             def signed_request(self, path, query=None):

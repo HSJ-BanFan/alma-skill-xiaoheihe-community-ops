@@ -98,6 +98,21 @@ class PagingTests(unittest.TestCase):
         self.assertTrue(data["ancestry_complete"])
         self.assertEqual(scope["completion"], "complete")
 
+    def test_thread_missing_duplicate_text_preserves_prior_evidence(self):
+        class MissingText(PagedFixture):
+            def signed_request(self, path, query=None):
+                if path.endswith("tree"):
+                    root = {"commentid": 9, "text": "root", "child_num": 1, "has_more": 1}
+                    reply = {"commentid": 10, "text": "richer evidence", "replyid": 9}
+                    return {"result": {"comments": [{"comment": [root, reply]}], "total_page": 1}}
+                return {"result": {"comments": [{"commentid": 10}], "has_more": False}}
+
+        data, scope = Browser(MissingText()).execute(
+            xhh.parser().parse_args(["thread", "123", "9", "--around", "10", "--pages", "2"]))
+        target = next(item for item in data["items"] if item["id"] == "10")
+        self.assertEqual(target["text"], "richer evidence")
+        self.assertEqual(scope["completion"], "complete")
+
     def test_unobserved_target_never_invented(self):
         client = PagedFixture()
         data, scope = Browser(client).execute(xhh.parser().parse_args(["thread", "123", "9", "--around", "999"]))

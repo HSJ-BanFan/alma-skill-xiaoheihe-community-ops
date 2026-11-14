@@ -8,6 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import xhh
+from documents import summary
 from observations import Store, difference, merge
 from test_paging import PagedFixture
 from xhh_sdk.exceptions import XhhConfigError
@@ -41,6 +42,23 @@ class ObservationTests(unittest.TestCase):
         saved = merge(before, after)
         self.assertEqual(saved["items"][0]["reply_to_id"], "9")
         self.assertEqual(saved["items"][0]["media"], before["items"][0]["media"])
+        self.assertEqual(difference(before, after)["unchanged"], ["10"])
+
+    def test_sparse_normalized_post_does_not_erase_or_change_metadata(self):
+        before = {"items": [summary({
+            "linkid": "10",
+            "title": "title",
+            "description": "summary",
+            "topics": [{"topic_id": "20", "name": "community"}],
+            "hashtags": ["topic"],
+        })]}
+        after = {"items": [summary({"linkid": "10"})]}
+        saved = merge(before, after)
+        preserved = saved["items"][0]
+        self.assertEqual(preserved["title"], "title")
+        self.assertEqual(preserved["excerpt"], "summary")
+        self.assertEqual(preserved["communities"][0]["id"], "20")
+        self.assertEqual(preserved["hashtags"], ["topic"])
         self.assertEqual(difference(before, after)["unchanged"], ["10"])
 
     def test_cli_persisted_resume_after_new_client(self):
