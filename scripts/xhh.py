@@ -17,6 +17,7 @@ from xhh_sdk.client import XhhClient
 from xhh_sdk.config import XhhConfig
 from xhh_sdk.exceptions import XhhError
 from documents import link_id
+import browser
 
 WRITES = {"comment", "reply", "like", "favourite", "unfavourite", "delete-comment", "delete-post", "upload", "publish"}
 
@@ -54,24 +55,11 @@ def parser():
             command.add_argument("operation_id")
     command = commands.add_parser("creator-options")
     command.add_argument("--link-id", type=numeric_id)
-    for name in ("feed", "inbox", "search", "drafts", "my-posts", "my-comments"):
+    for name in ("inbox", "drafts", "my-posts", "my-comments"):
         command = commands.add_parser(name)
         command.add_argument("--offset", type=nonnegative, default=0)
         command.add_argument("--limit", type=positive, default=20)
-        if name == "feed":
-            command.add_argument("topic_id", type=numeric_id)
-        if name == "search":
-            command.add_argument("query")
-            command.add_argument("--type", choices=("link", "game", "user"), default="link")
-    for name in ("post", "comments"):
-        command = commands.add_parser(name)
-        command.add_argument("link_id", type=link_id)
-        command.add_argument("--page", type=positive, default=1)
-        command.add_argument("--limit", type=positive, default=50)
-        command.add_argument("--raw", action="store_true", help="include original platform response for debugging")
-    command = commands.add_parser("replies")
-    command.add_argument("root_id", type=numeric_id)
-    command.add_argument("--cursor")
+    browser.register(commands)
     for name in sorted(WRITES):
         command = commands.add_parser(name)
         command.add_argument("--confirm", action="store_true")
@@ -166,6 +154,8 @@ def main(argv=None, *, client_factory=XhhClient):
             payload, send = prepare_write(client, args.command, args)
             data = Journal(args.data_dir).execute(config.heybox_id, args.operation_id, args.command, payload, send)
             coverage = {"public_visibility": "not_checked"}
+        elif args.command in browser.COMMANDS:
+            data, coverage = browser.Browser(client).execute(args)
         else:
             data, coverage = read(client, args.command, args)
         emit(True, args.command, data, coverage=coverage, secret=secret)
