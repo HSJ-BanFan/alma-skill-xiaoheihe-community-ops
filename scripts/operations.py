@@ -135,8 +135,21 @@ def read(client, kind: str, args) -> tuple[object, dict]:
         return result, {**coverage, "offset": args.offset, "limit": args.limit,
                         "next_offset": args.offset + len(result["messages"])}
     elif kind in ("post", "comments"):
+        from documents import document, floors, result_object, source
         data = client.read_post(args.link_id, page=args.page, limit=args.limit)
-        return data, {**coverage, "page": args.page, "limit": args.limit}
+        result = result_object(data)
+        if not isinstance(result.get("link"), dict):
+            raise OperationError("post_not_returned")
+        evidence = source(client, "/bbs/app/link/tree")
+        if kind == "post":
+            value = document(result["link"], evidence)
+            coverage["body"] = value["body"]["completeness"]
+            coverage["gaps"] = value["body"]["gaps"]
+        else:
+            value = {"post_id": args.link_id, "items": floors(result.get("comments"), args.link_id), "source": evidence}
+        if getattr(args, "raw", False):
+            value["raw"] = data
+        return value, {**coverage, "page": args.page, "limit": args.limit}
     elif kind == "replies":
         data = client.sub_comments(args.root_id, lastval=args.cursor)
         return data, {**coverage, "cursor": args.cursor, "next_cursor": data.get("lastval"),

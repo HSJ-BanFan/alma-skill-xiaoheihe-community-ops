@@ -16,6 +16,7 @@ from xhh_sdk.accounts import AccountStore
 from xhh_sdk.client import XhhClient
 from xhh_sdk.config import XhhConfig
 from xhh_sdk.exceptions import XhhError
+from documents import link_id
 
 WRITES = {"comment", "reply", "like", "favourite", "unfavourite", "delete-comment", "delete-post", "upload", "publish"}
 
@@ -64,9 +65,10 @@ def parser():
             command.add_argument("--type", choices=("link", "game", "user"), default="link")
     for name in ("post", "comments"):
         command = commands.add_parser(name)
-        command.add_argument("link_id", type=numeric_id)
+        command.add_argument("link_id", type=link_id)
         command.add_argument("--page", type=positive, default=1)
         command.add_argument("--limit", type=positive, default=50)
+        command.add_argument("--raw", action="store_true", help="include original platform response for debugging")
     command = commands.add_parser("replies")
     command.add_argument("root_id", type=numeric_id)
     command.add_argument("--cursor")
@@ -127,7 +129,7 @@ def redact(value, secret=""):
 
 
 def emit(ok, kind, data=None, *, coverage=None, error=None, secret=""):
-    print(json.dumps(redact({"version": 1, "ok": ok, "kind": kind, "data": data,
+    print(json.dumps(redact({"version": 2, "ok": ok, "kind": kind, "data": data,
                      "coverage": coverage or {}, "error": error}, secret), ensure_ascii=False))
 
 

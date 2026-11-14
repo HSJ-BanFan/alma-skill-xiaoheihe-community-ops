@@ -261,7 +261,7 @@ class ToolsTest(unittest.TestCase):
     def test_real_web_signer_and_untruncated_post(self):
         code, value = self.run_cli("post", "501")
         self.assertEqual(code, 0)
-        self.assertEqual(len(value["data"]["result"]["link"]["text"]), 1000)
+        self.assertEqual(len(value["data"]["body"]["text"]), 1000)
         query = self.fixture.calls[-1][3]
         self.assertIn("hkey", query)
         self.assertIn("_time", query)
