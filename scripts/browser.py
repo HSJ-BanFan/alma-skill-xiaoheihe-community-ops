@@ -22,6 +22,19 @@ def bounded(value):
     return number
 
 
+def post_argument(value):
+    try:
+        return link_id(value)
+    except XhhConfigError as error:
+        raise argparse.ArgumentTypeError(str(error)) from None
+
+
+def numeric_argument(value):
+    if not identifier(value):
+        raise argparse.ArgumentTypeError("ID must be a positive integer")
+    return str(value)
+
+
 def register(commands):
     for name in sorted(COMMANDS):
         parser = commands.add_parser(name)
@@ -41,13 +54,13 @@ def register(commands):
             parser.add_argument("--offset", type=int, default=0)
             parser.add_argument("--limit", type=bounded, default=20)
             if name == "user":
-                parser.add_argument("user_id", type=link_id)
+                parser.add_argument("user_id", type=numeric_argument)
                 parser.add_argument("--view", choices=("profile", "posts", "followers", "following"), default="profile")
             else:
                 parser.add_argument("action", choices=("folders", "posts"))
                 parser.add_argument("folder_id", nargs="?")
         elif name in ("post", "comments", "thread"):
-            parser.add_argument("link_id", type=link_id)
+            parser.add_argument("link_id", type=post_argument)
             parser.add_argument("--page", type=bounded, default=1)
             parser.add_argument("--limit", type=bounded, default=50)
             parser.add_argument("--sort", choices=("hot", "time_aes", "time_desc"), default="hot")
@@ -56,17 +69,17 @@ def register(commands):
                 parser.add_argument("--section", choices=("all", "body", "metadata"), default="all")
                 parser.add_argument("--body-format", choices=("text", "blocks", "both"), default="both")
             if name == "thread":
-                parser.add_argument("root_id", type=link_id)
-                parser.add_argument("--around", type=link_id)
+                parser.add_argument("root_id", type=numeric_argument)
+                parser.add_argument("--around", type=numeric_argument)
         elif name == "replies":
-            parser.add_argument("root_id", type=link_id)
-            parser.add_argument("--post-id", type=link_id)
+            parser.add_argument("root_id", type=numeric_argument)
+            parser.add_argument("--post-id", type=post_argument)
             parser.add_argument("--cursor")
         else:
             parser.add_argument("--offset", type=int, default=0)
             parser.add_argument("--limit", type=bounded, default=20)
             if name == "feed":
-                parser.add_argument("topic_id", type=link_id)
+                parser.add_argument("topic_id", type=numeric_argument)
                 parser.add_argument("--sort", choices=("platform", "created", "comments", "charges"), default="platform")
                 parser.add_argument("--content-type", choices=("all", "article", "dynamic"), default="all")
                 parser.add_argument("--after", type=int)
@@ -115,16 +128,24 @@ def query_key(args):
 
 
 def request_arguments(args):
-    command = args.command
-    positions = {"community": ("action", "target"), "topics": ("query",), "feed": ("topic_id",), "search": ("query",),
-                 "post": ("link_id",), "comments": ("link_id",), "replies": ("root_id",), "thread": ("link_id", "root_id"),
-                 "user": ("user_id",), "favourites": ("action", "folder_id"), "hot": ()}
-    result = [command] + [str(getattr(args, name)) for name in positions[command] if getattr(args, name, None) is not None]
-    for name in ("requests", "seconds", "pages", "page", "offset", "limit", "sort", "content_type", "after", "min_comments",
-                 "type", "post_id", "cursor", "reader", "section", "body_format", "around", "view"):
-        value = getattr(args, name, None)
-        if value is not None:
-            result.extend(["--" + name.replace("_", "-"), str(value)])
+    holder = argparse.ArgumentParser(add_help=False)
+    commands = holder.add_subparsers(dest="command")
+    register(commands)
+    result = [args.command]
+    for action in commands.choices[args.command]._actions:
+        if action.dest in {"help", "snapshot", "since", "resume", "raw"}:
+            continue
+        value = getattr(args, action.dest, None)
+        if value is None:
+            continue
+        if action.option_strings:
+            if action.nargs == 0:
+                if value:
+                    result.append(action.option_strings[0])
+            else:
+                result.extend([action.option_strings[0], str(value)])
+        else:
+            result.append(str(value))
     return result
 
 
@@ -167,6 +188,7 @@ class Browser:
                 raise XhhConfigError("invalid continuation position")
             setattr(args, position_key, value)
         items, identities, positions, raw_pages = [], set(), set(), []
+        observed_positions = []
         data, scope = None, {"completion": "unknown", "gaps": [], "next": getattr(args, position_key, None)}
         duplicates = 0
         for _ in range(args.pages):
@@ -188,6 +210,8 @@ class Browser:
                 scope["error"] = {"type": type(error).__name__, "status": getattr(error, "status", None)}
                 break
             data = page
+            if paged:
+                observed_positions.append(position)
             if args.raw and "raw" in page:
                 raw_pages.append(page.pop("raw"))
             scope = current
@@ -217,6 +241,7 @@ class Browser:
         else:
             scope["resume"] = None
         scope["budget"] = budget.view()
+        scope["observed_positions"] = observed_positions
         return data, scope
 
     def website(self, query, budget):
@@ -224,12 +249,12 @@ class Browser:
             raise XhhConfigError("website reader requires an explicitly selected Web session")
         route = "/bbs/app/link/tree"
         signature = sign_web_request(route)
-        parameters = {"client_type": "web", "x_client_type": "web", "os_type": "web", "x_app": "heybox_website",
+        parameters = {"client_type": "web", "x_client_type": "web", "os_type": "web", "x_os_type": "Windows", "x_app": "heybox_website",
                       "version": "999.0.4", "web_version": "2.5", "owner_only": "1",
                       "heybox_id": self.client.config.heybox_id, **{key: value for key, value in signature.items() if key != "_rnd"}, **query}
         request = urllib.request.Request(self.client.config.api_base.rstrip("/") + route + "?" + urllib.parse.urlencode(parameters),
                     headers={"Cookie": self.client.config.cookie_web, "Referer": self.client.config.web_origin + "/",
-                             "User-Agent": self.client.config.user_agent_web})
+                             "User-Agent": self.client.config.user_agent_web}, method="GET")
         transport = self.client.transport
         raw = budget.call(self.client, lambda: transport._checked_response(route, transport._decode(transport._open(request))))
         evidence = source(self.client, route)
@@ -323,7 +348,8 @@ class Browser:
             raw, result, evidence = self.fetch("/bbs/app/comment/sub/comments", query, budget)
             nodes = rows(result, ("comments",))
             data = {"items": [comment(node, args.post_id, args.root_id) for node in nodes], "source": evidence,
-                    "root_id": args.root_id, "post_id": args.post_id}
+                    "root_id": args.root_id, "post_id": args.post_id,
+                    "post_id_source": "caller" if args.post_id else "unknown"}
             scope = coverage(result, count=len(nodes), position=args.cursor, mode="cursor")
         else:
             specs = {"feed": ("/bbs/app/topic/feeds", {"topic_id": getattr(args, "topic_id", ""), "h_src": ""}),
@@ -332,7 +358,7 @@ class Browser:
                                 "search_type": getattr(args, "type", "link"), "request_source": "edit_link"})}
             route, query = specs[args.command]
             raw, result, evidence = self.fetch(route, {**query, "offset": str(args.offset), "limit": str(args.limit)}, budget)
-            records = rows(result, ("links", "search_result", "list", "news"))
+            records = rows(result, ("links", "search_result", "items", "list", "news"))
             items = [summary(row) for row in records] if args.command != "search" or args.type == "link" else records
             scope = coverage(result, count=len(records), position=args.offset)
             if args.command == "feed":
@@ -343,7 +369,8 @@ class Browser:
                     items.sort(key=lambda item: item["created_at"] or 0 if args.sort == "created"
                                else item["statistics"][args.sort] or 0, reverse=True)
                 scope.update(selected=len(items), excluded=len(records) - len(items), sorting_scope="returned_items", sort=args.sort)
-            data = {"items": items, "source": evidence, "navigation": {"sorts": result.get("sort_filter"), "filters": result.get("filters")}}
+            data = {"items": items, "source": evidence, "navigation": {"sorts": result.get("sort_filter", result.get("sort_filter_list")),
+                    "filters": result.get("filters", result.get("filter_list")), "time_ranges": result.get("time_range_list")}}
         if args.raw:
             data["raw"] = raw
         return data, scope

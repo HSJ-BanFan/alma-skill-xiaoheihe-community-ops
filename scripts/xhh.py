@@ -158,7 +158,7 @@ def main(argv=None, *, client_factory=XhhClient):
         config = load_config(args)
         secret = config.pkey
         if args.command == "snapshot":
-            from observations import Store, difference
+            from observations import Store, difference, merge, record_key
             store = Store(args.data_dir)
             if args.action == "list":
                 emit(True, args.command, {"items": store.list(config.heybox_id)}, secret=secret)
@@ -178,7 +178,13 @@ def main(argv=None, *, client_factory=XhhClient):
                 raise XhhConfigError("snapshot has no resumable continuation")
             resumed = parser().parse_args([*saved["request"], "--resume", token, "--snapshot", args.name])
             data, coverage = browser.Browser(client_factory(config)).execute(resumed)
-            store.save(config.heybox_id, args.name, saved["query_key"], redact(data, secret), coverage, browser.request_arguments(resumed))
+            delta = difference(saved["data"], data)
+            combined = merge(saved["data"], data)
+            coverage["observed_positions"] = list(dict.fromkeys(saved["coverage"].get("observed_positions", []) + coverage.get("observed_positions", [])))
+            coverage["duplicates_removed_since_snapshot"] = len(delta["unchanged"])
+            store.save(config.heybox_id, args.name, saved["query_key"], redact(combined, secret), coverage, browser.request_arguments(resumed))
+            if isinstance(data.get("items"), list):
+                data["items"] = [item for item in data["items"] if record_key(item) not in delta["unchanged"]]
             emit(coverage.get("stop_reason") != "platform_error", args.command, data, coverage=coverage, secret=secret)
             return 1 if coverage.get("stop_reason") == "platform_error" else 0
         if args.command == "operation":

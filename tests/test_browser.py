@@ -72,6 +72,14 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(result["completion"], "unknown")
         self.assertIn("conflicting_page_markers", result["gaps"])
 
+    def test_search_items_shape_preserves_empty_unknown_scope(self):
+        fixture = Fixture()
+        fixture.signed_request = lambda *args, **kwargs: {"result": {"items": [], "filter_list": [{"key": "sort_filter"}]}}
+        data, scope = Browser(fixture).execute(xhh.parser().parse_args(["search", "query"]))
+        self.assertEqual(data["items"], [])
+        self.assertEqual(scope["completion"], "unknown")
+        self.assertEqual(data["navigation"]["filters"][0]["key"], "sort_filter")
+
 
 if __name__ == "__main__":
     unittest.main()

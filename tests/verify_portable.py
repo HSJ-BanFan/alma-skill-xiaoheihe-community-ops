@@ -26,6 +26,7 @@ def main():
         folder = Path(temporary)
         skill = folder / "separate skill"
         shutil.copytree(ROOT / "scripts", skill / "scripts", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        shutil.copytree(ROOT / "tests", skill / "tests", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         unrelated = folder / "unrelated cwd"
         unrelated.mkdir()
         environment = {key: value for key, value in os.environ.items() if not key.startswith("XHH_") and key != "PYTHONPATH"}
@@ -33,7 +34,7 @@ def main():
         environment["XHH_TEST_SKILL_ROOT"] = str(skill)
         entry = skill / "scripts/xhh.py"
         def invoke(*arguments):
-            result = subprocess.run([sys.executable, "-I", "-X", "utf8", str(entry), *arguments],
+            result = subprocess.run([sys.executable, "-I", "-S", "-X", "utf8", str(entry), *arguments],
                     cwd=unrelated, env=environment, capture_output=True, text=True, encoding="utf-8", timeout=30)
             assert result.returncode == 0, (arguments, result.stdout, result.stderr)
             return result.stdout
@@ -43,10 +44,7 @@ def main():
         assert not report["account_checked"] and not report["signer_executed"]
         assert "Creator" in invoke("account", "login", "--help")
         assert not (folder / "isolated-data").exists(), "offline discovery wrote state"
-        runner = folder / "fixture_runner.py"
-        runner.write_text("import runpy,sys\nsys.path.insert(0, " + repr(str(skill / "scripts")) + ")\n"
-                          + "runpy.run_path(" + repr(str(ROOT / "tests/test_tools.py")) + ", run_name='__main__')\n", encoding="utf-8")
-        test = subprocess.run([sys.executable, "-I", "-X", "utf8", str(runner)], cwd=unrelated,
+        test = subprocess.run([sys.executable, "-I", "-X", "utf8", "-m", "unittest", "discover", "-s", str(skill / "tests"), "-q"], cwd=unrelated,
                 env=environment, capture_output=True, text=True, encoding="utf-8", timeout=60)
         assert test.returncode == 0, test.stdout + test.stderr
         print(json.dumps({"ok": True, "sdk_snapshot_verified": len(snapshot["files"]),

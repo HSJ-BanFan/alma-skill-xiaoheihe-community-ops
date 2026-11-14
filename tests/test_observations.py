@@ -48,10 +48,13 @@ class ObservationTests(unittest.TestCase):
             self.assertEqual(code, 0)
             code, resumed = call("snapshot", "resume", "read-1")
             self.assertEqual(code, 0)
-            self.assertEqual(resumed["data"]["items"][1]["id"], "11")
+            self.assertEqual([item["id"] for item in resumed["data"]["items"]], ["11"])
+            self.assertEqual(resumed["coverage"]["duplicates_removed_since_snapshot"], 1)
             code, saved = call("snapshot", "show", "read-1")
             self.assertEqual(code, 0)
             self.assertEqual(saved["data"]["coverage"]["position"], 2)
+            self.assertEqual([item["id"] for item in saved["data"]["data"]["items"]], ["9", "10", "11"])
+            self.assertEqual(saved["data"]["coverage"]["observed_positions"], [1, 2])
 
 
 if __name__ == "__main__":

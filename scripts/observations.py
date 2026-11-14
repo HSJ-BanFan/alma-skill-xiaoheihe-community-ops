@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import copy
 import json
 import re
 import sqlite3
@@ -25,6 +26,12 @@ def fingerprint(value):
     return hashlib.sha256(json.dumps(stable(value), sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
+def record_key(item):
+    identity = next((str(item[key]) for key in ("id", "uid", "topic_id", "topicid", "linkid", "appid", "folder_id")
+                     if item.get(key) is not None), None)
+    return identity or "content:" + fingerprint(item)
+
+
 def records(data):
     items = data.get("items") if isinstance(data, dict) else None
     items = items if isinstance(items, list) else [data]
@@ -32,9 +39,7 @@ def records(data):
     for item in items:
         if not isinstance(item, dict):
             raise XhhConfigError("snapshot records must be objects")
-        identity = next((str(item[key]) for key in ("id", "uid", "topic_id", "topicid", "linkid", "appid", "folder_id")
-                         if item.get(key) is not None), None)
-        identity = identity or "content:" + fingerprint(item)
+        identity = record_key(item)
         if identity in result:
             raise XhhConfigError("snapshot contains duplicate record identities")
         result[identity] = fingerprint(item)
@@ -47,6 +52,19 @@ def difference(previous, current):
             "changed": sorted(key for key in after.keys() & before.keys() if after[key] != before[key]),
             "unchanged": sorted(key for key in after.keys() & before.keys() if after[key] == before[key]),
             "not_observed": sorted(before.keys() - after.keys()), "deletion_inferred": False}
+
+
+def merge(previous, current):
+    if not isinstance(previous.get("items"), list) or not isinstance(current.get("items"), list):
+        return current
+    merged = {}
+    for data in (previous, current):
+        for item in data["items"]:
+            record = copy.deepcopy(item)
+            if "source" not in record and "source" in data:
+                record["source"] = data["source"]
+            merged[record_key(record)] = record
+    return {**current, "items": list(merged.values())}
 
 
 class Store:

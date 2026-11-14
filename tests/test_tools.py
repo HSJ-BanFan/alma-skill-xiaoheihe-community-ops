@@ -45,12 +45,12 @@ class PlatformFixture:
 
     def __call__(self, request, timeout=None):
         path = urlsplit(request.full_url).path
-        if request.method == "PUT":
+        if request.get_method() == "PUT":
             self.calls.append((path, "PUT", {"bytes": len(request.data)}, {}))
             return Response({})
         payload = parse_qs(request.data.decode()) if request.data else {}
         query = parse_qs(urlsplit(request.full_url).query)
-        self.calls.append((path, request.method, payload, query))
+        self.calls.append((path, request.get_method(), payload, query))
         if self.status != "ok":
             return Response({"status": self.status})
         if path == "/account/restore_login":
@@ -272,6 +272,26 @@ class ToolsTest(unittest.TestCase):
         for uid in ("101", "202"):
             journal.execute(uid, "same", "like", {"link_id": "501"}, lambda: calls.append(1) or {"ack": True})
         self.assertEqual(len(calls), 2)
+
+    def test_website_reader_has_explicit_identity_and_required_os(self):
+        code, value = self.run_cli("post", "501", "--reader", "website")
+        self.assertEqual(code, 0)
+        query = self.fixture.calls[-1][3]
+        self.assertEqual(query["x_app"], ["heybox_website"])
+        self.assertEqual(query["x_os_type"], ["Windows"])
+        self.assertEqual(value["data"]["source"]["reader"], "website")
+        self.assertEqual(len(self.fixture.calls), 1)
+
+    def test_website_error_never_falls_back(self):
+        self.fixture.status = "show_captcha"
+        code, value = self.run_cli("post", "501", "--reader", "website")
+        self.assertEqual(code, 1)
+        self.assertEqual(len(self.fixture.calls), 1)
+
+    def test_website_reader_rejects_app_session_before_request(self):
+        code, value = self.run_cli("--protocol", "app", "post", "501", "--reader", "website")
+        self.assertEqual(code, 1)
+        self.assertEqual(self.fixture.calls, [])
 
 
 if __name__ == "__main__":

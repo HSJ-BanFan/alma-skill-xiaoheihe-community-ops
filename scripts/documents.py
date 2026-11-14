@@ -196,7 +196,7 @@ def document(link, evidence):
                     else:
                         blocks.append({**event, "position": position})
             else:
-                blocks.append({"type": "unknown", "platform_type": kind, "position": position})
+                blocks.append({"type": "unknown", "platform_type": kind, "position": position, "data": node})
                 gaps.append("unsupported_body_block")
     elif value is not None and value != "":
         gaps.append("invalid_body_shape")
