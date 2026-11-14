@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from documents import document, summary, floors, link_id
+from documents import comment, document, summary, floors, link_id
 from xhh_sdk.exceptions import XhhConfigError
 
 
@@ -37,6 +37,21 @@ class DocumentTests(unittest.TestCase):
         post = summary({"linkid": 123, "up": 0, "link_award_num": 7})
         self.assertEqual(post["statistics"]["charges"], 7)
         self.assertIsNone(post["statistics"]["comments"])
+
+    def test_omitted_fields_are_unknown_while_explicit_empties_are_observed(self):
+        omitted = summary({"linkid": 123})
+        self.assertIsNone(omitted["title"])
+        self.assertIsNone(omitted["excerpt"])
+        self.assertIsNone(omitted["content_type"])
+        self.assertIsNone(omitted["communities"])
+        self.assertIsNone(omitted["hashtags"])
+        explicit = summary({"linkid": 123, "title": "", "description": "", "topics": [], "hashtags": []})
+        self.assertEqual(explicit["title"], "")
+        self.assertEqual(explicit["excerpt"], "")
+        self.assertEqual(explicit["communities"], [])
+        self.assertEqual(explicit["hashtags"], [])
+        self.assertIsNone(comment({"commentid": 10}, "123", "9")["text"])
+        self.assertEqual(comment({"commentid": 10, "text": ""}, "123", "9")["text"], "")
 
     def test_precise_relations_and_untruncated_comment(self):
         nodes = floors([{"comment": [{"commentid": 9, "text": "root"},
