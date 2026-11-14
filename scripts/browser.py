@@ -317,18 +317,16 @@ class Browser:
                 raw, result, evidence = self.fetch("/bbs/app/profile/user/link/list", {"userid": args.user_id,
                             "offset": str(args.offset), "limit": "1" if args.view == "profile" else str(args.limit)}, budget)
                 returned_user = result.get("user")
-                if isinstance(returned_user, dict) and author(returned_user)["uid"] != args.user_id:
+                if not isinstance(returned_user, dict):
+                    raise XhhConfigError("public author identity not returned")
+                if author(returned_user)["uid"] != args.user_id:
                     raise XhhConfigError("returned author identity does not match requested user")
                 if args.view == "posts":
                     records = rows(result, ("links",))
                     data = {"user_id": args.user_id, "items": [summary(row) for row in records], "source": evidence}
                     scope = coverage(result, count=len(records), position=args.offset)
                 else:
-                    user = result.get("user")
-                    if not isinstance(user, dict):
-                        raise XhhConfigError("public author profile not returned")
-                    if author(user)["uid"] != args.user_id:
-                        raise XhhConfigError("returned author identity does not match requested user")
+                    user = returned_user
                     data = {**author(user), "bio": user.get("signature") or user.get("description"), "source": evidence,
                             "statistics": {"followers": integer(user.get("fan_num")), "following": integer(user.get("follow_num")),
                                            "posts": integer(user.get("post_link_num")), "articles": integer(user.get("post_article_num"))}}
