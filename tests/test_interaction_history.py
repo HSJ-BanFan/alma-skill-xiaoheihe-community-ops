@@ -71,10 +71,12 @@ class InteractionStoreTest(unittest.TestCase):
         self.assertEqual(self.store.history(self.scope)["items"], [])
         replay = self.journal.execute("101", "old", "comment", payload, lambda: self.fail("POST"), identity_verified=True)
         self.assertTrue(replay["replayed"])
-        self.assertEqual(self.store.history(self.scope)["items"][0]["text"], "legacy body")
+        item = self.store.history(self.scope)["items"][0]
+        self.assertEqual((item["id"], item["author"]["uid"], item["operation_ids"]), ("701", "101", ["old"]))
+        self.assertNotIn("text", item)
         with database(self.store.path) as connection:
             self.assertEqual([tuple(row) for row in connection.execute("SELECT * FROM operations ORDER BY uid,operation_id")], sorted(rows, key=lambda row: row[:2]))
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 1)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 2)
             self.assertEqual(connection.execute("PRAGMA journal_mode").fetchone()[0], "wal")
         with database(self.store.path, write=True) as connection:
             self.assertEqual(connection.execute("PRAGMA synchronous").fetchone()[0], 2)
@@ -103,10 +105,13 @@ class InteractionStoreTest(unittest.TestCase):
         restarted = InteractionHistory(self.root)
         self.assertTrue(restarted.status(self.scope)["projection_complete"])
         items = restarted.history(self.scope)["items"]
-        self.assertEqual([(row["id"], row["text"], row["reply_to_id"]) for row in items], [("701", "sent text", "602")])
+        self.assertEqual([(row["id"], row["interaction_type"], row["reply_to_id"], row["operation_ids"]) for row in items],
+                         [("701", "reply", "602", ["incoming-602"])])
         self.assertTrue(self.send()["replayed"])
         self.assertEqual(restarted.status(self.scope)["my_known_comment_count"], 1)
         self.assertIsNone(items[0]["created_at"])
+        self.assertNotIn("text", items[0])
+        self.assertNotIn("media", items[0])
 
     def test_context_is_committed_before_send_and_network_does_not_hold_write_lock(self):
         payload = {"link_id": "501", "text": "fixture"}
@@ -117,8 +122,11 @@ class InteractionStoreTest(unittest.TestCase):
             return {"comment_id": "701"}
         self.journal.execute("101", "action", "comment", payload, send, context={"page": 77, "sort": "hot"})
         with database(self.store.path) as connection:
-            context = json.loads(connection.execute("SELECT payload_json FROM interaction_write_context").fetchone()[0])
-            self.assertEqual(context["request_context"], {"page": 77, "sort": "hot"})
+            context = connection.execute("SELECT request_page,request_sort,request_fingerprint,submission_fingerprint FROM interaction_write_context").fetchone()
+            self.assertEqual((context["request_page"], context["request_sort"]), (77, "hot"))
+            expected = hashlib.sha256(json_text({"link_id": "501", "root_id": None, "reply_id": None, "text": "fixture"}).encode()).hexdigest()
+            self.assertEqual(context["request_fingerprint"], expected)
+            self.assertIsNone(context["submission_fingerprint"])
 
     def test_concurrent_uid_operation_reservation_and_exact_projection(self):
         calls = []
@@ -170,26 +178,29 @@ class InteractionStoreTest(unittest.TestCase):
         self.assertEqual(pending["unresolved_operation_ids"], ["incoming-604"])
         self.assertEqual(status["unresolved_operations"][0]["operation_id"], "incoming-604")
 
-    def test_explicit_edits_sparse_observations_and_old_receipt_never_refresh_text(self):
+    def test_edits_sparse_observations_and_old_receipt_preserve_structural_evidence(self):
         self.send()
         self.capture([{**node("701", uid="101", parent="602", text="edited"), "updated_at": 200}], at=300)
         self.capture([{**node("701", uid=None, root=None, text=None, created=None), "media": []}], at=400)
-        self.capture([{**node("701", uid="101", text="old public"), "updated_at": 100}], at=500)
+        self.capture([{**node("701", uid="101", parent="603", text="old public"), "updated_at": 100}], at=500)
         with database(self.store.path, write=True) as connection:
             connection.execute("UPDATE interaction_write_context SET projected_at=NULL")
         self.store.recover("101")
         item = self.store.history(self.scope)["items"][0]
-        self.assertEqual(item["text"], "edited")
         self.assertEqual(item["reply_to_id"], "602")
         self.assertEqual(item["created_at"], 10)
+        self.assertEqual(item["field_evidence"]["reply_to_id"], {"source": "public", "observed_at": 300, "platform_updated_at": 200})
+        self.assertNotIn("text", item["field_evidence"])
+        self.assertNotIn("text", item)
         self.capture([{**node("701", text="", uid="101"), "updated_at": 600}], at=600)
-        self.assertEqual(self.store.history(self.scope)["items"][0]["text"], "")
+        self.assertEqual(self.store.history(self.scope)["items"][0]["reply_to_id"], "602")
 
     def test_old_snapshot_observation_cannot_overwrite_newer_public_or_creation(self):
-        self.capture([node("602", text="new", created=5)], at=300)
-        self.capture([node("602", text="old", created=10)], at=200)
+        self.capture([node("602", parent="601", text="new", created=5)], at=300)
+        self.capture([node("602", uid="303", root="609", parent="609", text="old", created=10)], at=200)
         item = self.store.history(self.scope)["items"][0]
-        self.assertEqual((item["text"], item["created_at"], item["public_seen_at"]), ("new", 5, 300))
+        self.assertEqual((item["author"]["uid"], item["root_id"], item["reply_to_id"], item["created_at"], item["public_seen_at"]),
+                         ("202", "601", "601", 5, 300))
 
     def test_immutable_post_membership_and_private_source_permissions(self):
         self.capture([node("602")])
@@ -204,14 +215,15 @@ class InteractionStoreTest(unittest.TestCase):
         self.assertEqual(self.store.status(Scope("102", "501"))["participation"], "unknown")
         self.assertTrue(self.store.capture("101", [node("603")], "public", evidence(verified=False))["persisted"])
 
-    def test_peer_and_root_history_resume_is_bound_and_full_text_retained(self):
+    def test_peer_and_root_history_resume_is_bound_and_returns_metadata_only(self):
         self.capture([node("602", text="  raw body\n" * 1000), node("603"), node("604", uid="303")])
         page = self.store.history(Scope("101", "501", "202", "601"), limit=1)
         self.assertEqual(page["items"][0]["id"], "603")
         token = page["coverage"]["resume"]
         next_page = self.store.history(Scope("101", "501", "202", "601"), limit=1, resume=token)
         self.assertEqual(next_page["items"][0]["id"], "602")
-        self.assertEqual(next_page["items"][0]["text"], "  raw body\n" * 1000)
+        self.assertEqual(next_page["items"][0]["author"]["uid"], "202")
+        self.assertFalse({"text", "raw_text", "media", "raw"} & next_page["items"][0].keys())
         for scope in (Scope("102", "501", "202", "601"), Scope("101", "502", "202", "601"), Scope("101", "501", "303", "601"), Scope("101", "501", "202", "999")):
             with self.assertRaises(XhhConfigError):
                 self.store.history(scope, resume=token)
@@ -240,7 +252,9 @@ class InteractionStoreTest(unittest.TestCase):
             self.store.status(self.scope)
         with self.assertRaises(XhhConfigError):
             self.send()
-        with database(self.store.path) as connection:
+        with self.assertRaises(XhhConfigError):
+            self.journal.read("101", "unknown")
+        with closing(sqlite3.connect(self.store.path)) as connection:
             self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 99)
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM interaction_comments").fetchone()[0], 1)
 

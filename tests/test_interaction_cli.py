@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import hashlib
 import json
 import os
 import shutil
@@ -116,14 +117,17 @@ class InteractionCLITest(unittest.TestCase):
         self.assertFalse(value["data"]["source"]["identity_verified_this_read"])
         items = self.store().history(Scope("101", "501"))["items"]
         own = next(item for item in items if item["id"] == "701")
-        self.assertEqual(own["text"], "public edited")
+        self.assertEqual(own["interaction_type"], "reply")
+        self.assertNotIn("text", own)
         self.assertEqual(own["reply_to_id"], "602")
         self.assertTrue(own["sources"]["public:/bbs/app/link/tree"]["kind"] == "public")
         self.assertFalse(own["sources"]["public:/bbs/app/link/tree"]["identity_verified_this_read"])
         with database(self.store().path) as connection:
-            context = json.loads(connection.execute("SELECT payload_json FROM interaction_write_context").fetchone()[0])
-        self.assertEqual(context["submitted_request"]["text"], self.text.read_text(encoding="utf-8"))
-        self.assertEqual(context["request_context"]["protocol"], "web")
+            context = connection.execute("SELECT * FROM interaction_write_context").fetchone()
+        submitted = {"link_id": "501", "root_id": "601", "reply_id": "602", "text": self.text.read_text(encoding="utf-8"), "imgs": "", "is_cy": "0"}
+        digest = hashlib.sha256(json.dumps(submitted, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        self.assertEqual(context["submission_fingerprint"], digest)
+        self.assertEqual(context["request_protocol"], "web")
 
     def test_verified_inbox_keeps_raw_contract_and_deduplicates_changed_notification_ids(self):
         self.fixture_for_interactions()
@@ -139,7 +143,7 @@ class InteractionCLITest(unittest.TestCase):
         self.assertEqual(len(status["pending"]), 1)
         self.assertEqual(status["pending"][0]["operation_id"], "incoming-602")
         item = next(row for row in self.store().history(Scope("101", "501"))["items"] if row["id"] == "602")
-        self.assertEqual(item["text"], self.fixture.incoming["comment_a_text"])
+        self.assertFalse({"text", "raw_text", "media", "raw"} & item.keys())
         self.assertEqual(item["author"]["uid"], "202")
         self.assertEqual(self.sends(), [])
 

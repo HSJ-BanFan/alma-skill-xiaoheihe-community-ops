@@ -63,7 +63,7 @@ class InteractionSemanticsTest(unittest.TestCase):
         self.assertEqual(first["items"][0]["id"], "602")
         self.assertEqual(first["items"][0]["created_at"], 20)
 
-    def test_later_platform_edit_overrides_old_public_text_but_not_with_receipt(self):
+    def test_later_own_list_edit_and_receipt_preserve_public_structural_proof(self):
         journal = Journal(self.folder / "state")
         payload = {"link_id": "501", "root_id": "601", "reply_id": "601", "text": "stale submitted body"}
         with patch("operations.project_receipts", side_effect=OSError("fixture projection interruption")):
@@ -72,13 +72,17 @@ class InteractionSemanticsTest(unittest.TestCase):
         self.capture([comment("701", "101", parent="601", text="public original", updated=10)], at=100)
         self.capture([comment("701", "101", parent="601", text="new own-list edit", updated=20)], kind="own_list", at=200)
         first = self.store.history(Scope("101", "501"))["items"][0]
-        self.assertEqual(first["text"], "new own-list edit")
+        self.assertEqual((first["id"], first["reply_to_id"], first["author"]["uid"]), ("701", "601", "101"))
         self.assertEqual(first["public_seen_at"], 100)
         self.assertEqual(first["own_list_seen_at"], 200)
+        self.assertEqual(first["field_evidence"]["reply_to_id"]["source"], "public")
+        self.assertNotIn("text", first)
         replay = journal.execute("101", "late-receipt", "reply", payload, lambda: self.fail("duplicate POST"), identity_verified=True)
         self.assertTrue(replay["replayed"])
         current = self.store.history(Scope("101", "501"))["items"][0]
-        self.assertEqual(current["text"], "new own-list edit")
+        self.assertEqual(current["reply_to_id"], "601")
+        self.assertEqual(current["field_evidence"]["reply_to_id"], first["field_evidence"]["reply_to_id"])
+        self.assertNotIn("text", current)
 
 
 if __name__ == "__main__":

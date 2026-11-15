@@ -11,7 +11,7 @@ from pathlib import Path
 from xhh_sdk.exceptions import XhhConfigError
 from xhh_sdk.interaction import _validate_text
 from xhh_sdk.payload import Post
-from interaction_history import database, bind_context, project_receipts
+from interaction_history import database, bind_context, fingerprint, project_receipts, receipt_metadata, request_fingerprint
 
 
 class OperationError(RuntimeError):
@@ -50,13 +50,13 @@ class Journal:
         if row is None:
             return None
         return {"operation_id": row["operation_id"], "kind": row["kind"], "status": row["status"],
-                "receipt": json.loads(row["receipt"]) if row["receipt"] else None,
+                "receipt": receipt_metadata(row["kind"], json.loads(row["receipt"])) if row["receipt"] else None,
                 "updated_at": row["updated_at"]}
 
     def execute(self, uid: str, operation_id: str, kind: str, payload: dict, send, *, identity_verified=False, context=None):
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", operation_id or ""):
             raise XhhConfigError("--operation-id requires 1-128 letters, digits, underscores or hyphens")
-        fingerprint = hashlib.sha256(json_text({"kind": kind, "payload": payload}).encode()).hexdigest()
+        request_hash = hashlib.sha256(json_text({"kind": kind, "payload": payload}).encode()).hexdigest()
         replay = None
         closed = None
         with self.connect() as connection:
@@ -64,20 +64,18 @@ class Journal:
             row = connection.execute("SELECT * FROM operations WHERE uid=? AND operation_id=?",
                                      (uid, operation_id)).fetchone()
             if row is not None:
-                if row["fingerprint"] != fingerprint:
+                if row["fingerprint"] != request_hash:
                     raise OperationError("operation_id_conflict", operation=self.read(uid, operation_id))
-                bind_context(connection, uid, operation_id, kind, {**payload, "request_context": context or {}},
-                             identity_verified=identity_verified)
+                bind_context(connection, uid, operation_id, kind, payload, identity_verified=identity_verified, context=context)
                 if row["status"] == "returned":
                     replay = {"operation_id": operation_id, "replayed": True,
-                              "status": "returned", "receipt": json.loads(row["receipt"])}
+                              "status": "returned", "receipt": receipt_metadata(kind, json.loads(row["receipt"]))}
                 else:
                     closed = self.read(uid, operation_id)
             else:
                 connection.execute("INSERT INTO operations VALUES (?, ?, ?, ?, 'reserved', NULL, ?)",
-                                   (uid, operation_id, fingerprint, kind, time.time()))
-                bind_context(connection, uid, operation_id, kind, {**payload, "request_context": context or {}},
-                             identity_verified=identity_verified)
+                                   (uid, operation_id, request_hash, kind, time.time()))
+                bind_context(connection, uid, operation_id, kind, payload, identity_verified=identity_verified, context=context)
         if replay is not None:
             return {**replay, **self.project(uid)}
         if closed is not None:
@@ -111,20 +109,24 @@ class Journal:
     def bind_submitted_request(self, uid, operation_id, request):
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute("SELECT payload_json FROM interaction_write_context WHERE uid=? AND operation_id=?",
+            row = connection.execute("""SELECT c.request_fingerprint,c.submission_fingerprint,o.kind,o.status
+                                     FROM interaction_write_context c JOIN operations o USING(uid,operation_id)
+                                     WHERE c.uid=? AND c.operation_id=?""",
                                      (uid, operation_id)).fetchone()
-            if row is None:
+            if row is None or row["kind"] not in ("comment", "reply") or row["status"] != "reserved":
                 raise XhhConfigError("submitted comment requires reserved context")
-            payload = json.loads(row["payload_json"])
-            for key in ("link_id", "text", "root_id", "reply_id"):
-                if request.get(key) != payload.get(key):
-                    raise XhhConfigError("submitted request differs from reserved context")
-            payload["submitted_request"] = request
-            connection.execute("UPDATE interaction_write_context SET payload_json=? WHERE uid=? AND operation_id=?",
-                               (json_text(payload), uid, operation_id))
+            if request_fingerprint(row["kind"], request) != row["request_fingerprint"]:
+                raise XhhConfigError("submitted request differs from reserved context")
+            submitted = fingerprint(request)
+            if row["submission_fingerprint"] is not None and row["submission_fingerprint"] != submitted:
+                raise XhhConfigError("submitted request differs from the first submission")
+            connection.execute("UPDATE interaction_write_context SET submission_fingerprint=? WHERE uid=? AND operation_id=?",
+                               (submitted, uid, operation_id))
 
     def settle(self, uid: str, operation_id: str, status: str, receipt):
         with self.connect() as connection:
+            row = connection.execute("SELECT kind FROM operations WHERE uid=? AND operation_id=?", (uid, operation_id)).fetchone()
+            receipt = receipt_metadata(row["kind"], receipt)
             connection.execute("UPDATE operations SET status=?, receipt=?, updated_at=? WHERE uid=? AND operation_id=?",
                                (status, json_text(receipt) if receipt is not None else None,
                                 time.time(), uid, operation_id))

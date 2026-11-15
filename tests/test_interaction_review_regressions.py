@@ -50,31 +50,43 @@ class InteractionReviewRegressionTest(unittest.TestCase):
     def own(self):
         return next(row for row in self.store().history(Scope("101", "501"))["items"] if row["id"] == "701")
 
-    def test_actual_own_comment_images_are_retained(self):
+    def test_actual_own_comment_images_remain_in_live_response_only(self):
         self.fixture = ReviewFixture()
         code, value = self.run_cli("my-comments")
         self.assertEqual(code, 0)
         self.assertTrue(value["ok"])
-        self.assertIn("https://imgheybox.max-c.com/own-list.png", [asset["url"] for asset in self.own()["media"]])
+        self.assertEqual(value["data"][0]["comment_images"], ["https://imgheybox.max-c.com/own-list.png"])
+        self.assertFalse({"text", "raw_text", "media", "raw"} & self.own().keys())
 
     def test_explicit_text_edit_removes_old_inline_image(self):
         self.fixture = ReviewFixture()
         self.assertEqual(self.run_cli("account-info")[0], 0)
-        self.assertEqual(self.run_cli("comments", "501", "--requests", "1")[0], 0)
-        self.assertIn("https://imgheybox.max-c.com/inline.png", [asset["url"] for asset in self.own()["media"]])
+        code, first = self.run_cli("comments", "501", "--requests", "1")
+        self.assertEqual(code, 0)
+        own = next(row for row in first["data"]["items"] if row["id"] == "701")
+        self.assertIn("https://imgheybox.max-c.com/inline.png", [asset["url"] for asset in own["media"]])
         self.fixture.public_text = "image removed"
-        self.assertEqual(self.run_cli("comments", "501", "--requests", "1")[0], 0)
-        self.assertNotIn("https://imgheybox.max-c.com/inline.png", [asset["url"] for asset in self.own()["media"]])
+        code, edited = self.run_cli("comments", "501", "--requests", "1")
+        self.assertEqual(code, 0)
+        own = next(row for row in edited["data"]["items"] if row["id"] == "701")
+        self.assertEqual(own["text"], "image removed")
+        self.assertEqual(own["media"], [])
+        self.assertNotIn("media", self.own())
 
-    def test_inline_edit_keeps_attachment_when_that_field_is_not_returned(self):
+    def test_own_list_attachment_and_later_public_body_stay_live_only(self):
         self.fixture = ReviewFixture()
-        self.assertEqual(self.run_cli("my-comments")[0], 0)
+        code, own_list = self.run_cli("my-comments")
+        self.assertEqual(code, 0)
+        self.assertEqual(own_list["data"][0]["comment_images"], ["https://imgheybox.max-c.com/own-list.png"])
         self.assertEqual(self.run_cli("comments", "501", "--requests", "1")[0], 0)
         self.fixture.public_text = "inline image removed, attachment not returned"
-        self.assertEqual(self.run_cli("comments", "501", "--requests", "1")[0], 0)
-        urls = {asset["url"] for asset in self.own()["media"]}
-        self.assertNotIn("https://imgheybox.max-c.com/inline.png", urls)
-        self.assertIn("https://imgheybox.max-c.com/own-list.png", urls)
+        code, current = self.run_cli("comments", "501", "--requests", "1")
+        self.assertEqual(code, 0)
+        own = next(row for row in current["data"]["items"] if row["id"] == "701")
+        self.assertEqual(own["text"], self.fixture.public_text)
+        self.assertEqual(own["media"], [])
+        self.assertEqual(self.own()["author"]["uid"], "101")
+        self.assertNotIn("media", self.own())
 
     def test_sync_identity_persistence_failure_keeps_prior_status_and_resume(self):
         self.fixture = ReviewFixture()
