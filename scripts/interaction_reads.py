@@ -64,7 +64,6 @@ def private_nodes(kind, data, uid):
         if parent:
             nodes.append({"id": parent, "post_id": post, "root_id": root, "author": {"uid": target_uid},
                           "created_at": integer(row.get("comment_b_create_at"))})
-        # The structured A/B pair in the verified personal reply inbox establishes an incoming target.
         if parent and peer != uid and target_uid in (None, uid):
             events.append({"event_key": "message:" + str(row["message_id"]) if row.get("message_id") is not None else "incoming:" + cid,
                 "post_id": post, "incoming_comment_id": cid, "root_id": root, "peer_uid": peer})

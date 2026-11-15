@@ -814,7 +814,12 @@ def summarize(scope, comments, operations, events, coverage, recovery):
     cyclic, root_mismatches = set(), set()
     for row in selected:
         current, visited = row, set()
-        while current and current["comment_id"] != row["root_id"]:
+        while current:
+            if row["root_id"] and current["root_id"] not in (None, row["root_id"]):
+                root_mismatches.add(row["comment_id"])
+                break
+            if current["comment_id"] == row["root_id"]:
+                break
             if current["comment_id"] in visited:
                 cyclic.update(visited)
                 break

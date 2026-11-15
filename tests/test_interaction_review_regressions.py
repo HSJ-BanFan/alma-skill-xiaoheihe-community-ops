@@ -123,6 +123,30 @@ class InteractionReviewRegressionTest(unittest.TestCase):
         pending = next(row for row in state["pending"] if row["incoming_comment_id"] == "602")
         self.assertNotEqual(pending["state"], "answered")
 
+    def assert_incomplete_root_scope(self, nodes, root, reply):
+        self.store().capture("101", nodes, "public",
+            {"route": "fixture", "observed_at": 100, "identity_verified_this_read": True})
+        for scope in (Scope("101", "501", root_id=root), Scope("101", "501", "202", root)):
+            with self.subTest(scope=scope):
+                state = self.store().status(scope)
+                self.assertFalse(state["ancestry_complete"])
+                self.assertIn(reply, state["root_mismatch_ids"])
+                self.assertEqual(state["completed_round_count"], 0)
+
+    def test_root_scope_reports_foreign_intermediate_ancestor(self):
+        self.assert_incomplete_root_scope([
+            {"id": "601", "post_id": "501", "root_id": "601", "author": {"uid": "101"}},
+            {"id": "602", "post_id": "501", "root_id": "999", "author": {"uid": "202"}, "reply_to_id": "601"},
+            {"id": "701", "post_id": "501", "root_id": "601", "author": {"uid": "101"}, "reply_to_id": "602"},
+        ], "601", "701")
+
+    def test_root_scope_reports_inconsistent_terminal_root(self):
+        self.assert_incomplete_root_scope([
+            {"id": "601", "post_id": "501", "root_id": "999", "author": {"uid": "101"}},
+            {"id": "602", "post_id": "501", "root_id": "601", "author": {"uid": "202"}, "reply_to_id": "601"},
+            {"id": "701", "post_id": "501", "root_id": "601", "author": {"uid": "101"}, "reply_to_id": "602"},
+        ], "601", "701")
+
 
 if __name__ == "__main__":
     unittest.main()
