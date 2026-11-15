@@ -14,16 +14,42 @@ from xhh_sdk.transport import Transport
 from xhh_sdk.signer import Signer
 from network_io import read_http, NetworkDeadline
 
+_BLOCK_CODES = frozenset({"captcha_required", "rate_limited"})
+_CAPTCHA_STATUSES = frozenset(
+    {"show_captcha", "captcha", "verify_captcha"})
+_RATE_STATUSES = frozenset({"http_429", "429"})
+_BUDGET_CODES = {
+    "request_budget": "request_budget_exhausted",
+    "time_budget": "time_budget_exhausted",
+    "page_budget": "page_budget_exhausted",
+    "item_budget": "item_budget_exhausted",
+}
+
+
+def _classify_block(value, *, stop_reason=None):
+    error = dict(value) if isinstance(value, dict) else {}
+    code = error.get("code")
+    status = str(error.get("status") or "").casefold()
+    budget = stop_reason in _BUDGET_CODES or code in _BUDGET_CODES.values()
+    blocked = (
+        error.get("retry_allowed") is False and not budget
+        or code in _BLOCK_CODES
+        or status in _CAPTCHA_STATUSES
+        or status in _RATE_STATUSES
+    )
+    if status in _CAPTCHA_STATUSES or code == "captcha_required":
+        error["code"] = "captcha_required"
+        error["retry_allowed"] = False
+    elif status in _RATE_STATUSES or code == "rate_limited":
+        error["code"] = "rate_limited"
+        error["retry_allowed"] = False
+    return blocked, error
+
 
 class ReadLimit(XhhBudgetError):
     def __init__(self, reason):
         self.reason = reason
-        code = {
-            "request_budget": "request_budget_exhausted",
-            "time_budget": "time_budget_exhausted",
-            "page_budget": "page_budget_exhausted",
-            "item_budget": "item_budget_exhausted",
-        }.get(reason, "read_budget_exhausted")
+        code = _BUDGET_CODES.get(reason, "read_budget_exhausted")
         super().__init__(
             reason,
             code=code,
@@ -131,22 +157,10 @@ class StopState:
 
     @classmethod
     def from_error(cls, error):
-        public = error.public()
-        code = getattr(error, "code", None)
-        status = str(getattr(error, "status", "") or "").casefold()
-        if status in {"show_captcha", "captcha", "verify_captcha"}:
-            public["code"] = "captcha_required"
-            public["retry_allowed"] = False
-        elif status in {"http_429", "429"} or code == "rate_limited":
-            public["code"] = "rate_limited"
-            public["retry_allowed"] = False
-        if (not error.retry_allowed
-                or code in {"captcha_required", "rate_limited"}
-                or status in {
-                    "show_captcha", "captcha", "verify_captcha",
-                    "http_429", "429",
-                }):
-            return cls(StopKind.BLOCKED, reason="platform_error", error=public)
+        blocked, public = _classify_block(error.public())
+        if blocked:
+            return cls(
+                StopKind.BLOCKED, reason="platform_error", error=public)
         return cls(StopKind.RETRYABLE_FAILURE, reason="platform_error",
                    error=public)
 
@@ -215,6 +229,22 @@ def delivery_ok(coverage):
 def project_coverage(value):
     coverage = copy.deepcopy(value) if isinstance(value, dict) else {}
     status = coverage.get("status")
+    source_error = (
+        coverage.get("error")
+        if isinstance(coverage.get("error"), dict)
+        else {}
+    )
+    stop_reason = coverage.get("stop_reason")
+    blocked, normalized_error = _classify_block(source_error, stop_reason=stop_reason)
+    if blocked:
+        coverage["error"] = normalized_error
+        coverage["status"] = "blocked"
+        coverage["resume"] = None
+        return coverage
+    if stop_reason in _BUDGET_CODES or source_error.get("code") in _BUDGET_CODES.values():
+        coverage["status"] = "partial"
+        coverage.pop("error", None)
+        return coverage
     if status in {
             "complete", "partial", "blocked", "retryable_failure",
             "failed", "cursor_stalled"}:
@@ -223,32 +253,9 @@ def project_coverage(value):
         return coverage
 
     completion = coverage.get("completion")
-    stop_reason = coverage.get("stop_reason")
-    error = coverage.get("error") if isinstance(
-        coverage.get("error"), dict) else {}
-    code = error.get("code")
+    error = source_error
     retry_allowed = error.get("retry_allowed")
-    blocked = (
-        retry_allowed is False
-        or code in {"captcha_required", "rate_limited"}
-        or str(error.get("status") or "").casefold() in {
-            "show_captcha", "captcha", "verify_captcha", "http_429", "429",
-        }
-    )
-    if blocked and code != "rate_limited":
-        status_value = str(error.get("status") or "").casefold()
-        if status_value in {"show_captcha", "captcha", "verify_captcha"}:
-            coverage["error"]["code"] = "captcha_required"
-            coverage["error"]["retry_allowed"] = False
-        elif status_value in {"http_429", "429"}:
-            coverage["error"]["code"] = "rate_limited"
-            coverage["error"]["retry_allowed"] = False
-    if stop_reason in {"request_budget", "time_budget", "page_budget",
-                       "item_budget"}:
-        status = "partial"
-    elif blocked:
-        status = "blocked"
-    elif stop_reason == "cursor_stalled":
+    if stop_reason == "cursor_stalled":
         status = "cursor_stalled"
     elif stop_reason == "platform_error":
         status = ("retryable_failure" if retry_allowed is True

@@ -101,6 +101,16 @@ def parser():
 
 
 def load_config(args):
+    if args.command == "post" and args.reader == "html":
+        if args.protocol:
+            raise XhhConfigError(
+                "the html reader is public and cannot use --protocol")
+        return XhhConfig(
+            pkey="public-reader",
+            heybox_id="0",
+            protocol_mode="web",
+            extra={"public_reader": True},
+        )
     if args.account:
         config = AccountStore(args.data_dir).get_config(
             args.account, protocol=args.protocol)
@@ -191,8 +201,6 @@ def coverage_error(scope, protocol):
             value["code"] = f"{protocol}_session_expired"
             value["fix"] = f"log in again with the {protocol} protocol"
         return value
-    if reason in {"request_budget", "time_budget", "page_budget"}:
-        return None
     error = scope.get("error")
     if isinstance(error, dict):
         return error

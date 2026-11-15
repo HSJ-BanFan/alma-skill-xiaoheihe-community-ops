@@ -469,7 +469,8 @@ class Browser:
             items=getattr(args, "limit", 100),
         )
         post_plan = self._reader_plan(args) if args.command == "post" else None
-        if verify_account:
+        if verify_account and not (post_plan and all(
+                spec.protocol == "public" for spec in post_plan)):
             from operations import verify_identity
             if args.requests < 2:
                 raise XhhConfigError("saving, resuming, or comparing observations requires at least two requests including account verification")
@@ -817,7 +818,7 @@ class Browser:
         if not text:
             data["body"]["gaps"] = sorted(set(
                 data["body"]["gaps"] + ["html_article_not_found"]))
-        return data
+        return data, page
 
     @staticmethod
     def _reader_score(data):
@@ -873,7 +874,7 @@ class Browser:
             query, budget, client=self._reader_client("app"))
         if not isinstance(result.get("link"), dict):
             raise XhhConfigError("post missing from platform result")
-        return document(result["link"], evidence)
+        return document(result["link"], evidence), raw
 
     def _read_website_post(self, args, budget):
         query = {"link_id": args.link_id, "page": str(args.page),
@@ -882,7 +883,7 @@ class Browser:
             query, budget, client=self._reader_client("web"))
         if not isinstance(result.get("link"), dict):
             raise XhhConfigError("post missing from platform result")
-        return document(result["link"], evidence)
+        return document(result["link"], evidence), raw
 
     def _read_html_post(self, args, budget):
         return self.public_html(args.link_id, budget)
@@ -944,7 +945,7 @@ class Browser:
         }
 
     def post(self, args, budget, *, plan=None):
-        attempts, documents, errors = [], [], []
+        attempts, documents, errors, raw_responses = [], [], [], []
         binding = query_key(args)
         if args.resume:
             token = decode_resume(
@@ -978,8 +979,15 @@ class Browser:
             }
             attempts.append(attempt)
             try:
-                value = spec.handler(args, budget)
+                value, raw = spec.handler(args, budget)
                 documents.append(value)
+                if args.raw:
+                    raw_responses.append({
+                        "reader": spec.reader,
+                        "protocol": spec.protocol,
+                        "route": attempt["route"],
+                        "response": raw,
+                    })
                 attempt.update({
                     "status": "ok",
                     "body_status": value["body"]["status"],
@@ -1048,6 +1056,8 @@ class Browser:
             "metadata": self._reader_provenance(metadata_attempt),
             "body": self._reader_provenance(selected_attempt),
         }
+        if args.raw:
+            data["raw_responses"] = raw_responses
         scope = coverage({"has_more": False}, count=0, position=args.page, mode="page")
         scope.update(body=data["body"]["completeness"], gaps=list(data["body"]["gaps"]),
                      reader=data["source"]["reader"], readers_attempted=len(attempts),
@@ -1069,9 +1079,13 @@ class Browser:
         if args.section == "metadata":
             data.pop("body")
         elif args.section == "body":
-            data = {key: data[key] for key in (
+            keys = [
                 "id", "url", "body", "source", "content_sha256",
-                "reader_attempts", "selected_reader", "provenance")}
+                "reader_attempts", "selected_reader", "provenance",
+            ]
+            if args.raw:
+                keys.append("raw_responses")
+            data = {key: data[key] for key in keys}
         return data, scope
 
     def page(self, args, budget):
@@ -1446,6 +1460,7 @@ class Browser:
                 break
             try:
                 if root is None:
+                    root_page = page
                     raw, result, evidence = self.fetch("/bbs/app/link/tree", {"link_id": args.link_id,
                                 "page": str(page), "limit": str(args.limit), "sort_filter": args.sort}, budget)
                     if args.raw:
@@ -1460,7 +1475,7 @@ class Browser:
                                     and key in skipped):
                                 continue
                             if (not duplicate and node["id"] != args.root_id
-                                    and len(nodes) >= budget.item_limit):
+                                    and len(new_items) >= budget.item_limit):
                                 remainder = True
                                 continue
                             node["source"] = evidence
@@ -1516,7 +1531,7 @@ class Browser:
                         last_scope["completion"] = "complete"
                         stop = StopState.complete()
                         break
-                    if len(nodes) >= budget.item_limit:
+                    if len(new_items) >= budget.item_limit:
                         stop = StopState.budget_pause("item_budget")
                         resume_parameters = {
                             "phase": "replies",
@@ -1547,7 +1562,8 @@ class Browser:
                         duplicate = node["id"] in nodes
                         if not duplicate and key in skipped:
                             continue
-                        if not duplicate and len(nodes) >= budget.item_limit:
+                        if (not duplicate
+                                and len(new_items) >= budget.item_limit):
                             remainder = True
                             continue
                         node["source"] = evidence
@@ -1595,7 +1611,7 @@ class Browser:
                     if last_scope["next"] == cursor:
                         stop = StopState.cursor_stalled()
                         break
-                    if len(nodes) >= budget.item_limit:
+                    if len(new_items) >= budget.item_limit:
                         stop = StopState.budget_pause("item_budget")
                         resume_parameters = {
                             "phase": "replies",
@@ -1665,11 +1681,12 @@ class Browser:
         )
         last_scope["continuation"] = (
             {
-                "command": phase,
+                "command": resume_parameters["phase"],
                 "post_id": args.link_id,
                 "root_id": args.root_id,
-                "page": page if phase == "comments" else None,
-                "cursor": cursor,
+                "page": (resume_parameters["page"]
+                         if resume_parameters["phase"] == "comments" else None),
+                "cursor": resume_parameters["cursor"],
             }
             if last_scope.get("resume") else None
         )

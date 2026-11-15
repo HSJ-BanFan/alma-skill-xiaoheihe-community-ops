@@ -366,6 +366,55 @@ class ReaderAndBudgetTests(unittest.TestCase):
         self.assertEqual(scope["status"], "complete")
         self.assertEqual(client.calls, [])
 
+    def test_explicit_html_cli_does_not_require_an_account_or_signer(self):
+        created = []
+
+        def factory(config):
+            created.append(config)
+            return ClientFixture(
+                "web",
+                lambda path, query, protocol: self.fail(
+                    "signed reader was called"),
+            )
+
+        output = io.StringIO()
+        with patch("browser.read_http",
+                   return_value=b"<article><p>public body</p></article>"), \
+                contextlib.redirect_stdout(output):
+            code = xhh.main(
+                ["post", "123", "--reader", "html", "--requests", "1"],
+                client_factory=factory,
+            )
+        value = json.loads(output.getvalue())
+
+        self.assertEqual(code, 0)
+        self.assertTrue(value["ok"])
+        self.assertEqual(value["data"]["body"]["text"], "public body")
+        self.assertEqual(len(created), 1)
+        self.assertTrue(created[0].extra["public_reader"])
+
+    def test_post_raw_includes_successful_reader_responses(self):
+        payload = {
+            "result": {
+                "link": {"id": "123", "text": "body", "is_full_text": 1},
+                "comments": [],
+            },
+        }
+        client = ClientFixture(
+            "app", lambda path, query, protocol: payload)
+
+        data, _ = Browser(client).execute(
+            xhh.parser().parse_args([
+                "post", "123", "--reader", "native", "--raw",
+            ]))
+
+        self.assertEqual(data["raw_responses"], [{
+            "reader": "native",
+            "protocol": "app",
+            "route": "/bbs/app/link/tree",
+            "response": payload,
+        }])
+
     def test_auto_works_with_a_web_only_client_set(self):
         web = ClientFixture(
             "web",
@@ -671,6 +720,49 @@ class ReaderAndBudgetTests(unittest.TestCase):
         self.assertEqual(second_scope["status"], "partial")
         self.assertEqual(second_scope["budget"]["items_used"], 2)
 
+    def test_thread_snapshot_resume_counts_only_new_items(self):
+        class ThreadFixture(ClientFixture):
+            def __init__(self):
+                def handler(path, query, protocol):
+                    records = [
+                        {"commentid": "9", "text": "root", "child_num": 4,
+                         "has_more": 0},
+                        *[{"commentid": str(index), "text": "reply",
+                           "replyid": "9"} for index in range(10, 14)],
+                    ]
+                    return {
+                        "result": {
+                            "comments": [{"comment": records}],
+                            "total_page": 1,
+                        },
+                    }
+
+                super().__init__("web", handler)
+
+        client = ThreadFixture()
+        first, first_scope = Browser(client).execute(
+            xhh.parser().parse_args([
+                "thread", "123", "9", "--around", "11", "--limit", "2",
+            ]))
+        second, second_scope = Browser(client).execute(
+            xhh.parser().parse_args([
+                "thread", "123", "9", "--around", "11", "--limit", "2",
+                "--resume", first_scope["resume"],
+            ]),
+            prior_data=first,
+        )
+
+        self.assertEqual([item["id"] for item in first["items"]],
+                         ["9", "10"])
+        self.assertEqual([item["id"] for item in second["items"]],
+                         ["9", "10", "11", "12"])
+        self.assertEqual(second_scope["budget"]["items_used"], 2)
+        self.assertNotEqual(second_scope["resume"], first_scope["resume"])
+        second_token = decode_resume(
+            second_scope["resume"], "thread", "101")
+        self.assertIn("comment:11",
+                      second_token["item_window"]["consumed"])
+
     def test_thread_limit_one_cannot_resume_without_dropping_remainder(self):
         class ThreadFixture(ClientFixture):
             def __init__(self):
@@ -878,6 +970,46 @@ class StopAndSnapshotProjectionTests(unittest.TestCase):
                 root,
                 ["snapshot", "resume", "legacy-captcha"],
                 factory=lambda config: self.fail("pending replay must be offline"),
+            )
+
+        self.assertEqual(code, 1)
+        self.assertFalse(value["ok"])
+        self.assertEqual(value["coverage"]["status"], "blocked")
+        self.assertIsNone(value["coverage"]["resume"])
+        self.assertEqual(value["error"]["code"], "captcha_required")
+
+    def test_partial_pending_with_captcha_is_normalized_to_blocked(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            store = Store(root)
+            coverage = {
+                "status": "partial",
+                "completion": "more",
+                "stop_reason": "platform_error",
+                "resume": "unsafe-partial-token",
+                "error": {
+                    "code": "captcha_required",
+                    "message": "captcha required",
+                    "retry_allowed": False,
+                },
+            }
+            store.save(
+                "101", "partial-captcha", "query",
+                {"items": [{"id": "1"}]},
+                coverage,
+                ["comments", "123"],
+                pending_response={
+                    "ok": True,
+                    "data": {"items": [{"id": "1"}]},
+                    "coverage": coverage,
+                    "error": coverage["error"],
+                },
+            )
+            code, value = self.run_cli(
+                root,
+                ["snapshot", "resume", "partial-captcha"],
+                factory=lambda config: self.fail(
+                    "pending replay must be offline"),
             )
 
         self.assertEqual(code, 1)

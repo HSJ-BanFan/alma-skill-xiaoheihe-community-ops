@@ -77,7 +77,7 @@ class XhhCaptchaError(XhhError):
 
 
 class XhhRiskTokenError(XhhConfigError):
-    """The App SMS flow lacks the risk cookie required for signing."""
+    """The App SMS login flow lacks its anti-fraud cookie."""
 
     code = "risk_token_missing"
     default_fix = "capture the account's x_xhh_tokenid with account risk-token, then retry login"
@@ -105,7 +105,7 @@ class XhhSessionExpiredError(XhhAuthError):
 
 
 class XhhBudgetError(XhhError):
-    """A caller-defined request, page, or time budget stopped the read."""
+    """A caller-defined request, page, item, or time budget stopped the read."""
 
     code = "request_budget_exhausted"
     default_fix = "use the returned resume token or increase the explicit budget"
