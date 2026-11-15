@@ -127,11 +127,14 @@ def read(client, kind: str, args) -> tuple[object, dict]:
     if kind == "inbox":
         data = client.transport.signed_request("/bbs/app/user/message",
                     query={**query, "list_type": "0", "no_more": "false"})
-        result = data.get("result")
-        if not isinstance(result, dict) or not isinstance(result.get("messages"), list):
+        result = data.get("result") if isinstance(data, dict) else None
+        if not isinstance(result, dict):
+            raise OperationError("invalid_inbox_response")
+        messages = result.get("entries") if "entries" in result else result.get("messages")
+        if not isinstance(messages, list):
             raise OperationError("invalid_inbox_response")
         return result, {**coverage, "offset": args.offset, "limit": args.limit,
-                        "next_offset": args.offset + len(result["messages"])}
+                        "next_offset": args.offset + len(messages)}
     elif kind == "emojis":
         return client.emojis(), coverage
     elif kind == "creator-options":
@@ -157,15 +160,15 @@ def prepare_write(client, kind: str, args):
         client.post_state(args.link_id)
         if kind == "reply":
             payload.update(root_id=args.root_id, reply_id=args.reply_id)
-            floors = client.comment_thread(args.link_id, page=args.page, limit=50)
+            floors = client.comment_thread(args.link_id, page=args.page, limit=args.limit, sort=args.sort)
             floor = next((floor for floor in floors if str(floor["root"].get("commentid") or
                          floor["root"].get("comment_id") or floor["root"].get("id")) == args.root_id), None)
             if floor is None:
                 raise XhhConfigError("root ID not observed on this post/page")
             nodes = [floor["root"], *floor["replies"]]
-            if not any(str(node.get("commentid") or node.get("comment_id") or node.get("id")) == args.reply_id for node in nodes):
-                if not args.cursor:
-                    raise XhhConfigError("reply ID not observed; select a returned --cursor for deeper replies")
+            target_in_floor = any(str(node.get("commentid") or node.get("comment_id") or node.get("id")) == args.reply_id
+                                  for node in nodes)
+            if args.cursor is not None or not target_in_floor:
                 batch = client.sub_comments(args.root_id, lastval=args.cursor)
                 if not any(str(node.get("commentid") or node.get("comment_id") or node.get("id")) == args.reply_id
                            for node in batch.get("comments", []) if isinstance(node, dict)):
