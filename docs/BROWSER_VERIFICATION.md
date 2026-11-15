@@ -6,7 +6,7 @@
 
 ### 离线验证
 
-- 完整 `unittest` 为 `240/240` 通过。覆盖 App/Web 会话隔离、reader provenance、请求和条目预算、验证码与限流停止、快照恢复、corpus 事务、跨查询去重、同页 remainder、fresh-process replay、旧数据迁移和持久化引用完整性。
+- 完整 `unittest` 为 `265/265` 通过。覆盖 App/Web 会话隔离、reader provenance、请求和条目预算、验证码与限流停止、快照恢复、corpus 事务、跨查询去重、同页 remainder、fresh-process replay、旧数据迁移和持久化引用完整性。
 - `scripts/` 与 `tests/` 的全部 Python 文件通过 `py_compile`，`git diff --check` 无输出。
 - `tests/verify_portable.py` 在无关工作目录和隔离解释器中验证 21 个 SDK 文件摘要，输出 `ok=true`、`offline_state_writes=0`。Web offline doctor 不依赖 Java，夹具测试通过。
 - 当前 vendored SDK 与上游来源提交的差异已在 `THIRD_PARTY.md` 说明。`SNAPSHOT.json` 冻结实际随包哈希，不表示与上游逐字节一致。
@@ -16,19 +16,21 @@
 使用已保存的 App 会话完成以下请求。没有发送短信，没有重新登录，也没有执行评论、发布、删除、点赞或收藏。
 
 - `account-info` 读取在线身份成功。App 身份路径使用 `/account/info/`，不再先经过 `/account/info` 的 301。
-- `feed --pages 1`、`hashtags links` 和 `stories` 均返回条目，退出码为 0，coverage 为 `partial`，完成范围保持 `unknown`。
+- `feed --pages 1`、`hashtags links --name 存钱` 和 `stories` 均返回条目，退出码为 0，coverage 为 `partial`，完成范围保持 `unknown`。
+- `banners` 返回 13 条记录；`recommended-users` 返回空列表并明确报告推荐缺口。搜索类型 `game` 的 `原神` 查询返回 10 条有效游戏记录。
 - `post --reader html` 在没有账号和签名器的条件下只执行公开 HTTPS GET。所测公开帖可取得页面但正文为空，结果为 `body_missing`，不伪装成成功正文读取。
+- `post --reader auto --requests 1` 在没有账号和签名器时只尝试公开 HTML，仍以 `body_missing` 结束，没有返回 `account_selection_required`，也没有借用会话。
 - `post --reader website --protocol web` 在没有 Web 会话时返回 `web_session_missing`，没有泛化为 `configuration_error`，也没有借用 App 会话。
 - `post --reader native --raw` 返回结构化正文、reader provenance 和成功 reader 的原始响应。平台只给出部分正文证据时，`body.completeness` 保持 `partial`。
-- 一次真实 corpus run 将 Manifest 的 3 次 request 配额全部计入身份核对和一页 feed。该页返回 5 个 provider 位置，接纳 1 条新实体并保留 4 条同页 remainder。
-- 在 request 已为 `3/3` 后再次 resume，执行过程没有发起新的平台页面请求，先消费本地 remainder，最终状态为 `complete`，query 状态为 `quota_reached`，request 使用量仍为 `3/3`。
+- 一次真实 corpus run 使用 2 次 request 完成身份核对和一页 feed。该页返回 5 个 provider 位置，接纳 1 条新实体并保留 4 个同页位置；query 达到声明的 1 条新记录配额后为 `quota_reached`，run 为 `complete`，总 request 使用量保持 `2/3`。
+- 进程退出后，`corpus status` 在没有账号、会话或签名器的条件下读回同一 `complete/quota_reached` checkpoint，request 使用量仍为 `2/3`。
 - 这些真实请求没有出现 `show_captcha` 或限流响应。原始响应、会话修订和账号数据只保存在不提交的 `.audit/live-*` 文件中。
 
 ### 尚未验证
 
 - 当前工作区只有 App 会话。没有用真实 Web 会话证明 `website` 能取得完整正文。
 - 公开 HTML 所测帖子没有正文，因此只验证了无凭据传输、元数据缺口和 `body_missing`，没有证明公开 HTML 能恢复任意长文章。
-- banners、recommended users 和混合无效搜索记录已有离线响应形状测试，但本轮没有重新执行对应的真实 App 请求。
+- 混合无效搜索记录已有离线响应形状测试。真实游戏搜索本次没有产生无效记录，因此未取得生产响应中的 mixed-invalid 实例。
 - corpus 的真实 `search` 与 `hashtag_links` query 尚未单独执行。它们复用已测试的 `Browser.page()` 边界，不据此声称真实平台行为已经验证。
 - 平台接口、字段和风控策略会变化。任何新观察都需要重新检查 `coverage.completion`、`source`、`reader_attempts` 和稳定错误码。
 
@@ -44,4 +46,4 @@ API 接受、结构化解析、正文可用、读取范围、公开效果和写�
 
 账号 UID 是本地数据命名空间，不是操作系统多租户边界。快照与 corpus 数据库限制为本地所有者访问；`identity_verified` 只描述具体在线读取，离线查看不会核验身份。
 
-验证码、限流、会话失效和不可重试平台错误会停止当前任务。corpus 将整个 run 置为 `blocked_human`，不执行 fallback，也不生成可自动续跑的 token。恢复需要用户先处理平台状态，再显式传入 `--acknowledge-block`。HTTP 408、5xx 等可重试平台错误将 run 置为 `paused_retryable`，不要求确认阻塞，可直接 resume。
+验证码、限流、会话失效和不可重试平台错误会停止当前任务。corpus 将整个 run 置为 `blocked_human`，不执行 fallback，也不生成可自动续跑的 token。恢复需要用户先处理平台状态，再显式传入 `--acknowledge-block`。HTTP 408、5xx、DNS、TLS、timeout 和连接重置等可重试传输错误将 run 置为 `paused_retryable`，不要求确认阻塞，可直接 resume。

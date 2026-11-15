@@ -44,7 +44,7 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
 
 需要按多个社区、查询或话题批量收集公开条目时使用 `corpus`。v1 支持 `feed`、`search --type link` 和 `hashtags links`。Manifest 固定账号、协议、查询、过滤和配额，一个 run 的所有身份核对、页面请求和 reader fallback 共享全局预算。每次持久化 request attempt 最多派发一次 HTTP 请求；进程在请求后退出时，这次 reservation 仍计入配额。每一页会先持久化，再交付条目、去重实体、查询成员关系和未消费的同页余量。相同帖子出现在多个查询中只保存一份内容，并保留多条 membership。完整 Manifest 字段、query 类型和输出见 [REFERENCE.md](REFERENCE.md#有界-corpus)。
 
-`corpus plan`、`corpus status`、`corpus run` 和 `corpus resume` 是完整入口。`plan` 与 `status` 不加载账号。`status` 可在无凭据、无签名器时读取持久化 checkpoint。`paused_budget` 只有在原 Manifest 仍有配额时可恢复。HTTP 408、5xx 等可重试平台错误产生 `paused_retryable`，可直接 resume。验证码、限流、会话失效或不可重试平台错误产生 `blocked_human`，不得自动恢复。用户处理阻塞后执行 `corpus resume <run-id> --acknowledge-block`。固定配额耗尽不能通过 resume 扩大。`quota_reached` 只表示达到声明的配额，不表示平台历史已抓完。若 request 配额已经耗尽但同一页仍有 remainder，可用 `corpus resume <run-id> --max-requests 0` 先消费本地 remainder；只有需要读取新页面时才要求新的网络额度。
+`corpus plan`、`corpus status`、`corpus run` 和 `corpus resume` 是完整入口。`plan` 与 `status` 不加载账号。`status` 可在无凭据、无签名器时读取持久化 checkpoint。`paused_budget` 只有在原 Manifest 仍有配额时可恢复。HTTP 408、5xx、DNS、TLS、timeout 和连接重置等可重试传输错误产生 `paused_retryable`，可直接 resume。验证码、限流、会话失效或不可重试平台错误产生 `blocked_human`，不得自动恢复。用户处理阻塞后执行 `corpus resume <run-id> --acknowledge-block`。固定配额耗尽不能通过 resume 扩大。`quota_reached` 只表示达到声明的配额，不表示平台历史已抓完。若 request 配额已经耗尽但同一页仍有 remainder，可用 `corpus resume <run-id> --max-requests 0` 先消费本地 remainder；只有需要读取新页面时才要求新的网络额度。
 
 `user <uid>` 读取作者公开资料，`--view posts/followers/following` 继续导航。`favourites folders/posts` 读取当前账号的收藏夹和内容。`inbox` 保留平台消息字段，读取 `entries` 或旧 `messages` 列表，不改已读状态。
 

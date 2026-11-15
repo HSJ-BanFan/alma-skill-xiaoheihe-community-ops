@@ -181,7 +181,7 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 
 时间预算覆盖网络建立和完整响应接收；`--requests` 按实际发起的 HTTPS GET 计数，允许的同站或小黑盒子域重定向也消耗请求预算。超时会终止该网络读取并保留之前完成的页。空评论页如果仍有明确总页数证据会继续。`unknown_parent_ids` 和 `ancestry_complete` 描述精确父节点是否已知，根楼层归属不会被当作直接回复关系。影音块保留可播放地址与原始元数据，无法解析时报告缺口。评论中的内嵌图片也会保留，HTML 标题和表格单元格不会被拼成无分隔文字。
 
-预算和页数停止后，可重复同一查询并提供 `--resume <value>`。正文读取的续读令牌保留下一个读取器位置。`thread` 的 `coverage.continuation` 返回可继续的 comments 页或 replies 游标。错误发生在后续页时，已读条目保留，`ok=false`，停止原因是 `platform_error`；验证码、限流、会话失效、公开 HTTP 访问失败和未知非成功状态都停止且不返回 resume，也不自动换账号、协议或入口。
+预算和页数停止后，可重复同一查询并提供 `--resume <value>`。正文读取的续读令牌保留下一个读取器位置，并绑定最初使用的 reader 方案；可用的 App 或 Web 会话改变后，旧令牌会被拒绝，调用方应重新读取。`thread` 的 `coverage.continuation` 返回可继续的 comments 页或 replies 游标。错误发生在后续页时，已读条目保留，`ok=false`，停止原因是 `platform_error`；验证码、限流、会话失效、公开 HTTP 访问失败和未知非成功状态都停止且不返回 resume，也不自动换账号、协议或入口。
 
 媒体依赖按需安装，核心读取和 Web 签名没有新增依赖。
 
@@ -295,7 +295,7 @@ python -I -X utf8 "<skill>/scripts/xhh.py" corpus resume campus-savings --max-re
 
 每次 run 的输出 `data` 包含 `delivery_id`、`revision`、`run`、`queries`、`pages`、`new_items`、`updated_items`、`remainders` 和 `counts`。`pages` 保存位置与 coverage，`new_items` 和 `updated_items` 从去重后的 entity 引用投影生成。`counts.provider` 统计平台位置数，`counts.new` 和 `counts.updated` 统计去重实体数，`counts.deferred` 统计尚未消费的位置，`counts.invalid` 统计缺少可用实体的记录，`counts.excluded` 统计平台返回但被查询过滤的记录。SQLite 另存 query membership，记录帖子在哪些查询中出现。正文只保存一份在 entity 层，delivery 不复制正文。
 
-run 状态为 `planned`、`running`、`paused_budget`、`paused_retryable`、`blocked_human`、`complete` 或 `failed`。query 还可处于 `pending`、`pending_remainder`、`paused_retryable` 和 `quota_reached`。`paused_budget` 在 Manifest 仍有配额时可以继续；`paused_retryable` 表示 HTTP 408、5xx 等可重试平台错误，可直接 resume；`quota_reached` 只表示查询达到声明配额，不表示平台历史结束。
+run 状态为 `planned`、`running`、`paused_budget`、`paused_retryable`、`blocked_human`、`complete` 或 `failed`。query 还可处于 `pending`、`pending_remainder`、`paused_retryable` 和 `quota_reached`。`paused_budget` 在 Manifest 仍有配额时可以继续；`paused_retryable` 表示 HTTP 408、5xx、DNS、TLS、timeout 或连接重置等可重试传输错误，可直接 resume；`quota_reached` 只表示查询达到声明配额，不表示平台历史结束。
 
 `limits.requests` 和 invocation 的 `--max-requests` 是 wire request 上限。每次持久化 `corpus_attempts` 行最多派发一次 HTTP 请求；身份核对、页面读取和 fallback 各使用独立 attempt。请求后进程退出时，reservation 保持已计费状态，避免把未知的网络副作用当成未发生。额度不足会在下一次 dispatch 前暂停。
 
