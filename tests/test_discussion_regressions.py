@@ -28,6 +28,7 @@ class DiscussionFixture(test_tools.PlatformFixture):
         self.created = None
         self.show_created = True
         self.sub_pages = None
+        self.root_page = None
 
     def __call__(self, request, timeout=None):
         data = json.loads(super().__call__(request, timeout).read())
@@ -42,7 +43,10 @@ class DiscussionFixture(test_tools.PlatformFixture):
             nodes = result["comments"][0]["comment"]
             nodes[0].update(child_num=3 if self.created else 2, has_more=True)
             nodes[1]["replyid"] = "601"
-            result["total_page"] = max(1, int(query.get("page", ["1"])[0]))
+            page = int(query.get("page", ["1"])[0])
+            result["total_page"] = max(1, page, self.root_page or 1)
+            if self.root_page is not None and page != self.root_page:
+                result["comments"] = []
             if "limit" in query and (
                 self.required_sort is not None and query.get("sort_filter") != [self.required_sort]
                 or self.required_limit is not None and query["limit"] != [str(self.required_limit)]
@@ -200,12 +204,18 @@ class DiscussionRegressionTests(unittest.TestCase):
                 self.assertEqual(value["data"]["items"][0]["uid"], "404")
 
     def test_inline_reply_location_matches_the_observed_root_page(self):
-        value = self.assert_success(self.run_cli("thread", "501", "601", "--around", "602", "--page", "3",
-                                                "--pages", "1", "--limit", "7", "--sort", "time_aes"))
+        self.fixture.root_page = 3
+        value = self.assert_success(self.run_cli("thread", "501", "601", "--around", "602", "--page", "1",
+                                                "--pages", "3", "--limit", "7", "--sort", "time_aes"))
         self.assertEqual(value["data"].get("reply_location"),
                          {"page": 3, "limit": 7, "sort": "time_aes", "cursor": None})
+        pages = [query["page"] for path, method, payload, query in self.fixture.calls
+                 if path == "/bbs/app/link/tree" and "limit" in query]
+        self.assertEqual(pages, [["1"], ["2"], ["3"]])
+        self.assertEqual(str(value["data"]["reply_location"]["page"]), pages[-1][0])
 
     def test_reply_location_keeps_target_page_instead_of_final_cursor(self):
+        self.fixture.root_page = 2
         self.fixture.sub_pages = {
             None: {"comments": [{"commentid": "603", "replyid": "602", "text": "first"}],
                    "has_more": True, "lastval": "second"},
@@ -217,6 +227,10 @@ class DiscussionRegressionTests(unittest.TestCase):
                                                 "--pages", "4", "--limit", "5", "--sort", "time_desc"))
         location = value["data"].get("reply_location")
         self.assertEqual(location, {"page": 2, "limit": 5, "sort": "time_desc", "cursor": "second"})
+        root_queries = [query for path, method, payload, query in self.fixture.calls
+                        if path == "/bbs/app/link/tree" and "limit" in query]
+        self.assertEqual([query["page"] for query in root_queries], [["2"]])
+        self.assertEqual(str(location["page"]), root_queries[0]["page"][0])
         self.assert_success(self.reply("606", "located-target", "--page", str(location["page"]), "--limit",
                                        str(location["limit"]), "--sort", location["sort"], "--cursor", location["cursor"]))
         self.assertEqual(self.sends()[0][2]["reply_id"], ["606"])
@@ -243,6 +257,7 @@ class DiscussionRegressionTests(unittest.TestCase):
         self.assertEqual(post["data"]["body"]["status"], "missing")
         post = self.assert_success(self.run_cli("post", "501", "--reader", "website"))
         self.assertEqual(post["data"]["body"]["status"], "available")
+        self.assertIn("fixture article body", post["data"]["body"]["text"])
         self.assertEqual(len(post["data"]["media"]), 1)
         self.fixture.inbox_result = {"entries": [self.incoming()]}
         for _ in range(2):
@@ -263,6 +278,7 @@ class DiscussionRegressionTests(unittest.TestCase):
         self.fixture.article = True
         post = self.assert_success(self.run_cli("post", "501", "--requests", "1"))
         self.assertEqual(post["data"]["body"]["status"], "available")
+        self.assertIn("fixture article body", post["data"]["body"]["text"])
         self.assertEqual(post["data"]["source"]["reader"], "website")
         self.assertEqual(len(post["data"]["media"]), 1)
         self.assertEqual(len(self.fixture.calls), 1)
@@ -295,6 +311,21 @@ class DiscussionRegressionTests(unittest.TestCase):
         replay = self.assert_success(self.reply())
         self.assertTrue(replay["data"]["replayed"])
         self.assertEqual(len(self.sends()), 1)
+
+    def test_offset_pages_with_new_arrivals_can_be_deduplicated_by_message_identity(self):
+        seen, observed = set(), []
+        pages = ((0, ["603", "604"]), (2, ["604", "606"]), (0, ["605", "603"]))
+        for offset, cids in pages:
+            messages = [{**self.incoming(), "comment_a_id": cid, "message_id": "event-" + cid} for cid in cids]
+            self.fixture.inbox_result = {"entries": messages}
+            inbox = self.assert_success(self.run_cli("inbox", "--offset", str(offset), "--limit", "2"))
+            self.assertEqual(inbox["coverage"]["next_offset"], offset + 2)
+            for message in inbox["data"]["entries"]:
+                key = message["message_id"]
+                if key not in seen:
+                    seen.add(key)
+                    observed.append(message["comment_a_id"])
+        self.assertEqual(observed, ["603", "604", "606", "605"])
 
 
 if __name__ == "__main__":
