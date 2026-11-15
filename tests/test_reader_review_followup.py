@@ -1,0 +1,377 @@
+import base64
+import contextlib
+import io
+import json
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+from urllib.request import Request
+
+sys.path[:0] = [str(Path(__file__).resolve().parents[1] / "scripts"),
+                str(Path(__file__).resolve().parent)]
+import browser
+import network_io
+import xhh
+from observations import Store
+from paging import Budget, ReadLimit, decode_resume, project_coverage
+from xhh_sdk import accounts, cli
+from xhh_sdk.config import XhhConfig
+from xhh_sdk.exceptions import XhhAPIError, XhhConfigError
+from xhh_sdk.transport import Transport
+
+
+class ClientFixture:
+    def __init__(self, protocol, handler):
+        self.config = XhhConfig(
+            pkey=protocol + "-pkey",
+            heybox_id="101",
+            protocol_mode=protocol,
+        )
+        self.transport = self
+        self.handler = handler
+        self.calls = []
+
+    def signed_request(self, path, query=None):
+        self.calls.append((path, query))
+        return self.handler(path, query, self.config.protocol_mode)
+
+    def account_info(self):
+        self.calls.append(("/account/info", None))
+        return {"userid": self.config.heybox_id}
+
+    def _open(self, request):
+        raise AssertionError("transport must be mocked")
+
+    @staticmethod
+    def _decode(body):
+        return json.loads(body)
+
+    @staticmethod
+    def _checked_response(path, data):
+        return data
+
+
+def subprocess_result(value):
+    return SimpleNamespace(
+        returncode=0,
+        stdout=json.dumps(value).encode("utf-8"),
+        stderr=b"",
+    )
+
+
+class WireBoundaryTests(unittest.TestCase):
+    def test_redirect_handler_refuses_a_second_wire_request_at_limit_one(self):
+        start = "https://www.xiaoheihe.cn/app/bbs/link/123"
+        request = Request(start)
+        handler = network_io.PublicXiaoheiheRedirects(start, wire_limit=1)
+
+        with self.assertRaises(network_io.NetworkRequestLimit):
+            handler.redirect_request(
+                request,
+                None,
+                302,
+                "Found",
+                {},
+                "https://www.xiaoheihe.cn/app/bbs/link/124",
+            )
+
+    def test_reported_wire_requests_consume_the_remaining_budget(self):
+        config = XhhConfig(pkey="fixture", heybox_id="101")
+        transport = Transport(config)
+        client = SimpleNamespace(config=config, transport=transport)
+        budget = Budget(requests=2)
+
+        def relay(request, timeout, *, wire_limit=None, wire_counter=None,
+                  **kwargs):
+            self.assertEqual(wire_limit, 2)
+            self.assertIsNotNone(wire_counter)
+            wire_counter(2)
+            return b"body"
+
+        request = Request("https://api.xiaoheihe.cn/bbs/app/link/tree")
+        with patch("paging.read_http", side_effect=relay):
+            budget.call(client, lambda: transport._open(request))
+            self.assertEqual(budget.used, 2)
+            with self.assertRaises(ReadLimit) as raised:
+                budget.call(client, lambda: transport._open(request))
+        self.assertEqual(raised.exception.reason, "request_budget")
+
+    def test_public_http_403_is_an_access_failure_not_session_expiry(self):
+        response = subprocess_result({
+            "ok": False,
+            "kind": "HTTPError",
+            "status": "HTTP_403",
+            "wire_requests": 1,
+        })
+        request = Request("https://www.xiaoheihe.cn/app/bbs/link/123")
+        with patch("network_io.subprocess.run", return_value=response):
+            with self.assertRaises(XhhAPIError) as raised:
+                network_io.read_http(request, 1, profile="public")
+
+        error = raised.exception
+        self.assertEqual(error.code, "http_access_denied")
+        self.assertEqual(error.status, "HTTP_403")
+        self.assertFalse(error.retry_allowed)
+        self.assertEqual(xhh.public_error(error, "web")["code"],
+                         "http_access_denied")
+
+    def test_public_body_over_four_mib_is_rejected(self):
+        body = b"x" * (4 * 1024 * 1024 + 1)
+        response = subprocess_result({
+            "ok": True,
+            "body": base64.b64encode(body).decode("ascii"),
+            "wire_requests": 1,
+        })
+        request = Request("https://www.xiaoheihe.cn/app/bbs/link/123")
+        with patch("network_io.subprocess.run", return_value=response):
+            with self.assertRaises(XhhAPIError) as raised:
+                network_io.read_http(request, 1, profile="public")
+        self.assertEqual(raised.exception.code, "public_response_too_large")
+        self.assertFalse(raised.exception.retry_allowed)
+
+
+class ReaderEvidenceTests(unittest.TestCase):
+    def test_identity_evidence_stays_with_the_client_that_verified_it(self):
+        app = ClientFixture(
+            "app",
+            lambda path, query, protocol: {
+                "result": {"link": {"id": "123", "title": "from app",
+                                    "text": ""}},
+            },
+        )
+        web = ClientFixture(
+            "web",
+            lambda path, query, protocol: {
+                "result": {"link": {"id": "123", "title": "from web",
+                                    "text": "web body", "is_full_text": 1}},
+            },
+        )
+
+        data, scope = browser.Browser(
+            app, clients={"app": app, "web": web}).execute(
+                xhh.parser().parse_args([
+                    "post", "123", "--reader", "auto",
+                ]),
+                verify_account=True,
+            )
+
+        self.assertEqual(scope["status"], "complete")
+        self.assertTrue(data["reader_attempts"][0]["identity_verified"])
+        self.assertFalse(data["reader_attempts"][1]["identity_verified"])
+        self.assertTrue(data["provenance"]["metadata"]["identity_verified"])
+        self.assertFalse(data["provenance"]["body"]["identity_verified"])
+        self.assertFalse(data["source"]["identity_verified"])
+
+    def test_explicit_html_without_a_body_is_a_stable_failure(self):
+        public = b"<html><head><title>Xiaoheihe</title></head><body><nav>menu</nav></body></html>"
+        output = io.StringIO()
+        with patch("browser.read_http", return_value=public), \
+                contextlib.redirect_stdout(output):
+            code = xhh.main([
+                "post", "123", "--reader", "html", "--requests", "1",
+                "--section", "body",
+            ])
+        value = json.loads(output.getvalue())
+
+        self.assertEqual(code, 1, value)
+        self.assertFalse(value["ok"])
+        self.assertEqual(value["coverage"]["status"], "failed")
+        self.assertEqual(value["error"]["code"], "body_missing")
+        self.assertEqual(value["data"]["body"]["status"], "missing")
+        self.assertEqual(
+            value["data"]["reader_attempts"][-1]["error"]["code"],
+            "body_missing",
+        )
+
+    def test_auto_resume_starts_at_the_next_reader(self):
+        app = ClientFixture(
+            "app",
+            lambda path, query, protocol: {
+                "result": {"link": {"id": "123", "text": ""}},
+            },
+        )
+        web = ClientFixture(
+            "web",
+            lambda path, query, protocol: {
+                "result": {"link": {"id": "123", "text": "web body",
+                                    "is_full_text": 1}},
+            },
+        )
+        first, scope = browser.Browser(
+            app, clients={"app": app, "web": web}).execute(
+                xhh.parser().parse_args([
+                    "post", "123", "--reader", "auto", "--requests", "1",
+                ]),
+            )
+        token = decode_resume(scope["resume"], "post", "101")
+        self.assertEqual(token["reader_offset"], 1)
+
+        app.calls.clear()
+        web.calls.clear()
+        second, second_scope = browser.Browser(
+            app, clients={"app": app, "web": web}).execute(
+                xhh.parser().parse_args([
+                    "post", "123", "--reader", "auto", "--requests", "1",
+                    "--resume", scope["resume"],
+                ]),
+            )
+
+        self.assertEqual(app.calls, [])
+        self.assertEqual(len(web.calls), 1)
+        self.assertEqual(second["body"]["text"], "web body")
+        self.assertEqual(second_scope["status"], "complete")
+
+    def test_steam_score_and_comment_score_remain_distinct(self):
+        value = browser.game({
+            "steam_appid": "123",
+            "name": "Game",
+            "score": 9.2,
+            "score_comment": 318,
+        })
+        self.assertEqual(value["score"], 9.2)
+        self.assertEqual(value["score_comment"], 318)
+
+
+class PublicDocumentTests(unittest.TestCase):
+    def run_html(self, page):
+        client = ClientFixture(
+            "web",
+            lambda path, query, protocol: self.fail("signed request"),
+        )
+        with patch("browser.read_http", return_value=page):
+            return browser.Browser(client).execute(
+                xhh.parser().parse_args([
+                    "post", "123", "--reader", "html", "--requests", "1",
+                ]),
+            )
+
+    def test_public_html_does_not_invent_title_or_author(self):
+        data, scope = self.run_html(
+            b"<html><head><title>Xiaoheihe</title></head>"
+            b"<body><article><p>body</p></article></body></html>"
+        )
+        self.assertIsNone(data["title"])
+        self.assertIsNone(data["author"]["uid"])
+        self.assertIsNone(data["author"]["name"])
+        self.assertIn("html_title_not_found", data["metadata_gaps"])
+        self.assertIn("html_author_not_found", data["metadata_gaps"])
+        self.assertIn("html_title_not_found", scope["gaps"])
+        self.assertIn("html_author_not_found", scope["gaps"])
+
+    def test_public_html_uses_structured_title_and_author_evidence(self):
+        metadata = json.dumps({
+            "@context": "https://schema.org",
+            "@type": "Article",
+            "headline": "Real post title",
+            "author": {
+                "@type": "Person",
+                "name": "Author name",
+                "identifier": "456",
+            },
+        })
+        page = (
+            '<html><head><title>Xiaoheihe</title>'
+            '<script type="application/ld+json">' + metadata + '</script>'
+            '</head><body><article><p>body</p></article></body></html>'
+        ).encode("utf-8")
+        data, _ = self.run_html(page)
+        self.assertEqual(data["title"], "Real post title")
+        self.assertEqual(data["author"]["uid"], "456")
+        self.assertEqual(data["author"]["name"], "Author name")
+        self.assertNotIn("html_title_not_found", data["metadata_gaps"])
+        self.assertNotIn("html_author_not_found", data["metadata_gaps"])
+
+
+class SnapshotAndStatusTests(unittest.TestCase):
+    def test_pending_snapshot_replays_before_config_selection(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            store = Store(root)
+            pending = {
+                "ok": True,
+                "data": {
+                    "id": "123",
+                    "body": {"text": "saved body", "status": "available"},
+                },
+                "coverage": {"status": "complete", "resume": None},
+                "error": None,
+            }
+            store.save(
+                "0", "public", "query", pending["data"],
+                pending["coverage"], ["post", "123", "--reader", "html"],
+                pending_response=pending,
+            )
+            output = io.StringIO()
+            with patch("xhh.load_config",
+                       side_effect=XhhConfigError("must not load")), \
+                    contextlib.redirect_stdout(output):
+                code = xhh.main([
+                    "--data-dir", str(root), "snapshot", "resume", "public",
+                ], client_factory=lambda config: self.fail(
+                    "offline replay requested a client"))
+            value = json.loads(output.getvalue())
+            saved = Store(root).get("0", "public")
+
+        self.assertEqual(code, 0, value)
+        self.assertTrue(value["ok"])
+        self.assertEqual(value["data"]["body"]["text"], "saved body")
+        self.assertTrue(value["coverage"]["replayed_delivery"])
+        self.assertIsNone(saved["pending_response"])
+
+    def test_account_status_online_uses_web_only_default(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with patch.object(accounts, "_dpapi",
+                              side_effect=lambda value, decrypt=False: value), \
+                    patch.object(accounts, "_restrict_directory",
+                                 return_value=None):
+                store = accounts.AccountStore(root)
+                store.add("web-only", identity="101")
+                account = store.get("web-only")
+                store.save_login(
+                    "web-only", pkey="web-session", identity="101",
+                    expected_revision=account.revision,
+                    protocol_mode="web",
+                )
+                store.configure("web-only", {"protocol_mode": "app"})
+                seen = []
+
+                class Client:
+                    def __init__(self, config):
+                        seen.append(config.protocol_mode)
+
+                    def account_info(self):
+                        return {"userid": "101"}
+
+                output = io.StringIO()
+                with patch.object(cli, "XhhClient", Client), \
+                        contextlib.redirect_stdout(output):
+                    code = cli.main([
+                        "--data-dir", str(root),
+                        "account", "status", "web-only", "--online",
+                    ])
+                value = json.loads(output.getvalue())
+
+        self.assertEqual(code, 0, value)
+        self.assertEqual(value["protocol_mode"], "web")
+        self.assertEqual(value["state"], "verified")
+        self.assertEqual(seen, ["web"])
+
+    def test_unknown_platform_status_is_blocked_without_resume(self):
+        with self.assertRaises(XhhAPIError) as raised:
+            Transport._check_status({"status": "future_non_success"})
+        self.assertFalse(raised.exception.retry_allowed)
+        projected = project_coverage({
+            "stop_reason": "platform_error",
+            "resume": "unsafe-token",
+            "error": raised.exception.public(),
+        })
+        self.assertEqual(projected["status"], "blocked")
+        self.assertIsNone(projected["resume"])
+
+
+if __name__ == "__main__":
+    unittest.main()
