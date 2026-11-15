@@ -24,9 +24,14 @@ class DiscoveryShapeTests(CommandTests):
             },
             "morelike": [{"steam_appid": 730, "name": "Related game"}],
             "similar_games": [], "publisher_games": [],
-            "menu_v2": [{"key": "store", "name": "Store", "type": "web",
-                         "protocol": "heybox://store", "value": "steam",
-                         "params": {"appid": "570"}}],
+            "menu_v2": [
+                {"uidsl_key": "store", "name": "Store", "type": "web",
+                 "prot": "heybox://store", "value": "steam",
+                 "uidsl_params": {"appid": "570"}},
+                {"key": "guide", "title": "Guide", "type": "native",
+                 "protocol": "heybox://guide", "value": "guide",
+                 "parameters": {"appid": "570"}},
+            ],
         }
 
     def test_game_info_detail_shape_uses_one_app_get(self):
@@ -59,10 +64,18 @@ class DiscoveryShapeTests(CommandTests):
             "icon_url": "https://img.example/topic.png", "forum_available": True,
             "game_ids": ["570"], "navigation": {"feed": {"command": "feed", "topic_id": "7214"}},
         })
-        self.assertEqual(data["menus"], [{
-            "key": "store", "title": "Store", "type": "web",
-            "protocol": "heybox://store", "value": "steam", "parameters": {"appid": "570"},
-        }])
+        self.assertEqual(data["menus"], [
+            {
+                "key": "store", "title": "Store", "type": "web",
+                "protocol": "heybox://store", "value": "steam",
+                "parameters": {"appid": "570"},
+            },
+            {
+                "key": "guide", "title": "Guide", "type": "native",
+                "protocol": "heybox://guide", "value": "guide",
+                "parameters": {"appid": "570"},
+            },
+        ])
         self.assertEqual(data["source"]["route"], "/game/get_game_detail")
         self.assertEqual(data["source"]["protocol"], "app")
         self.assertFalse(data["source"]["identity_verified"])

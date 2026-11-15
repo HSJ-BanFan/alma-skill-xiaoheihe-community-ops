@@ -592,11 +592,14 @@ def game_detail(result, target, evidence):
     for entry in menu_entries:
         if isinstance(entry, dict):
             menus.append({
-                "key": entry.get("key"),
+                "key": entry.get("key") or entry.get("uidsl_key"),
                 "title": entry.get("title") or entry.get("name"),
-                "type": entry.get("type"), "protocol": entry.get("protocol"),
+                "type": entry.get("type"),
+                "protocol": entry.get("protocol") or entry.get("prot"),
                 "value": entry.get("value"),
-                "parameters": entry.get("parameters", entry.get("params")),
+                "parameters": (entry.get("uidsl_params")
+                               or entry.get("parameters")
+                               or entry.get("params")),
             })
         else:
             if "invalid_menu_v2_records" not in gaps:
