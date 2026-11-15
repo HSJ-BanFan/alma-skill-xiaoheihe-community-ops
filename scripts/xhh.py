@@ -464,6 +464,7 @@ def main(argv=None, *, client_factory=XhhClient):
         return 1
     except (XhhError, OSError, ValueError, TypeError, sqlite3.Error) as error:
         emit(False, args.command,
+             data=getattr(error, "partial_data", None),
              error=public_error(error, locals().get("config") and config.protocol_mode),
              secret=secret)
         return 1

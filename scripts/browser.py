@@ -1121,7 +1121,7 @@ class Browser:
                     stop = StopState.fatal("continuation_missing")
                 break
             setattr(args, position_key, next_position)
-        if data is None:
+        if data is None and paged:
             data = {"items": []}
         if paged:
             if (args.command == "feed"
@@ -1154,7 +1154,8 @@ class Browser:
             if "excluded" in scope or excluded_total:
                 scope["excluded"] = excluded_total
             scope["gaps"] = sorted(normalization_gaps)
-        elif isinstance(data.get("items"), list) and hasattr(args, "limit"):
+        elif (data is not None and isinstance(data.get("items"), list)
+              and hasattr(args, "limit")):
             if _fit_items(data, args, scope, matched=len(data["items"])):
                 public = XhhConfigError(
                     "output limit truncated a response without a safe continuation",
@@ -1167,7 +1168,10 @@ class Browser:
                     error=public,
                 )
         if args.raw:
-            data["raw_pages"] = raw_pages
+            if data is None and raw_pages:
+                data = {"raw_pages": raw_pages}
+            elif data is not None:
+                data["raw_pages"] = raw_pages
         if stop is None:
             if not paged or scope.get("completion") == "complete":
                 stop = StopState.complete()
@@ -1178,7 +1182,7 @@ class Browser:
                 stop = StopState.fatal("continuation_missing")
         if invalid_total and stop.kind == StopKind.COMPLETE:
             stop = StopState(StopKind.DATA_GAP, reason="invalid_records")
-        budget.consume_items(len(data.get("items") or []))
+        budget.consume_items(len((data or {}).get("items") or []))
         scope["budget"] = budget.view()
         scope["observed_positions"] = observed_positions
         finalize_coverage(
@@ -1774,7 +1778,12 @@ class Browser:
                 raise XhhConfigError("games info requires App protocol; select --protocol app")
             raw, result, evidence = self.fetch(
                 "/game/get_game_detail", {"appid": args.target}, budget)
-            data, scope = game_detail(result, args.target, evidence)
+            try:
+                data, scope = game_detail(result, args.target, evidence)
+            except XhhError as error:
+                if args.raw:
+                    error.partial_data = {"raw_pages": [raw]}
+                raise
         elif args.command == "games":
             if args.offset < 0:
                 raise XhhConfigError("offset must be nonnegative")
