@@ -1,4 +1,3 @@
-"""Account-scoped public browsing snapshots and conservative differences."""
 from __future__ import annotations
 
 import hashlib

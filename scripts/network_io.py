@@ -1,4 +1,3 @@
-"""Bound the complete existing HTTP reader in a terminable process."""
 from __future__ import annotations
 
 import base64

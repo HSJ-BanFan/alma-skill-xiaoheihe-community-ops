@@ -1,4 +1,3 @@
-"""Community discovery and bounded platform reading."""
 from __future__ import annotations
 
 import argparse
@@ -622,13 +621,15 @@ RESPONSES = {
                                       discovery_user, route="/bbs/app/profile/recommend/following",
                                       empty_gap="recommendations_empty"),
     "link": ResponseSpec("link", (("links",), ("search_result",), ("items",), ("list",), ("news",)), search_link),
+    "feed": ResponseSpec("link", (("links",), ("items",), ("list",), ("news",)), summary),
+    "hashtag-links": ResponseSpec("link", (("links",), ("items",), ("list",)), summary),
     "game": ResponseSpec("game", (("games",), ("search_result",), ("items",), ("list",),
                                   ("links",), ("news",), ("recommend",), ("similar",)), search_game),
     "user": ResponseSpec("user", (("users",), ("search_result",), ("items",), ("list",), ("links",), ("news",)), search_user),
 }
 
 
-def normalize_response(result, spec):
+def response_records(result, spec):
     candidates = []
     for path in spec.paths:
         value = result
@@ -644,20 +645,64 @@ def normalize_response(result, spec):
         lists = [value for value in candidates if isinstance(value, list)]
         if not lists:
             raise XhhConfigError("expected list not present in platform result")
-        records = next((value for value in lists if value), lists[0])
+        return next((value for value in lists if value), lists[0])
+    return records
+
+
+def normalize_response(result, spec, *, include_occurrences=False):
+    records = response_records(result, spec)
     items, invalid = [], 0
+    occurrences = []
     for row in records:
         if not isinstance(row, dict):
             invalid += 1
+            occurrences.append({
+                "content": None,
+                "digest": hashlib.sha256(json.dumps(
+                    row, ensure_ascii=False, sort_keys=True,
+                    separators=(",", ":")).encode()).hexdigest(),
+                "reason": "malformed_record",
+            })
             continue
         try:
-            items.append(spec.adapter(row))
+            item = spec.adapter(row)
         except XhhConfigError:
             invalid += 1
+            occurrences.append({
+                "content": None,
+                "digest": hashlib.sha256(json.dumps(
+                    row, ensure_ascii=False, sort_keys=True,
+                    separators=(",", ":")).encode()).hexdigest(),
+                "reason": "malformed_record",
+            })
+            continue
+        items.append(item)
+        occurrences.append({
+            "content": item,
+            "digest": hashlib.sha256(json.dumps(
+                row, ensure_ascii=False, sort_keys=True,
+                separators=(",", ":")).encode()).hexdigest(),
+            "reason": None,
+        })
     gaps = [f"invalid_{spec.name}_records"] if invalid else []
     if not records and spec.empty_gap:
         gaps.append(spec.empty_gap)
-    return items, len(records), invalid, gaps
+    value = (items, len(records), invalid, gaps)
+    return (*value, occurrences) if include_occurrences else value
+
+
+def post_filter_reason(args, item):
+    if (args.content_type != "all"
+            and item["content_type"] != args.content_type):
+        return "filter_excluded"
+    if (args.after is not None
+            and (item["created_at"] is None
+                 or item["created_at"] < args.after)):
+        return "filter_excluded"
+    if ((item["statistics"]["comments"] or 0)
+            < args.min_comments):
+        return "filter_excluded"
+    return None
 
 
 def relation(raw, user_id, current_user_id):
@@ -1367,10 +1412,17 @@ class Browser:
                 stop = StopState.complete()
                 break
         if not documents:
+            terminal = next(
+                (error for error in reversed(errors)
+                 if not error.retry_allowed),
+                None,
+            )
+            if terminal is not None:
+                raise terminal
+            if attempts and attempts[-1]["status"] == "budget_stop":
+                raise ReadLimit(attempts[-1]["reason"])
             if errors:
-                raise errors[0]
-            if len(attempts) == 1 and attempts[0]["status"] == "budget_stop":
-                raise ReadLimit(attempts[0]["reason"])
+                raise errors[-1]
             raise XhhConfigError(
                 "no reader is available; store an App or Web session")
         selected_index, selected = max(
@@ -1459,7 +1511,7 @@ class Browser:
             data = {key: data[key] for key in keys}
         return data, scope
 
-    def page(self, args, budget):
+    def page(self, args, budget, *, lossless=False):
         if getattr(args, "offset", 0) < 0:
             raise XhhConfigError("offset must be nonnegative")
         if args.command == "community":
@@ -1576,14 +1628,24 @@ class Browser:
                      "h_src": ""},
                     budget,
                 )
-                records = first_rows(result, ("links", "items", "list"))
+                items, count, invalid, gaps, occurrences = (
+                    normalize_response(
+                        result,
+                        RESPONSES["hashtag-links"],
+                        include_occurrences=True,
+                    )
+                )
                 data = {
-                    "items": [summary(row) for row in records],
+                    "items": items,
                     "hashtag": {"id": hashtag_id, "name": args.name},
                     "source": evidence,
                 }
-                scope = coverage(result, count=len(records),
+                if lossless:
+                    data["occurrences"] = occurrences
+                scope = coverage(result, count=count,
                                  position=args.offset)
+                scope["gaps"].extend(gaps)
+                scope.update(invalid=invalid)
                 scope["contract_evidence"] = (
                     "implemented_contract_not_functionally_verified")
         elif args.command == "games":
@@ -1702,28 +1764,40 @@ class Browser:
                     route, {**query, "offset": str(args.offset),
                             "limit": str(args.limit)}, budget)
                 if args.command == "search":
-                    items, count, invalid, gaps = normalize_response(result, RESPONSES[args.type])
+                    items, count, invalid, gaps, occurrences = (
+                        normalize_response(
+                            result,
+                            RESPONSES[args.type],
+                            include_occurrences=True,
+                        )
+                    )
                 else:
-                    records = first_rows(result, ("links", "items", "list", "news"))
-                    items = [summary(row) for row in records]
-                    count, invalid, gaps = len(records), 0, []
+                    items, count, invalid, gaps, occurrences = (
+                        normalize_response(
+                            result,
+                            RESPONSES["feed"],
+                            include_occurrences=True,
+                        )
+                    )
                 scope = coverage(result, count=count,
                                  position=args.offset)
                 scope["gaps"].extend(gaps)
-                if args.command == "search":
+                if args.command in ("search", "feed"):
                     scope["invalid"] = invalid
                 if args.command in ("feed", "search"):
                     if getattr(args, "type", "link") == "link" or args.command == "feed":
-                        items = [
-                            item for item in items
-                            if (args.content_type == "all"
-                                or item["content_type"] == args.content_type)
-                            and (args.after is None
-                                 or item["created_at"] is not None
-                                 and item["created_at"] >= args.after)
-                            and (item["statistics"]["comments"] or 0)
-                            >= args.min_comments
-                        ]
+                        selected = []
+                        for occurrence in occurrences:
+                            reason = occurrence["reason"]
+                            if (reason is None
+                                    and occurrence["content"] is not None):
+                                reason = post_filter_reason(
+                                    args, occurrence["content"])
+                                occurrence["reason"] = reason
+                            if (reason is None
+                                    and occurrence["content"] is not None):
+                                selected.append(occurrence["content"])
+                        items = selected
                     scope.update(
                         selected=len(items),
                         excluded=count - len(items),
@@ -1745,6 +1819,8 @@ class Browser:
                             "sort_filter", "time_range"],
                     },
                 }
+                if lossless:
+                    data["occurrences"] = occurrences
         if args.raw:
             data["raw"] = raw
         return data, scope

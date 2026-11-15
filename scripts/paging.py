@@ -1,4 +1,3 @@
-"""Bounded reads and evidence-based continuation positions."""
 from __future__ import annotations
 
 import base64
@@ -91,6 +90,16 @@ class Budget:
 
     def call(self, client, function):
         starting_used, remaining = self._start()
+        return self._bounded_call(
+            client, function, starting_used=starting_used)
+
+    def _bounded_call(self, client, function, *, starting_used=None):
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            raise ReadLimit("time_budget")
+        if starting_used is None:
+            starting_used = self.used
+        wire_used = 0
         original = client.config.timeout
         client.config.timeout = min(original, remaining)
         transport = client.transport
@@ -99,11 +108,22 @@ class Budget:
         signer, signer_timeout = None, None
 
         def before_http(request):
+            nonlocal wire_used
             remaining = self.deadline - time.monotonic()
             if remaining <= 0:
                 raise ReadLimit("time_budget")
             client.config.timeout = min(original, remaining)
-            wire_limit, record_wire_requests = self._wire_tracking(starting_used)
+            wire_limit = self.request_limit - starting_used - wire_used
+            if wire_limit <= 0:
+                raise ReadLimit("request_budget")
+
+            def record_wire_requests(count):
+                nonlocal wire_used
+                if (type(count) is not int or count < 0
+                        or count > wire_limit):
+                    raise NetworkRequestLimit()
+                wire_used += count
+                self.used = starting_used + wire_used
 
             try:
                 data = read_http(
@@ -117,8 +137,6 @@ class Budget:
                 raise ReadLimit("request_budget") from None
             except NetworkDeadline:
                 raise ReadLimit("time_budget") from None
-            if time.monotonic() >= self.deadline:
-                raise ReadLimit("time_budget")
             return data
 
         try:
@@ -132,7 +150,10 @@ class Budget:
                 if isinstance(candidate, Signer):
                     signer, signer_timeout = candidate, candidate.timeout
                     signer.timeout = min(signer_timeout, remaining)
-            return function()
+            value = function()
+            if time.monotonic() >= self.deadline:
+                raise ReadLimit("time_budget")
+            return value
         finally:
             if original_open is not None:
                 transport._open = original_open

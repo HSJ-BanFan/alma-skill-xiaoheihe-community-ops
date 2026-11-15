@@ -1,4 +1,3 @@
-"""Stable public documents, discussion nodes, and source evidence."""
 from __future__ import annotations
 
 import hashlib

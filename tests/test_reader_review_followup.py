@@ -19,8 +19,14 @@ import xhh
 from observations import Store
 from paging import Budget, ReadLimit, decode_resume, project_coverage
 from xhh_sdk import accounts, cli
+from xhh_sdk.client import XhhClient
 from xhh_sdk.config import XhhConfig
-from xhh_sdk.exceptions import XhhAPIError, XhhConfigError
+from xhh_sdk.exceptions import (
+    XhhAPIError,
+    XhhCaptchaError,
+    XhhConfigError,
+    XhhTransportError,
+)
 from xhh_sdk.transport import Transport
 
 
@@ -72,6 +78,28 @@ def subprocess_result(value):
 
 
 class WireBoundaryTests(unittest.TestCase):
+    def test_app_account_identity_uses_the_redirect_free_route(self):
+        class RecordingTransport:
+            def __init__(self):
+                self.paths = []
+
+            def signed_request(self, path, query=None):
+                self.paths.append(path)
+                return {"result": {"userid": "101"}}
+
+        transport = RecordingTransport()
+        client = XhhClient(
+            XhhConfig(
+                pkey="fixture",
+                heybox_id="101",
+                protocol_mode="app",
+            ),
+            transport=transport,
+        )
+
+        self.assertEqual(client.account_info(), {"userid": "101"})
+        self.assertEqual(transport.paths, ["/account/info/"])
+
     def test_redirect_handler_refuses_a_second_wire_request_at_limit_one(self):
         start = "https://www.xiaoheihe.cn/app/bbs/link/123"
         request = Request(start)
@@ -108,6 +136,35 @@ class WireBoundaryTests(unittest.TestCase):
             with self.assertRaises(ReadLimit) as raised:
                 budget.call(client, lambda: transport._open(request))
         self.assertEqual(raised.exception.reason, "request_budget")
+
+    def test_separate_bounded_opens_accumulate_against_one_ceiling(self):
+        config = XhhConfig(
+            pkey="fixture", heybox_id="101", protocol_mode="web")
+        transport = Transport(config)
+        client = SimpleNamespace(config=config, transport=transport)
+        budget = Budget(requests=1)
+        sent = []
+
+        def relay(request, timeout, *, wire_limit=None, wire_counter=None,
+                  **kwargs):
+            self.assertEqual(wire_limit, 1)
+            sent.append(request.full_url)
+            wire_counter(1)
+            return b"body"
+
+        request = Request("https://api.xiaoheihe.cn/bbs/app/link/tree")
+
+        def two_opens():
+            transport._open(request)
+            transport._open(request)
+
+        with patch("paging.read_http", side_effect=relay):
+            with self.assertRaises(ReadLimit) as raised:
+                budget.call(client, two_opens)
+
+        self.assertEqual(raised.exception.reason, "request_budget")
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(budget.used, 1)
 
     def test_public_html_wire_redirects_consume_the_request_budget(self):
         client = ClientFixture(
@@ -164,6 +221,44 @@ class WireBoundaryTests(unittest.TestCase):
 
 
 class ReaderEvidenceTests(unittest.TestCase):
+    def test_later_terminal_reader_error_outranks_earlier_transport_failure(self):
+        app = ClientFixture("app", lambda *args: self.fail("signed request"))
+        web = ClientFixture("web", lambda *args: self.fail("signed request"))
+        calls = []
+
+        def transport_failure(args, budget):
+            calls.append("native")
+            raise XhhTransportError("temporary network failure")
+
+        def captcha_failure(args, budget):
+            calls.append("website")
+            raise XhhCaptchaError("platform requires captcha")
+
+        def forbidden_third_reader(args, budget):
+            calls.append("html")
+            raise AssertionError("reader after terminal error was attempted")
+
+        plan = [
+            browser.ReaderSpec(
+                "native", "app", "/bbs/app/link/tree", transport_failure),
+            browser.ReaderSpec(
+                "website", "web", "/bbs/app/link/tree", captcha_failure),
+            browser.ReaderSpec(
+                "html", "public", "/app/bbs/link/{post_id}",
+                forbidden_third_reader),
+        ]
+        value = browser.Browser(
+            app, clients={"app": app, "web": web})
+
+        with self.assertRaises(XhhCaptchaError):
+            value.post(
+                xhh.parser().parse_args(["post", "123", "--reader", "auto"]),
+                Budget(requests=3),
+                plan=plan,
+            )
+
+        self.assertEqual(calls, ["native", "website"])
+
     def test_identity_evidence_stays_with_the_client_that_verified_it(self):
         app = ClientFixture(
             "app",
