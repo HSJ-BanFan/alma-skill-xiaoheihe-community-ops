@@ -98,6 +98,24 @@ class DiscoveryShapeTests(CommandTests):
         self.assertIsNone(value["coverage"]["resume"])
         self.assertIsNone(value["data"])
 
+    def test_game_info_budget_stop_does_not_persist_an_empty_snapshot(self):
+        def handler(path, query):
+            self.assertEqual(path, "/game/get_game_detail")
+            raise ReadLimit("request_budget")
+
+        code, value, clients = self.run_cli(
+            ["games", "info", "570", "--requests", "2",
+             "--snapshot", "game-budget"],
+            handler,
+        )
+        self.assertEqual(code, 0, value)
+        self.assertEqual(len(clients[0].calls), 1)
+        self.assertEqual(value["coverage"]["status"], "partial")
+        self.assertEqual(value["coverage"]["stop_reason"], "request_budget")
+        self.assertIsNone(value["coverage"]["resume"])
+        self.assertIsNone(value["data"])
+        self.assertIsNone(Store(self.root).optional("101", "game-budget"))
+
     def test_game_info_feed_navigation_requires_positive_forum(self):
         for flag, expected in ((True, True), ("1", True), (False, False), ("0", False), (None, None)):
             with self.subTest(flag=flag):
