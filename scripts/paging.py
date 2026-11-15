@@ -6,16 +6,25 @@ import json
 import time
 
 from documents import integer, truth
-from xhh_sdk.exceptions import XhhConfigError
+from xhh_sdk.exceptions import XhhBudgetError, XhhConfigError
 from xhh_sdk.transport import Transport
 from xhh_sdk.signer import Signer
 from network_io import read_http, NetworkDeadline
 
 
-class ReadLimit(RuntimeError):
+class ReadLimit(XhhBudgetError):
     def __init__(self, reason):
         self.reason = reason
-        super().__init__(reason)
+        code = {
+            "request_budget": "request_budget_exhausted",
+            "time_budget": "time_budget_exhausted",
+            "page_budget": "page_budget_exhausted",
+        }.get(reason, "read_budget_exhausted")
+        super().__init__(
+            reason,
+            code=code,
+            fix="use the returned partial data and resume token, or explicitly increase the budget",
+        )
 
 
 class Budget:
@@ -34,7 +43,8 @@ class Budget:
         client.config.timeout = min(original, remaining)
         self.used += 1
         transport = client.transport
-        original_open = getattr(transport, "_open", None)
+        original_open = (getattr(transport, "_open", None)
+                         if isinstance(transport, Transport) else None)
         signer, signer_timeout = None, None
 
         def before_http(request):

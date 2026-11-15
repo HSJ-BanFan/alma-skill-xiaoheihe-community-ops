@@ -39,6 +39,20 @@ class AuthenticatedRedirects(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(request, fp, code, message, headers, newurl)
 
 
+class PublicXiaoheiheRedirects(urllib.request.HTTPRedirectHandler):
+    @staticmethod
+    def _allowed(url):
+        value = urllib.parse.urlsplit(url)
+        host = (value.hostname or "").casefold()
+        return (value.scheme == "https" and not value.username and not value.password
+                and (host == "xiaoheihe.cn" or host.endswith(".xiaoheihe.cn")))
+
+    def redirect_request(self, request, fp, code, message, headers, newurl):
+        if not self._allowed(newurl):
+            raise XhhConfigError("public Xiaoheihe redirect blocked")
+        return super().redirect_request(request, fp, code, message, headers, newurl)
+
+
 def read_http(request, timeout, *, profile="api", http_timeout=None):
     if request.get_method() != "GET" or request.data is not None or not request.full_url.startswith("https://"):
         raise XhhConfigError("bounded reader accepts HTTPS GET only")
@@ -73,7 +87,7 @@ def worker():
         value = json.loads(sys.stdin.buffer.read())
         timeout = float(value["timeout"])
         http_timeout = float(value["http_timeout"])
-        if not 0 < http_timeout <= timeout <= 120 or value["profile"] not in ("api", "asset"):
+        if not 0 < http_timeout <= timeout <= 120 or value["profile"] not in ("api", "asset", "public"):
             raise XhhConfigError("invalid reader request")
         request = urllib.request.Request(value["url"], headers=value["headers"], method="GET")
         if not request.full_url.startswith("https://"):
@@ -88,13 +102,22 @@ def worker():
                 data = transport._open(request)
             finally:
                 urllib.request.urlopen = original
-        else:
+        elif value["profile"] == "asset":
             from assets import platform_url, Redirects, MAX_BYTES
             platform_url(request.full_url)
             if any(key.lower() == "cookie" for key in value["headers"]):
                 raise XhhConfigError("asset reader cannot send credentials")
             with urllib.request.build_opener(Redirects()).open(request, timeout=http_timeout) as response:
                 data = response.read(MAX_BYTES + 1)
+        else:
+            if not PublicXiaoheiheRedirects._allowed(request.full_url):
+                raise XhhConfigError("public reader requires a Xiaoheihe HTTPS URL")
+            if any(key.lower() == "cookie" for key in value["headers"]):
+                raise XhhConfigError("public reader cannot send credentials")
+            with urllib.request.build_opener(
+                    PublicXiaoheiheRedirects()).open(
+                        request, timeout=http_timeout) as response:
+                data = response.read(4 * 1024 * 1024 + 1)
         result = {"ok": True, "body": base64.b64encode(data).decode("ascii")}
     except Exception as error:
         status = getattr(error, "status", None)

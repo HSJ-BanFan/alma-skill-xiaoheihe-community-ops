@@ -27,6 +27,7 @@ from .config import XhhConfig
 from .exceptions import (
     XhhAPIError,
     XhhAuthError,
+    XhhCaptchaError,
     XhhConfigError,
     XhhRateLimitError,
     XhhTransportError,
@@ -139,10 +140,21 @@ class Transport:
         msg = str(data.get("msg") or "")
         if status in ("ok", "success"):
             return
+        if str(status).casefold() in {"show_captcha", "captcha", "verify_captcha"}:
+            raise XhhCaptchaError(
+                "platform requires interactive captcha verification",
+                code="captcha_required",
+            )
         if status in ("login", "relogin"):
-            raise XhhAuthError("platform says: login required (请登录后使用该功能)")
+            raise XhhAuthError(
+                "platform says: login required (请登录后使用该功能)",
+                code="session_expired",
+            )
         if _RATE_LIMIT_MARK in msg:
-            raise XhhRateLimitError(f"platform throttled the action: {msg}")
+            raise XhhRateLimitError(
+                f"platform throttled the action: {msg}",
+                code="rate_limited",
+            )
         raise XhhAPIError(f"platform returned status={status!r} msg={msg!r}",
                           status=str(status or ""))
 

@@ -36,7 +36,13 @@ from pathlib import Path
 from . import __version__
 from .client import XhhClient
 from .config import XhhConfig
-from .exceptions import XhhAuthError, XhhConfigError, XhhError
+from .exceptions import (
+    XhhAuthError,
+    XhhConfigError,
+    XhhError,
+    XhhIdentityUnboundError,
+    XhhRiskTokenError,
+)
 from .payload import Post
 
 DEFAULT_CONFIG = Path.home() / ".xhh_sdk" / "config.json"
@@ -49,7 +55,8 @@ def _account_store(args):
 
 def _load(args) -> XhhConfig:
     if args.account:
-        config = _account_store(args).get_config(args.account)
+        config = _account_store(args).get_config(
+            args.account, protocol=getattr(args, "protocol", None))
     elif args.config:
         config = XhhConfig.from_file(args.config)
     elif args.env:
@@ -113,8 +120,13 @@ def _print(data, *, secret: str | None = None) -> None:
 
 
 def _account_view(account) -> dict:
+    sessions = {protocol: {"present": protocol in account.sessions,
+                           "state": "stored" if protocol in account.sessions else "missing"}
+                for protocol in ("app", "web")}
     return {"alias": account.alias, "identity_masked": _mask_identity(account.identity),
-            "authenticated": bool(account.pkey), "state": "logged_in" if account.pkey else "needs_login",
+            "authenticated": bool(account.sessions),
+            "state": "logged_in" if account.sessions else "needs_login",
+            "sessions": sessions,
             "storage": "windows-dpapi", "session_valid": "not_checked", "api_identity_verified": False,
             "protocol_mode": account.config.get("protocol_mode", "app"),
             "risk_token_present": bool(getattr(account, "risk_token", None))}
@@ -183,11 +195,12 @@ def _manage_account(args) -> int:
                     raise XhhConfigError("--phone is required for --method sms")
                 identity = args.identity or account.identity
                 if not identity:
-                    raise XhhConfigError("--identity is required for an unbound alias")
+                    raise XhhIdentityUnboundError(
+                        "--identity is required for an unbound alias")
                 risk_token = (args.risk_token or os.environ.get("XHH_RISK_TOKEN", "")
                               or account.risk_token or "")
                 if not risk_token:
-                    raise XhhConfigError(
+                    raise XhhRiskTokenError(
                         "no risk token: run `account risk-token ALIAS --confirm` first, "
                         "or pass --risk-token / set XHH_RISK_TOKEN")
                 options = {"imei": account.config.get("imei"), "device_info": account.config.get("device_info"),
@@ -244,7 +257,12 @@ def _manage_account(args) -> int:
             _print(report)
             return 0 if report["api_identity_verified"] else 1
         elif action in {"logout", "remove"}:
-            result = store.logout(args.alias) if action == "logout" else store.remove(args.alias)
+            if action == "logout":
+                result = (store.logout_all(args.alias) if args.all_sessions
+                          else store.logout(args.alias,
+                                            protocol=getattr(args, "protocol", None)))
+            else:
+                result = store.remove(args.alias)
             _print({**result, "server_session_revoked": False, "browser_session_persisted": False})
         elif action == "risk-token":
             from .login import capture_risk_token
@@ -256,10 +274,10 @@ def _manage_account(args) -> int:
             report = _account_view(account)
             report["protocol_mode"] = getattr(args, "protocol", None) or report["protocol_mode"]
             if args.online:
-                if not account.pkey:
+                if report["protocol_mode"] not in account.sessions:
                     _print(report)
                     return 1
-                config = _protocol_override(store.get_config(args.alias), args)
+                config = store.get_config(args.alias, protocol=report["protocol_mode"])
                 try:
                     data = XhhClient(config).account_info()
                 except XhhAuthError:
@@ -328,6 +346,9 @@ def main(argv: list[str] | None = None) -> int:
         p = actions.add_parser(action, help="local account change, does not revoke server sessions")
         p.add_argument("alias")
         p.add_argument("--confirm", action="store_true")
+        if action == "logout":
+            p.add_argument("--all-sessions", action="store_true",
+                           help="remove both App and Web sessions for this alias")
     p_configure = actions.add_parser("configure", help="set nonsecret signer/device settings")
     p_configure.add_argument("alias")
     p_configure.add_argument("--set", action="append", required=True, metavar="KEY=VALUE")
@@ -621,7 +642,8 @@ def main(argv: list[str] | None = None) -> int:
             cookies = None
             if args.account:
                 account = _account_store(args).get(args.account)
-                if account.identity != config.heybox_id or account.pkey != config.pkey:
+                if (account.identity != config.heybox_id
+                        or account.sessions.get(config.protocol_mode) != config.pkey):
                     raise XhhConfigError("account changed while preparing group request")
                 if account.risk_token:
                     cookies = {"x_xhh_tokenid": account.risk_token}
