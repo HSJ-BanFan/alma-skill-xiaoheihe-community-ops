@@ -55,14 +55,14 @@ def _read(record, root):
 def get(sticker_id, data_dir):
     digest = _identifier(sticker_id)
     root = _root(data_dir)
-    database = owned(root, root / "index.sqlite3")
+    database = owned(Path(data_dir), root / "index.sqlite3")
     if not database.is_file():
         raise XhhConfigError("sticker was not imported in this data directory")
     with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)) as connection:
         row = connection.execute("SELECT metadata FROM stickers WHERE digest=?", (digest,)).fetchone()
     if row is None:
         raise XhhConfigError("sticker was not imported in this data directory")
-    return _read(json.loads(row[0]), root)
+    return _read(json.loads(row[0]), Path(data_dir))
 
 
 def register(file, data_dir, *, caption=None, meaning=None, tags=()):
@@ -103,10 +103,10 @@ def register(file, data_dir, *, caption=None, meaning=None, tags=()):
         raise XhhConfigError("sticker cannot be decoded as an image") from error
     digest = hashlib.sha256(data).hexdigest()
     root = _root(data_dir)
-    folder = owned(root, root / digest)
+    folder = owned(Path(data_dir), root / digest)
     folder.mkdir(parents=True, exist_ok=True)
-    original = owned(root, folder / ("source" + suffix))
-    preview_file = owned(root, folder / "preview.png")
+    original = owned(Path(data_dir), folder / ("source" + suffix))
+    preview_file = owned(Path(data_dir), folder / "preview.png")
     record = {"id": "sticker:" + digest, "type": "image_sticker", "file": str(original.resolve()),
               "source_sha256": digest, "source_bytes": len(data), "width": width, "height": height,
               "frames": frames, "animated": frames > 1, "preview_scope": "first_frame",
@@ -114,7 +114,7 @@ def register(file, data_dir, *, caption=None, meaning=None, tags=()):
               "caption": caption, "meaning": meaning, "tags": tags, "annotation_source": "caller_provided",
               "annotation_status": "provided" if caption or meaning else "unannotated",
               "usage": {"post": "image", "comment": "image", "reply": "unsupported"}}
-    database = owned(root, root / "index.sqlite3")
+    database = owned(Path(data_dir), root / "index.sqlite3")
     with closing(sqlite3.connect(database, timeout=10)) as connection:
         with connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -141,7 +141,7 @@ def search(data_dir, query="", *, limit=20, offset=0):
     if not isinstance(query, str) or len(query) > 4000:
         raise XhhConfigError("sticker query must be a string of at most 4000 characters")
     root = _root(data_dir)
-    database = owned(root, root / "index.sqlite3")
+    database = owned(Path(data_dir), root / "index.sqlite3")
     if not database.is_file():
         return {"items": [], "total": 0, "retrieval": "keyword", "offset": offset, "limit": limit}
     with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)) as connection:

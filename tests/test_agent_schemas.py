@@ -1,12 +1,17 @@
+import contextlib
+import io
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from jsonschema import Draft202012Validator, ValidationError
 from agent_commands import tool_definitions
-from messages import draft_schema, prepared_schema, compose
+from messages import draft_schema, prepared_schema, compose, MessageError
 from xhh_sdk.exceptions import XhhConfigError
+import xhh
 
 
 class AgentSchemaTests(unittest.TestCase):
@@ -16,6 +21,7 @@ class AgentSchemaTests(unittest.TestCase):
         for tool in tools:
             with self.subTest(tool=tool["name"]):
                 Draft202012Validator.check_schema(tool["inputSchema"])
+                Draft202012Validator.check_schema(tool["outputSchema"])
 
     def test_message_schema_matches_post_comment_and_reply_requirements(self):
         validator = Draft202012Validator(draft_schema())
@@ -49,6 +55,31 @@ class AgentSchemaTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             validator.validate(no_account)
         Draft202012Validator(prepared_schema()).validate(prepared)
+
+    def test_non_post_schema_rejects_post_only_metadata(self):
+        validator = Draft202012Validator(draft_schema())
+        for kind, target in (("comment", {"link_id": "501"}),
+                             ("reply", {"link_id": "501", "root_id": "601", "reply_id": "602"})):
+            value = {"kind": kind, "target": target, "content": [{"type": "text", "text": "fixture"}], "title": "post-only"}
+            with self.assertRaises(ValidationError):
+                validator.validate(value)
+            with self.assertRaises(MessageError):
+                compose(value, Path("unused-fixture-data"))
+
+    def test_compose_actual_output_matches_the_discovered_output_schema(self):
+        tool = next(tool for tool in tool_definitions() if tool["name"] == "xhh_compose")
+        validator = Draft202012Validator(tool["outputSchema"])
+        with tempfile.TemporaryDirectory() as temporary:
+            spec = {"kind": "post", "content": [{"type": "native_emoji", "id": "cube:32"}]}
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                code = xhh.main(["--data-dir", temporary, "compose", "--spec-json", json.dumps(spec)])
+            self.assertEqual(code, 0)
+            result = json.loads(output.getvalue())
+            validator.validate(result)
+            result["data"].pop("catalog_fingerprint")
+            with self.assertRaises(ValidationError):
+                validator.validate(result)
 
 
 if __name__ == "__main__":

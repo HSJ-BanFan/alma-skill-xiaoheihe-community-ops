@@ -84,7 +84,7 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --data-dir "<data>" --account <alias>
 python -I -X utf8 "<skill>/scripts/xhh.py" --data-dir "<data>" --account <alias> verify <本次操作ID>
 ```
 
-`--public` 只用于公开帖子，省略则保存帖子草稿。评论和回复不带此参数。准备结果被改动、目录版本变化、文件摘要不一致或协议不同，会停止发送并提示重新准备。
+`--public` 只用于公开帖子，省略则保存帖子草稿。评论和回复不带此参数。准备结果被改动、目录版本或所用表情的 CSS 布局变化、文件摘要不一致或协议不同，会停止发送并提示重新准备。
 
 `returned` 只表示回执已保存。`verify.status=matched` 表示本次读取范围中的内容一致，`native_render.status=unknown` 表示还没有客户端图标显示证据，`public_visibility=not_checked` 表示未核验公开可见。目标未观察到或正文有缺口时返回 `unverified`。
 

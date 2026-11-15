@@ -1,4 +1,5 @@
 import contextlib
+import copy
 import io
 import json
 import sqlite3
@@ -18,6 +19,7 @@ from operations import Journal
 from test_tools import PlatformFixture, Response
 from xhh_sdk.payload import Post
 from sticker_store import register as register_sticker
+from emoji_catalog import BUNDLED, save_catalog
 
 try:
     from PIL import Image
@@ -270,6 +272,35 @@ class AgentMessageTests(unittest.TestCase):
         self.assertEqual(code, 0, value)
         self.assertEqual(value["data"]["body"]["text"], "[cube_笑cry]")
         self.assertNotIn("blocks", value["data"]["body"])
+
+    def test_verify_uses_the_explicit_updated_catalog_directory(self):
+        snapshot = json.loads(BUNDLED.read_text(encoding="utf-8"))
+        snapshot["catalog_version"] = "fixture-updated-catalog"
+        item = next(item for item in snapshot["items"] if item["id"] == "cube:43")
+        item["name"], item["shortcode"] = "更新叹气", "[cube_更新叹气]"
+        save_catalog(snapshot, self.data)
+        prepared = self.prepare(content=[{"type": "native_emoji", "id": "cube:43"}])
+        self.assertEqual(self.send(prepared)[0], 0)
+        checked = self.cli("verify", "fixture-message")[1]["data"]
+        self.assertEqual(checked["status"], "matched", checked)
+
+    def test_css_or_selected_material_change_invalidates_preparation(self):
+        prepared = self.prepare(content=[{"type": "native_emoji", "id": "cube:43"}])
+        snapshot = json.loads(BUNDLED.read_text(encoding="utf-8"))
+        snapshot["source"]["css_sha256"] = "a" * 64
+        save_catalog(snapshot, self.data)
+        changed = self.prepare(content=[{"type": "native_emoji", "id": "cube:43"}])
+        self.assertNotEqual(prepared["fingerprint"], changed["fingerprint"])
+        code, result = self.send(prepared)
+        self.assertEqual(code, 1)
+        self.assertEqual(result["error"]["code"], "prepared_message_changed")
+        snapshot = json.loads(BUNDLED.read_text(encoding="utf-8"))
+        first = next(item for item in snapshot["items"] if item["id"] == "cube:43")
+        second = next(item for item in snapshot["items"] if item["id"] == "cube:44")
+        first["sprite"], second["sprite"] = copy.deepcopy(second["sprite"]), copy.deepcopy(first["sprite"])
+        save_catalog(snapshot, self.data)
+        changed = self.prepare(content=[{"type": "native_emoji", "id": "cube:43"}])
+        self.assertNotEqual(prepared["fingerprint"], changed["fingerprint"])
 
 
 if __name__ == "__main__":

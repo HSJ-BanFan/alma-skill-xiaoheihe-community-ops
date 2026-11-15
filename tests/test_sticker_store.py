@@ -1,6 +1,8 @@
 import builtins
+import os
 import json
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -95,6 +97,29 @@ class StickerStoreTests(unittest.TestCase):
         self.assertEqual(len({record["id"] for record in records}), 1)
         self.assertEqual(sticker_store.search(self.data)["total"], 1)
         self.assertEqual(sticker_store.get(records[0]["id"], self.data)["source_sha256"], records[0]["source_sha256"])
+
+    def test_linked_sticker_directory_cannot_write_outside_the_data_directory(self):
+        self.data.mkdir()
+        outside = self.folder / "outside-cache"
+        outside.mkdir()
+        link = self.data / "stickers"
+        if os.name == "nt":
+            script = self.folder / "fixture-junction.ps1"
+            script.write_text('param([string]$LinkPath,[string]$TargetPath)\nNew-Item -ItemType Junction -Path $LinkPath -Target $TargetPath | Out-Null\n', encoding="utf-8")
+            result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-File", str(script),
+                                     "-LinkPath", str(link), "-TargetPath", str(outside)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        else:
+            link.symlink_to(outside, target_is_directory=True)
+        try:
+            with self.assertRaises(XhhConfigError):
+                sticker_store.register(self.source, self.data)
+            self.assertEqual(list(outside.iterdir()), [])
+        finally:
+            if os.name == "nt":
+                os.rmdir(link)
+            else:
+                link.unlink()
 
 
 if __name__ == "__main__":

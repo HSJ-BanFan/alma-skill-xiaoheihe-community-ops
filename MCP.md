@@ -17,7 +17,7 @@
 
 可在服务启动参数中明确提供 `--account <alias>` 或 `--config <file>`。账号配置只在平台操作时读取。服务已绑定账号时，工具调用可以省略账号来源；未绑定时，平台工具要求 `account`、`config` 或 `env=true` 之一。参数中只放配置文件路径或别名。
 
-`tools/list` 的输入 schema 来自同一 CLI 定义。`xhh_describe` 可以查询单个工具的 schema。原生表情用 `xhh_emojis_search/get`，本地图片用 `xhh_stickers_import/get/search`，内容用 `xhh_compose/send/verify`。帖子、评论、楼层、信息流和收件箱读取也通过同一 CLI 提供。
+`tools/list` 的输入 schema 来自同一 CLI 定义，输出 schema 描述共同结果封套及准备、读回结果。`xhh_describe` 可以查询单个工具的 schema。原生表情用 `xhh_emojis_search/get`，本地图片用 `xhh_stickers_import/get/search`，内容用 `xhh_compose/send/verify`。帖子、评论、楼层、信息流和收件箱读取也通过同一 CLI 提供。
 
 `xhh_compose` 接收 `spec` 对象，`xhh_send` 接收完整的 `prepared` 对象。MCP 调用无需先在服务器创建 JSON 文件。发送要求 `confirm=true` 和稳定的 `operation_id`。生成预览的工具结果可包含标准图片内容；指定 `preview_file` 时，组合预览还以嵌入 HTML 资源返回，资源中的图片已嵌入。
 

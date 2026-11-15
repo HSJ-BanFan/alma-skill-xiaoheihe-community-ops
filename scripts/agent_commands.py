@@ -259,6 +259,26 @@ def _schema(action):
     return result
 
 
+def output_schema(path):
+    data = {"type": "object"}
+    if path == ("compose",):
+        data = messages.prepared_schema()
+        data["properties"].update(preview={"type": "object"}, expected={"type": "object"},
+                                  dry_run={"type": "boolean", "const": True}, public_visibility={"const": "not_checked"})
+        data["required"] += ["preview", "expected", "dry_run", "public_visibility"]
+    elif path == ("verify",):
+        data = {"type": "object", "properties": {"status": {"enum": ["matched", "mismatch", "unverified"]},
+                "operation": {"type": "object"}, "native_render": {"type": "object"},
+                "public_visibility": {"const": "not_checked"}},
+                "required": ["status", "operation", "native_render", "public_visibility"]}
+    return {"type": "object", "properties": {"version": {"type": "integer", "enum": [1, 2]},
+            "ok": {"type": "boolean"}, "kind": {"const": path[0]}, "data": {}, "coverage": {"type": "object"},
+            "error": {"anyOf": [{"type": "null"}, {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]}]}},
+            "required": ["version", "ok", "kind", "data", "coverage", "error"], "additionalProperties": False,
+            "allOf": [{"if": {"properties": {"ok": {"const": True}}},
+                       "then": {"properties": {"data": data, "error": {"type": "null"}}}}]}
+
+
 def tool_definitions():
     import xhh
 
@@ -299,7 +319,7 @@ def tool_definitions():
             schema["allOf"] = constraints
         mutating = path in (("send",), ("compose",), ("stickers", "import"), ("emojis", "refresh"), ("emojis", "get"))
         tools.append({"name": "xhh_" + "_".join(path).replace("-", "_"), "description": help_text or parser.description or "Read Xiaoheihe " + " ".join(path) + " with an explicit account.",
-                      "inputSchema": schema, "annotations": {"readOnlyHint": not mutating,
+                      "inputSchema": schema, "outputSchema": output_schema(path), "annotations": {"readOnlyHint": not mutating,
                       "destructiveHint": path[0] == "send", "openWorldHint": auth or path in (("emojis", "refresh"), ("emojis", "get"))},
                       "_path": path, "_actions": actions})
     visit(root, ())

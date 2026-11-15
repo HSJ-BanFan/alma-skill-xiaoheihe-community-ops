@@ -60,18 +60,20 @@ def draft_schema():
                     "required": ["link_id", "root_id", "reply_id"], "additionalProperties": False}
     comment_target = {"type": "object", "properties": {"link_id": properties["target"]["properties"]["link_id"]},
                       "required": ["link_id"], "additionalProperties": False}
+    non_post = {"anyOf": [{"required": [key]} for key in sorted(POST_FIELDS)]}
     return {"type": "object", "properties": properties, "required": ["kind", "content"], "additionalProperties": False,
             "allOf": [{"if": {"properties": {"kind": {"const": "post"}}}, "then": {"not": {"required": ["target"]}}},
-                      {"if": {"properties": {"kind": {"const": "comment"}}}, "then": {"required": ["target"], "properties": {"target": comment_target}}},
-                      {"if": {"properties": {"kind": {"const": "reply"}}}, "then": {"required": ["target"], "properties": {"target": reply_target}}}],
+                      {"if": {"properties": {"kind": {"const": "comment"}}}, "then": {"required": ["target"], "properties": {"target": comment_target}, "not": non_post}},
+                      {"if": {"properties": {"kind": {"const": "reply"}}}, "then": {"required": ["target"], "properties": {"target": reply_target}, "not": non_post}}],
             "description": "Post uses topic_ids and post metadata. Comment/reply use target. Reply needs root_id/reply_id and accepts no image sticker. Comment images are attachments after text."}
 
 
 def prepared_schema():
     return {"type": "object", "properties": {"schema_version": {"type": "integer", "const": 1}, "prepared_version": {"type": "integer", "const": 1},
             "spec": draft_schema(), "protocol": {"enum": ["web", "app"]}, "catalog_version": {"type": "string"},
+            "catalog_fingerprint": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
             "renderer_version": {"type": "string"}, "image_hashes": {"type": "object"}, "fingerprint": {"type": "string"}},
-            "required": ["prepared_version", "spec", "protocol", "catalog_version", "renderer_version", "image_hashes", "fingerprint"],
+            "required": ["prepared_version", "spec", "protocol", "catalog_version", "catalog_fingerprint", "renderer_version", "image_hashes", "fingerprint"],
             "description": "The complete prepared object returned by compose; send revalidates its canonical fingerprint."}
 
 
@@ -273,8 +275,15 @@ def compose(spec, data_dir, *, protocol="web", catalog=None):
     if target is not None:
         canonical["target"] = target
     info = catalog.info()
+    material_keys = ("id", "group", "native_id", "name", "shortcode", "font_unicode", "sprite", "usage")
+    native_materials = []
+    for identifier in dict.fromkeys(emoji_ids):
+        item = catalog.get(identifier)
+        native_materials.append({key: item[key] for key in material_keys})
+    catalog_fingerprint = _hash({"source": {key: info["source"][key] for key in ("js_sha256", "css_sha256")},
+                                 "materials": native_materials})
     identity = {"spec": canonical, "protocol": protocol, "catalog_version": info["catalog_version"],
-                "renderer_version": RENDERER_VERSION, "image_hashes": image_hashes}
+                "catalog_fingerprint": catalog_fingerprint, "renderer_version": RENDERER_VERSION, "image_hashes": image_hashes}
     local_images = {asset["id"]: Path(asset["file"]).resolve().as_uri() for asset in assets}
     preview = {"text": text, "blocks": _html_blocks(content, catalog, local_images) if kind == "post" else content,
                "native_emoji_ids": emoji_ids, "image_stickers": assets, "warnings": warnings}
@@ -286,7 +295,7 @@ def compose(spec, data_dir, *, protocol="web", catalog=None):
 def validate_prepared(prepared, data_dir, *, protocol=None, catalog=None):
     if not isinstance(prepared, dict) or type(prepared.get("prepared_version")) is not int or prepared.get("prepared_version") != 1:
         raise MessageError("invalid_prepared_message", "send requires the prepared JSON returned by compose")
-    required = {"spec", "protocol", "catalog_version", "renderer_version", "image_hashes", "fingerprint"}
+    required = {"spec", "protocol", "catalog_version", "catalog_fingerprint", "renderer_version", "image_hashes", "fingerprint"}
     if not required <= set(prepared):
         raise MessageError("invalid_prepared_message", "prepared message is missing its identity fields")
     if protocol is not None and prepared["protocol"] != protocol:
@@ -391,7 +400,7 @@ def verify(client, operation_id, data_dir, *, pages=3, requests=10, seconds=30):
                 "next_action": "Keep this operation ID and inspect the recorded target before retrying; do not send under a new ID."}
     verify_identity(client)
     if receipt.get("kind") == "post":
-        args = xhh.parser().parse_args(["post", numeric_id(receipt.get("link_id")), "--reader", "auto",
+        args = xhh.parser().parse_args(["--data-dir", str(data_dir), "post", numeric_id(receipt.get("link_id")), "--reader", "auto",
                                        "--requests", str(requests), "--seconds", str(seconds)])
         data, scope = Browser(client).execute(args)
         observed = data.get("body") or {}
@@ -415,7 +424,7 @@ def verify(client, operation_id, data_dir, *, pages=3, requests=10, seconds=30):
         else:
             arguments = ["comments", numeric_id(receipt.get("link_id")), "--pages", str(pages), "--sort", "time_desc"]
         arguments += ["--requests", str(requests), "--seconds", str(seconds)]
-        args = xhh.parser().parse_args(arguments)
+        args = xhh.parser().parse_args(["--data-dir", str(data_dir), *arguments])
         data, scope = Browser(client).execute(args)
         observed = next((node for node in data.get("items", []) if node.get("id") == str(receipt.get("comment_id"))), None)
         if observed is None:

@@ -64,6 +64,8 @@ class Server:
         fixed_account = any(key in self.defaults for key in ("account", "config", "env"))
         for tool in self.tools.values():
             public = copy.deepcopy({key: value for key, value in tool.items() if not key.startswith("_")})
+            if self.version == "2025-03-26":
+                public.pop("outputSchema", None)
             if fixed_account:
                 for constraint in public["inputSchema"].get("allOf", []):
                     branches = constraint.get("oneOf", [])
