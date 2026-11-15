@@ -40,9 +40,11 @@
 
 离线测试验证一次 App fetch、返回身份核对、社区 feed 的正向论坛证据、跨组游戏去重与元数据补充、保留所有 `relations`、空组与未返回组的区分、无效形状和混合记录保留有效项、原始响应、纯适配器输入不变，以及发起请求前拒绝页数、resume、无效目标和 Web 协议。缺少关系键为 `not_returned` 并带缺口，不能据此宣称没有关系。单资源完成不表示取得全量历史或关系图。
 
-定向 `test_discovery_shapes.py` 为 `28/28` 通过，其中新增 11 个游戏详情测试。完整 `unittest` 使用已装 Pillow 的本地 OCR Python 环境，`276/276` 通过。首次使用独立 Python 时有 272 个测试通过，媒体模块因缺少 Pillow 未能导入；改用已有环境后完整验证通过，没有安装或下载依赖。修改的两个 Python 文件通过 `py_compile`，`git diff --check` 无输出。
+定向 `test_discovery_shapes.py` 为 `30/30` 通过，其中新增 13 个游戏详情测试。完整 `unittest` 使用已装 Pillow 的本地 OCR Python 环境，`278/278` 通过。`scripts/` 与 `tests/` 的 53 个 Python 文件通过 `py_compile`，`git diff --check` 无输出。portable verifier 验证 21 个 SDK 文件摘要，输出 `ok=true`、`offline_state_writes=0`、`fixture_tests=passed`，并明确记录 `live_platform=not_tested`。
 
-Observed detail response 的证据只归属于真实 `/game/get_game_detail` 响应实际出现的内容。本分支仅做离线验证，没有新增该路线的真实请求记录。`/game/get_similar_games`、`/game/all_recommend/v2`、菜单协议和由详情导出的 feed 路线在本功能下保持 Unverified，不能用详情夹具或导航字段把它们提升为真实可用。已有历史 feed 观察也不证明每个游戏社区均有可用论坛。
+2026-11-15 又对 Steam app ID `730` 做了只读调用。请求预算为 1 时，平台路线在完成一次 wire request 后仍需同站重定向，结果以 `partial/request_budget` 停止，没有伪造详情。修复后再次以 1 次请求复测，结果保持 `partial`，`data=null`，`used_requests=1`，且 `coverage.resume=null`。把预算设为 2 时，真实响应返回 CS2、社区 ID `43`、`has_bbs=1`、5 个 `morelike` 游戏、6 个菜单，`similar_games` 与 `publisher_games` 未返回，`used_requests=2`。这证明当次详情解析和游戏到社区的导航数据可用，也证明请求预算必须把重定向计入。两次复测没有出现 `show_captcha` 或限流。
+
+Observed detail response 的证据只归属于真实 `/game/get_game_detail` 响应实际出现的内容。`/game/get_similar_games`、`/game/all_recommend/v2`、详情菜单的目标协议和由详情导出的 feed 路线仍保持 Unverified；导航字段与这次详情响应不证明这些后续入口当次可用。已有历史 feed 观察也不证明每个游戏社区均有可用论坛。
 
 ## 历史真实只读记录
 

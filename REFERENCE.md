@@ -213,11 +213,13 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> snapshot diff basel
 ## games info STEAM_APP_ID
 
 ```console
-python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> --protocol app games info 570 --requests 1
+python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> --protocol app games info 570 --requests 2
 python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> --protocol app games info 570 --raw
 ```
 
-此命令只读取 App GET `/game/get_game_detail?appid=570`，不自动读取社区 feed 或其他游戏路线。目标必须为正整数。响应中出现的每个 `steam_appid`、`appid` 都必须匹配目标；缺失、无效或不匹配会失败。`--pages > 1` 与 `--resume` 由单资源检查拒绝。`--offset` 和 `--limit` 不会作为详情请求参数发送，`--limit` 不截断嵌套关系。`--raw` 的 `data.raw_pages` 包含该次原始响应。
+此命令只读取 App GET `/game/get_game_detail?appid=570`，不自动读取社区 feed 或其他游戏路线。目标必须为正整数。响应中出现的每个 `steam_appid`、`appid` 都必须匹配目标；缺失、无效或不匹配会失败。`--pages > 1` 与 `--resume` 由单资源检查拒绝。`--offset` 和 `--limit` 不会作为详情请求参数发送，`--limit` 不截断嵌套关系。`--raw` 的 `data.raw_pages` 包含该次原始响应；如果身份校验或规范化在响应到达后失败，错误响应的 `data.raw_pages` 仍保留该原始响应。
+
+`--requests` 按实际 wire request 计数，同站重定向也占额度。实际详情路线观察到一次重定向，因此 `--requests 1` 可能在取得正文前以 `partial`、`stop_reason=request_budget` 停止。单资源命令不返回 `coverage.resume`；提高请求预算后重新执行同一命令。默认 10 次请求足够覆盖这次观察到的成本，但这里不把重定向次数写成平台永久保证。
 
 | 输出 | 合同 |
 | --- | --- |
