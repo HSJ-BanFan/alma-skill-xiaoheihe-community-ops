@@ -346,7 +346,7 @@ def register(commands):
             parser.add_argument("--offset", type=int, default=0)
             parser.add_argument("--limit", type=bounded, default=20)
         elif name == "games":
-            parser.add_argument("action", choices=("search", "recommended", "similar"))
+            parser.add_argument("action", choices=("search", "recommended", "similar", "info"))
             parser.add_argument("target", nargs="?")
             parser.add_argument("--offset", type=int, default=0)
             parser.add_argument("--limit", type=bounded, default=20)
@@ -500,6 +500,114 @@ def game(raw):
             "similar_games": {"command": "games similar", "game_id": uid},
         },
     }
+
+
+GAME_RELATION_GROUPS = ("morelike", "similar_games", "publisher_games")
+
+
+def game_detail(result, target, evidence):
+    identities = [identifier(result[key]) for key in ("steam_appid", "appid")
+                  if key in result]
+    if not identities or any(identity != target for identity in identities):
+        raise XhhConfigError("returned game identity does not match requested Steam app ID")
+    detail = game(result)
+    detail["steam_app_id"] = identifier(result.get("steam_appid"))
+    detail["description"] = detail["description"] or result.get("about_the_game")
+    gaps, invalid = [], 0
+    topic = result.get("topic_detail")
+    community = None
+    if isinstance(topic, dict) and identifier(topic.get("topic_id")):
+        nested_game = topic.get("game")
+        app_ids = nested_game.get("app_id") if isinstance(nested_game, dict) else None
+        app_ids = app_ids if isinstance(app_ids, list) else [app_ids]
+        forum = truth(result.get("has_bbs", topic.get("has_bbs")))
+        community = {
+            "id": identifier(topic["topic_id"]),
+            "name": topic.get("name") or topic.get("topic_name"),
+            "icon_url": (topic.get("icon_url") or topic.get("icon")
+                         or topic.get("pic_url") or topic.get("small_pic_url")),
+            "forum_available": forum,
+            "game_ids": list(dict.fromkeys(uid for value in app_ids
+                                           if (uid := identifier(value)))),
+            "navigation": {"feed": {"command": "feed", "topic_id": identifier(topic["topic_id"])}
+                           if forum is True else None},
+        }
+    else:
+        gaps.append("community_not_returned" if "topic_detail" not in result
+                    else "invalid_community")
+        if "topic_detail" in result:
+            invalid += 1
+    detail["navigation"] = {
+        "info": {"command": "games info", "steam_app_id": target},
+        "feed": community["navigation"]["feed"] if community else None,
+        "similar_games": {"command": "games similar", "game_id": detail["id"]},
+    }
+    related, groups = {}, {}
+    for key in GAME_RELATION_GROUPS:
+        if key not in result:
+            groups[key] = {"status": "not_returned", "returned": None,
+                           "valid": None, "invalid": None}
+            gaps.append(f"{key}_not_returned")
+            continue
+        records = result[key]
+        if not isinstance(records, list):
+            groups[key] = {"status": "observed_with_invalid", "returned": 0,
+                           "valid": 0, "invalid": 1}
+            gaps.append(f"invalid_{key}_shape")
+            invalid += 1
+            continue
+        rejected = 0
+        for record in records:
+            try:
+                item = game(record)
+            except (XhhConfigError, TypeError, ValueError):
+                rejected += 1
+                continue
+            uid = item["id"]
+            if uid in related:
+                memberships = related[uid]["relations"]
+                item = enrich_observation(related[uid], {
+                    field: value for field, value in item.items()
+                    if value is not None and value != []
+                })
+            else:
+                memberships = []
+            item["relations"] = memberships + ([key] if key not in memberships else [])
+            related[uid] = item
+        groups[key] = {
+            "status": ("observed_with_invalid" if rejected else
+                       "observed" if records else "observed_empty"),
+            "returned": len(records), "valid": len(records) - rejected,
+            "invalid": rejected,
+        }
+        invalid += rejected
+        if rejected:
+            gaps.append(f"invalid_{key}_records")
+    menus = []
+    menu_entries = result.get("menu_v2", [])
+    if not isinstance(menu_entries, list):
+        gaps.append("invalid_menu_v2_shape")
+        invalid += 1
+        menu_entries = []
+    for entry in menu_entries:
+        if isinstance(entry, dict):
+            menus.append({
+                "key": entry.get("key"),
+                "title": entry.get("title") or entry.get("name"),
+                "type": entry.get("type"), "protocol": entry.get("protocol"),
+                "value": entry.get("value"),
+                "parameters": entry.get("parameters", entry.get("params")),
+            })
+        else:
+            if "invalid_menu_v2_records" not in gaps:
+                gaps.append("invalid_menu_v2_records")
+            invalid += 1
+    return {
+        "game": detail, "community": community,
+        "related_games": list(related.values()), "relation_groups": groups,
+        "menus": menus, "source": evidence,
+    }, {"completion": "complete", "full_history": False, "gaps": gaps,
+        "invalid": invalid, "excluded": invalid}
 
 
 def discovery_user(raw):
@@ -830,7 +938,7 @@ class Browser:
                      args.hot_words or args.suggest)
                  or args.command == "user" and args.view != "profile"
                  or args.command == "hashtags" and args.action == "links"
-                 or args.command == "games"
+                 or args.command == "games" and args.action != "info"
                  or args.command == "favourites" and args.action == "posts")
         if not paged and (args.pages != 1 or args.resume):
             raise XhhConfigError("this command returns one resource; pages/resume are not applicable")
@@ -1656,6 +1764,14 @@ class Browser:
                 scope.update(invalid=invalid)
                 scope["contract_evidence"] = (
                     "implemented_contract_not_functionally_verified")
+        elif args.command == "games" and args.action == "info":
+            if not identifier(args.target):
+                raise XhhConfigError("games info requires a numeric Steam app ID")
+            if self.client.config.protocol_mode != "app":
+                raise XhhConfigError("games info requires App protocol; select --protocol app")
+            raw, result, evidence = self.fetch(
+                "/game/get_game_detail", {"appid": args.target}, budget)
+            data, scope = game_detail(result, args.target, evidence)
         elif args.command == "games":
             if args.offset < 0:
                 raise XhhConfigError("offset must be nonnegative")

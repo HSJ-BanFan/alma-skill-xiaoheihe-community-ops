@@ -1,12 +1,228 @@
+import copy
 import json
 import unittest
 
 from test_reader_followup import CommandTests
+from browser import game_detail
 from paging import decode_resume
 from observations import Store
 
 
 class DiscoveryShapeTests(CommandTests):
+    @staticmethod
+    def game_info():
+        return {
+            "steam_appid": 570, "name": "Dota 2",
+            "appicon": "https://img.example/dota.png",
+            "image": "https://img.example/dota-cover.png",
+            "about_the_game": "<p>Game description</p>",
+            "platform_infos": [{"key": "steam"}], "has_bbs": 1,
+            "topic_detail": {
+                "topic_id": "7214", "name": "Dota community",
+                "small_pic_url": "https://img.example/topic.png",
+                "game": {"app_id": [570]},
+            },
+            "morelike": [{"steam_appid": 730, "name": "Related game"}],
+            "similar_games": [], "publisher_games": [],
+            "menu_v2": [{"key": "store", "name": "Store", "type": "web",
+                         "protocol": "heybox://store", "value": "steam",
+                         "params": {"appid": "570"}}],
+        }
+
+    def test_game_info_detail_shape_uses_one_app_get(self):
+        def handler(path, query):
+            self.assertEqual(path, "/game/get_game_detail")
+            self.assertEqual(query, {"appid": "570"})
+            return {"result": self.game_info()}
+
+        code, value, clients = self.run_cli(["games", "info", "570", "--requests", "1"], handler)
+        self.assertEqual(code, 0, value)
+        self.assertEqual(len(clients[0].calls), 1)
+        self.assertEqual(value["coverage"]["budget"]["used_requests"], 1)
+        self.assertEqual(value["coverage"]["status"], "complete")
+        self.assertFalse(value["coverage"]["full_history"])
+        self.assertIsNone(value["coverage"]["resume"])
+        self.assertEqual(value["coverage"]["gaps"], [])
+        data = value["data"]
+        self.assertNotIn("items", data)
+        self.assertEqual(data["game"]["id"], "570")
+        self.assertEqual(data["game"]["steam_app_id"], "570")
+        self.assertEqual(data["game"]["description"], "<p>Game description</p>")
+        self.assertEqual(data["game"]["icon_url"], "https://img.example/dota.png")
+        self.assertEqual(data["game"]["platforms"], ["steam"])
+        self.assertEqual(data["game"]["navigation"]["info"],
+                         {"command": "games info", "steam_app_id": "570"})
+        self.assertEqual(data["game"]["navigation"]["similar_games"],
+                         {"command": "games similar", "game_id": "570"})
+        self.assertEqual(data["community"], {
+            "id": "7214", "name": "Dota community",
+            "icon_url": "https://img.example/topic.png", "forum_available": True,
+            "game_ids": ["570"], "navigation": {"feed": {"command": "feed", "topic_id": "7214"}},
+        })
+        self.assertEqual(data["menus"], [{
+            "key": "store", "title": "Store", "type": "web",
+            "protocol": "heybox://store", "value": "steam", "parameters": {"appid": "570"},
+        }])
+        self.assertEqual(data["source"]["route"], "/game/get_game_detail")
+        self.assertEqual(data["source"]["protocol"], "app")
+        self.assertFalse(data["source"]["identity_verified"])
+        self.assertNotIn("raw_pages", data)
+
+    def test_game_info_feed_navigation_requires_positive_forum(self):
+        for flag, expected in ((True, True), ("1", True), (False, False), ("0", False), (None, None)):
+            with self.subTest(flag=flag):
+                payload = self.game_info()
+                payload["has_bbs"] = flag
+                payload["topic_detail"]["has_bbs"] = 1
+                payload["topic_detail"]["game"]["app_id"] = 570
+                code, value, _ = self.run_cli(["games", "info", "570"], lambda *args: {"result": payload})
+                self.assertEqual(code, 0, value)
+                community = value["data"]["community"]
+                self.assertIs(community["forum_available"], expected)
+                feed = {"command": "feed", "topic_id": "7214"} if expected is True else None
+                self.assertEqual(community["navigation"]["feed"], feed)
+                self.assertEqual(value["data"]["game"]["navigation"]["feed"], feed)
+                self.assertEqual(community["game_ids"], ["570"])
+
+    def test_game_info_related_games_deduplicate_and_enrich_all_memberships(self):
+        payload = self.game_info()
+        payload["morelike"][0]["platform_infos"] = [{"key": "steam"}]
+        payload["similar_games"] = [{"appid": "730", "appicon": "https://img.example/related.png"}]
+        payload["publisher_games"] = [
+            {"app_id": "730", "description": "Publisher metadata"},
+            {"appid": "730", "score": 9}, {"appid": "440", "name": "Second game"},
+        ]
+        code, value, _ = self.run_cli(["games", "info", "570", "--limit", "1"], lambda *args: {"result": payload})
+        self.assertEqual(code, 0, value)
+        games = value["data"]["related_games"]
+        self.assertEqual([item["id"] for item in games], ["730", "440"])
+        self.assertEqual(games[0]["relations"], ["morelike", "similar_games", "publisher_games"])
+        self.assertEqual(games[0]["name"], "Related game")
+        self.assertEqual(games[0]["icon_url"], "https://img.example/related.png")
+        self.assertEqual(games[0]["description"], "Publisher metadata")
+        self.assertEqual(games[0]["score"], 9)
+        self.assertEqual(games[0]["platforms"], ["steam"])
+        self.assertEqual(value["data"]["relation_groups"]["publisher_games"],
+                         {"status": "observed", "returned": 3, "valid": 3, "invalid": 0})
+
+    def test_game_info_empty_missing_and_invalid_groups_are_distinct(self):
+        payload = self.game_info()
+        payload["morelike"] = []
+        del payload["similar_games"]
+        payload["publisher_games"] = {"unexpected": "shape"}
+        code, value, _ = self.run_cli(["games", "info", "570"], lambda *args: {"result": payload})
+        self.assertEqual(code, 0, value)
+        groups = value["data"]["relation_groups"]
+        self.assertEqual(groups["morelike"], {"status": "observed_empty", "returned": 0, "valid": 0, "invalid": 0})
+        self.assertEqual(groups["similar_games"], {"status": "not_returned", "returned": None, "valid": None, "invalid": None})
+        self.assertEqual(groups["publisher_games"], {"status": "observed_with_invalid", "returned": 0, "valid": 0, "invalid": 1})
+        self.assertEqual(value["coverage"]["gaps"], ["similar_games_not_returned", "invalid_publisher_games_shape"])
+        self.assertEqual(value["coverage"]["status"], "partial")
+        self.assertEqual(value["coverage"]["invalid"], 1)
+        self.assertEqual(value["coverage"]["excluded"], 1)
+        self.assertIsNone(value["coverage"]["resume"])
+
+    def test_game_info_malformed_related_records_preserve_valid_games(self):
+        for key in ("morelike", "similar_games", "publisher_games"):
+            with self.subTest(key=key):
+                payload = self.game_info()
+                payload[key] = [None, "invalid", {}, {"name": "missing ID"},
+                                {"appid": "440", "platform_infos": 42}, {"appid": "730"}]
+                code, value, _ = self.run_cli(["games", "info", "570"], lambda *args: {"result": payload})
+                self.assertEqual(code, 0, value)
+                self.assertEqual([item["id"] for item in value["data"]["related_games"]], ["730"])
+                self.assertEqual(value["data"]["relation_groups"][key],
+                                 {"status": "observed_with_invalid", "returned": 6, "valid": 1, "invalid": 5})
+                self.assertEqual(value["coverage"]["invalid"], 5)
+                self.assertEqual(value["coverage"]["excluded"], 5)
+                self.assertEqual(value["coverage"]["status"], "partial")
+                self.assertIn(f"invalid_{key}_records", value["coverage"]["gaps"])
+                self.assertIsNone(value["error"])
+
+    def test_game_info_missing_and_invalid_community_keep_detail(self):
+        for topic in (None, {}, {"topic_id": "bad"}, {"topic_id": 0}, {"id": "7214"}, "bad"):
+            with self.subTest(topic=topic):
+                payload = self.game_info()
+                payload["topic_detail"] = topic
+                code, value, _ = self.run_cli(["games", "info", "570"], lambda *args: {"result": payload})
+                self.assertEqual(code, 0, value)
+                self.assertIsNone(value["data"]["community"])
+                self.assertIsNone(value["data"]["game"]["navigation"]["feed"])
+                self.assertIn("invalid_community", value["coverage"]["gaps"])
+                self.assertEqual(value["coverage"]["status"], "partial")
+        payload = self.game_info()
+        del payload["topic_detail"]
+        code, value, _ = self.run_cli(["games", "info", "570"], lambda *args: {"result": payload})
+        self.assertEqual(code, 0, value)
+        self.assertIsNone(value["data"]["community"])
+        self.assertIn("community_not_returned", value["coverage"]["gaps"])
+
+    def test_game_info_identity_mismatch_or_invalid_identity_fails(self):
+        for identities in ({"steam_appid": 730}, {"appid": "730"}, {"steam_appid": 570, "appid": 730},
+                           {"steam_appid": None}, {}):
+            with self.subTest(identities=identities):
+                payload = self.game_info()
+                del payload["steam_appid"]
+                payload.update(identities)
+                code, value, clients = self.run_cli(["games", "info", "570"], lambda *args: {"result": payload})
+                self.assertNotEqual(code, 0, value)
+                self.assertIn("identity does not match", value["error"]["message"])
+                self.assertEqual(len(clients[0].calls), 1)
+
+    def test_game_info_appid_identity_description_precedence_and_pure_adapter(self):
+        payload = self.game_info()
+        payload["appid"] = payload.pop("steam_appid")
+        payload["description"] = "Preferred description"
+        original = copy.deepcopy(payload)
+        evidence = {"route": "/game/get_game_detail", "protocol": "app"}
+        data, scope = game_detail(payload, "570", evidence)
+        self.assertEqual(payload, original)
+        self.assertEqual(data["source"], evidence)
+        self.assertIsNone(data["game"]["steam_app_id"])
+        self.assertEqual(data["game"]["description"], "Preferred description")
+        self.assertEqual(scope["invalid"], 0)
+
+    def test_game_info_raw_retains_original_response_once(self):
+        payload = {"status": "ok", "result": self.game_info(), "extra": "raw-only"}
+        code, value, clients = self.run_cli(["games", "info", "570", "--raw"], lambda *args: payload)
+        self.assertEqual(code, 0, value)
+        self.assertEqual(value["data"]["raw_pages"], [payload])
+        self.assertEqual(len(clients[0].calls), 1)
+        self.assertNotIn("extra", value["data"]["game"])
+
+    def test_game_info_rejects_page_resume_invalid_targets_and_web_before_fetch(self):
+        for options in (["--pages", "2"], ["--resume", "invalid-token"]):
+            with self.subTest(options=options):
+                code, value, clients = self.run_cli(["games", "info", "570", *options],
+                                                   lambda *args: self.fail("unexpected fetch"))
+                self.assertNotEqual(code, 0, value)
+                self.assertIn("one resource", value["error"]["message"])
+                self.assertEqual(clients[0].calls, [])
+        for target in ([], ["bad"], ["0"], ["-1"], ["https://example.com"]):
+            with self.subTest(target=target):
+                code, value, clients = self.run_cli(["games", "info", *target],
+                                                   lambda *args: self.fail("unexpected fetch"))
+                self.assertNotEqual(code, 0, value)
+                self.assertIn("numeric Steam app ID", value["error"]["message"])
+                self.assertEqual(clients[0].calls, [])
+        self.config.protocol_mode = "web"
+        code, value, clients = self.run_cli(["games", "info", "570"], lambda *args: self.fail("unexpected fetch"))
+        self.assertNotEqual(code, 0, value)
+        self.assertIn("requires App protocol", value["error"]["message"])
+        self.assertEqual(clients[0].calls, [])
+
+    def test_game_info_invalid_menus_are_reported_without_losing_detail(self):
+        for menu, gap in ((42, "invalid_menu_v2_shape"), ([None], "invalid_menu_v2_records")):
+            with self.subTest(menu=menu):
+                payload = self.game_info()
+                payload["menu_v2"] = menu
+                code, value, _ = self.run_cli(["games", "info", "570"], lambda *args: {"result": payload})
+                self.assertEqual(code, 0, value)
+                self.assertEqual(value["data"]["game"]["id"], "570")
+                self.assertEqual(value["data"]["menus"], [])
+                self.assertIn(gap, value["coverage"]["gaps"])
+                self.assertEqual(value["coverage"]["status"], "partial")
+
     @staticmethod
     def story(identity):
         return {

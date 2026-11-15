@@ -17,6 +17,7 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --protocol web doctor --offline
 python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> account-info
 python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> feed <topic-id> --limit 20
 python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> post <link-id>
+python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> --protocol app games info <steam-app-id>
 python -I -X utf8 "<skill>/scripts/xhh.py" corpus plan <manifest.json>
 python -I -X utf8 "<skill>/scripts/xhh.py" corpus run <run-id>
 python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
@@ -35,6 +36,8 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
 `post` 返回结构化正文，`comments` 返回独立评论节点。正文按顺序保留文字、图片和链接，未知块保留平台数据并报告缺口。`body.status` 区分可用、缺失和解析失败；`body.completeness` 只有在明确证据存在时才为 `complete`。摘要留在 `excerpt`，不会替代正文。
 
 用 `community list/search/info/children` 找社区，`topics` 搜话题，`feed` 和 `hot` 浏览轻量条目，`search` 搜帖子、游戏或用户。信息流的创建时间、评论数和充电数排序只作用于本次返回的条目，不能当作全站排序。评论可选 `--sort hot/time_aes/time_desc`。列表中出现无法规范化的混合记录时，工具保留可用条目，并在 `coverage.gaps` 与 `coverage.invalid` 中报告缺口。
+
+`games info STEAM_APP_ID` 用 App GET `/game/get_game_detail?appid=<id>` 读取一个游戏详情资源。返回 `game`、`community`、`related_games`、`relation_groups`、`menus` 和 `source`；返回的 `steam_appid` 或 `appid` 必须匹配请求。社区有可用 `topic_detail.topic_id` 且 `has_bbs` 明确为真时才提供 feed 导航。三组关系 `morelike`、`similar_games`、`publisher_games` 按游戏 ID 合并并保留全部 `relations`。组内空数组为 `observed_empty`；缺少键为 `not_returned` 并报告缺口，不表示没有关系。无效形状或记录会报告缺口，保留有效游戏并返回 `partial`。此命令拒绝 `--pages > 1` 和 `--resume`，`--limit` 不截断嵌套关系，`--raw` 返回一次详情请求的原始响应。字段合同、计数和证据范围见 [REFERENCE.md](REFERENCE.md#games-info-steam_app_id)。
 
 `feed --order newest/recommended/recent-replies` 选择平台原生发布时间、推荐或回复时间排序。`--sort` 只对已取得条目排序，两个选择的作用范围不同。
 

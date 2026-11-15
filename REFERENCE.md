@@ -162,6 +162,7 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 | `user UID --view posts/followers/following` | 沿作者帖子和公开关系继续浏览 |
 | `favourites folders` | 当前账号的收藏夹 |
 | `favourites posts FOLDER` | 收藏夹条目，默认收藏夹 ID 可为 `0` |
+| `games info STEAM_APP_ID` | App 单资源游戏详情、社区、关系分组和菜单；请求 `appid` 为 Steam app ID |
 | `asset HTTPS_CDN_URL` | 下载图片、保留原图并生成 PNG 预览；无账号要求，不发送 Cookie |
 | `snapshot list/show/resume/diff` | 查询、继续或比较本地浏览观察 |
 
@@ -208,6 +209,32 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> snapshot diff basel
 ```
 
 差异为 `new`、`changed`、`unchanged`、`not_observed`，始终 `deletion_inferred=false`。来源检查时间不制造内容变化。未知身份只能使用明确标记的内容指纹，不能据此推断作者或帖子归属。快照记录公开观察，不维护人格、兴趣或互动处置策略。
+
+## games info STEAM_APP_ID
+
+```console
+python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> --protocol app games info 570 --requests 1
+python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> --protocol app games info 570 --raw
+```
+
+此命令只读取 App GET `/game/get_game_detail?appid=570`，不自动读取社区 feed 或其他游戏路线。目标必须为正整数。响应中出现的每个 `steam_appid`、`appid` 都必须匹配目标；缺失、无效或不匹配会失败。`--pages > 1` 与 `--resume` 由单资源检查拒绝。`--offset` 和 `--limit` 不会作为详情请求参数发送，`--limit` 不截断嵌套关系。`--raw` 的 `data.raw_pages` 包含该次原始响应。
+
+| 输出 | 合同 |
+| --- | --- |
+| `game` | 复用游戏规范化字段；`steam_app_id` 来自 `steam_appid`，缺失时为 `null`；简介回退到 `about_the_game`；提供 `navigation.info`、`navigation.similar_games` 及有论坛证据时的 `navigation.feed` |
+| `community` | 仅接受 `topic_detail.topic_id`；无可用 ID 时为 `null`；包含 `id`、`name`、`icon_url`、`forum_available`、`game_ids` 和 `navigation.feed` |
+| `related_games` | 固定按 `morelike`、`similar_games`、`publisher_games` 的顺序规范化；按游戏 ID 去重，后续记录补充可用元数据，`relations` 保留全部分组成员关系 |
+| `relation_groups` | 三组始终存在，包含 `status`、`returned`、`valid`、`invalid`；有效计数按记录出现次数计算，不按去重后游戏数计算 |
+| `menus` | 将 `menu_v2` 的对象条目投影为 `key`、`title`、`type`、`protocol`、`value`、`parameters`；标题支持 `title/name`，参数支持 `parameters/params` |
+| `source` | 保留本次 fetch 的路由、协议、时间、配置 UID 与身份核验证据 |
+
+`forum_available` 从 `has_bbs` 规范化为 `true`、`false` 或 `null`，优先使用详情的顶层字段，再兼容社区内字段；只有明确 `true` 才提供 feed 导航。`game_ids` 来自 `topic_detail.game.app_id`，接受单 ID 或数组，只保留有效 ID 并去重。详情读取不证明 feed 路线当次可用。
+
+关系组的非空有效数组为 `observed`，空数组为 `observed_empty` 且不增加缺口，含无效记录或形状为 `observed_with_invalid`。未返回键为 `not_returned`，三个计数均为 `null`，缺口为 `<group>_not_returned`。不把缺少字段解释为不存在关系。非数组形状报告 `invalid_<group>_shape`，`returned=0`、`valid=0`、`invalid=1`，其中 1 表示一个无效形状，不是一个游戏记录。数组中的无效条目报告 `invalid_<group>_records`，跳过无效条目并保留其余游戏。
+
+社区缺少键时报告 `community_not_returned`，已返回但缺少可用 ID 时报告 `invalid_community`。无效菜单形状或条目分别报告 `invalid_menu_v2_shape` 或 `invalid_menu_v2_records`。无效形状、社区或条目计入 `coverage.invalid` 和 `coverage.excluded`，经现有 finalization 返回 `partial`，不生成 resume。无效项以外的缺失字段仅报告缺口。`coverage.completion=complete` 只指单次详情资源读取完成，`full_history=false`；它不声称取得完整关系图。
+
+证据分为 Observed detail response 与 Unverified routes。Observed 仅描述实际详情响应返回的字段和分组。`navigation` 及菜单协议是下一步候选，不继承详情请求的成功证据；`games similar` 的 `/game/get_similar_games`、`games recommended` 的 `/game/all_recommend/v2` 和由详情导出的社区 feed 需要独立实际调用才能更新各自证据。本功能实现与测试没有执行这些网络请求，离线夹具也不构成新的 Observed 网络记录。
 
 ## 有界 corpus
 
