@@ -146,6 +146,27 @@ class DiscoveryShapeTests(CommandTests):
                 self.assertEqual(code, 0, value)
                 self.assertEqual(len(value["data"]["items"]), len(top) + len(subscribed))
 
+    def test_banner_all_communities_is_navigation_not_a_fake_topic(self):
+        code, value, _ = self.run_cli(["banners"], lambda *args: {
+            "result": {"topic_banner": {
+                "top_topics": [{
+                    "topic_id": -1,
+                    "name": "全部",
+                    "protocol": "heybox://{\"path\":\"bbs/topic/list\"}",
+                    "small_pic_url": "https://img.example/all.png",
+                }],
+                "subscribed_topics": [],
+            }},
+        })
+        self.assertEqual(code, 0, value)
+        item = value["data"]["items"][0]
+        self.assertEqual(item["id"], "top:all")
+        self.assertIsNone(item["community"])
+        self.assertEqual(item["platform_protocol"], "heybox://{\"path\":\"bbs/topic/list\"}")
+        self.assertEqual(item["icon_url"], "https://img.example/all.png")
+        self.assertEqual(value["coverage"]["status"], "complete")
+        self.assertEqual(value["coverage"]["invalid"], 0)
+
     def test_empty_recommendations_have_explicit_gap(self):
         code, value, _ = self.run_cli(["recommended-users"], lambda *args: {
             "result": {"recommend_list": [], "rec_users": [], "recommend_nums": 0},
@@ -195,6 +216,63 @@ class DiscoveryShapeTests(CommandTests):
                 self.assertTrue(value["coverage"]["gaps"])
                 self.assertIsNone(value["coverage"]["resume"])
                 self.assertIsNone(value["error"])
+
+    def test_search_unwraps_typed_info_payloads(self):
+        cases = (
+            (["search", "query"], [{"type": "link", "info": {"linkid": "123", "title": "post"}}], "id", "123"),
+            (["search", "query", "--type", "game"], [{"type": "game", "info": {"appid": "123", "name": "game"}}], "id", "123"),
+            (["search", "query", "--type", "user"], [{"type": "user", "info": {
+                "user": {"userid": "123", "username": "author"},
+            }}], "uid", "123"),
+        )
+        for arguments, records, identity_key, identity in cases:
+            with self.subTest(arguments=arguments):
+                code, value, _ = self.run_cli(arguments, lambda *args: {
+                    "result": {"items": records, "has_more": False},
+                })
+                self.assertEqual(code, 0, value)
+                self.assertEqual(value["data"]["items"][0][identity_key], identity)
+                self.assertEqual(value["coverage"]["invalid"], 0)
+
+    def test_game_search_uses_steam_identity_and_platform_metadata(self):
+        code, value, _ = self.run_cli(["search", "query", "--type", "game"], lambda *args: {
+            "result": {"items": [{"type": "game", "info": {
+                "steam_appid": 123,
+                "name": "game",
+                "appicon": "https://img.example/icon.png",
+                "image": "https://img.example/cover.png",
+                "platform_infos": [{"key": "steam"}],
+                "price": {"current": "3.5", "discount": 30},
+                "is_free": False,
+                "chinese_support": True,
+                "follow_num": 68,
+                "score_comment": 3,
+            }}], "has_more": False},
+        })
+        self.assertEqual(code, 0, value)
+        item = value["data"]["items"][0]
+        self.assertEqual(item["id"], "123")
+        self.assertEqual(item["icon_url"], "https://img.example/icon.png")
+        self.assertEqual(item["cover_url"], "https://img.example/cover.png")
+        self.assertEqual(item["platforms"], ["steam"])
+        self.assertEqual(item["price"], {"current": "3.5", "discount": 30})
+        self.assertFalse(item["is_free"])
+        self.assertTrue(item["chinese_support"])
+        self.assertEqual(item["followers"], 68)
+        self.assertEqual(item["score"], 3)
+        self.assertEqual(value["coverage"]["invalid"], 0)
+
+    def test_search_rejects_typed_payload_of_the_wrong_kind(self):
+        code, value, _ = self.run_cli(["search", "query"], lambda *args: {
+            "result": {"items": [
+                {"type": "game", "info": {"appid": "123", "name": "game"}},
+                {"type": "link", "info": {"linkid": "124", "title": "post"}},
+            ], "has_more": False},
+        })
+        self.assertEqual(code, 0, value)
+        self.assertEqual([item["id"] for item in value["data"]["items"]], ["124"])
+        self.assertEqual(value["coverage"]["invalid"], 1)
+        self.assertEqual(value["coverage"]["status"], "partial")
 
     def test_invalid_counts_and_gaps_survive_later_clean_search_pages(self):
         def handler(path, query):

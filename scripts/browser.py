@@ -13,7 +13,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Callable
 
-from documents import author, comment, document, floors, identifier, integer, link_id, media, merge_media, result_object, source, summary, entity_id, enrich_observation
+from documents import author, comment, document, floors, identifier, integer, link_id, media, merge_media, result_object, source, summary, truth, entity_id, enrich_observation
 from network_io import read_http
 from paging import (
     Budget,
@@ -331,7 +331,7 @@ def game(raw):
     if not isinstance(raw, dict):
         raise XhhConfigError("game record must be an object")
     uid = identifier(raw.get("appid") or raw.get("app_id") or raw.get("game_id")
-                     or raw.get("gameid") or raw.get("id"))
+                     or raw.get("gameid") or raw.get("steam_appid") or raw.get("id"))
     if not uid:
         raise XhhConfigError("game record has no valid ID")
     aliases = raw.get("aliases") or raw.get("alias")
@@ -357,10 +357,20 @@ def game(raw):
         "name": raw.get("name") or raw.get("game_name") or raw.get("title"),
         "aliases": aliases if isinstance(aliases, list) else None,
         "description": raw.get("description") or raw.get("desc") or raw.get("intro"),
-        "icon_url": raw.get("icon") or raw.get("icon_url"),
-        "cover_url": raw.get("cover") or raw.get("cover_url"),
-        "platforms": raw.get("platforms") or raw.get("platform"),
-        "tags": raw.get("tags") or raw.get("game_tags"),
+        "icon_url": raw.get("icon") or raw.get("appicon") or raw.get("icon_url"),
+        "cover_url": (raw.get("cover") or raw.get("cover_url") or raw.get("image")
+                      or raw.get("library_background")
+                      or raw.get("libary_background")),
+        "platforms": (raw.get("platforms") or raw.get("platform")
+                      or [item.get("key") for item in raw.get("platform_infos") or []
+                          if isinstance(item, dict) and item.get("key")]),
+        "tags": raw.get("tags") or raw.get("game_tags") or raw.get("genres")
+                or raw.get("rich_tags"),
+        "price": raw.get("price") if isinstance(raw.get("price"), dict) else None,
+        "is_free": truth(raw.get("is_free")),
+        "chinese_support": truth(raw.get("chinese_support")),
+        "followers": integer(raw.get("follow_num")),
+        "score": raw.get("score_comment"),
         "communities": communities or None,
         "navigation": {
             "feed": ({"command": "feed", "topic_id": communities[0]["id"]}
@@ -379,6 +389,30 @@ def discovery_user(raw):
 
 def discovery_game(raw):
     return game(raw.get("game", raw))
+
+
+def search_payload(raw, expected):
+    kind = raw.get("type")
+    info = raw.get("info")
+    if kind is not None and kind != expected:
+        raise XhhConfigError(f"search returned {kind!r} where {expected!r} was required")
+    if isinstance(info, dict):
+        return info
+    if kind is not None:
+        raise XhhConfigError(f"search {expected} result has no object payload")
+    return raw
+
+
+def search_link(raw):
+    return summary(search_payload(raw, "link"))
+
+
+def search_game(raw):
+    return discovery_game(search_payload(raw, "game"))
+
+
+def search_user(raw):
+    return discovery_user(search_payload(raw, "user"))
 
 
 def story(raw):
@@ -427,17 +461,29 @@ def banner(raw):
     topic = raw.get("topic_info") or raw.get("topic") or raw
     if not isinstance(topic, dict):
         raise XhhConfigError("banner community must be an object")
-    uid = identifier(topic.get("topic_id") or topic.get("topicid") or topic.get("id"))
+    raw_uid = topic.get("topic_id") or topic.get("topicid") or topic.get("id")
+    placement = raw.get("placement")
+    protocol = topic.get("protocol") if isinstance(topic.get("protocol"), str) else None
+    icon_url = (topic.get("small_pic_url") or topic.get("pic_url")
+                or topic.get("icon"))
+    if str(raw_uid) == "-1":
+        name = topic.get("name") or topic.get("topic_name")
+        return {"id": f"{placement}:all" if placement else "all",
+                "name": name, "community": None, "url": None,
+                "platform_protocol": protocol, "placement": placement,
+                "description": topic.get("description") or topic.get("desc"),
+                "icon_url": icon_url}
+    uid = identifier(raw_uid)
     if not uid:
         raise XhhConfigError("banner community has no valid ID")
     name = topic.get("name") or topic.get("topic_name")
-    placement = raw.get("placement")
     return {"id": f"{placement}:{uid}" if placement else uid,
             "name": name, "community": {"id": uid, "name": name},
             "url": "https://www.xiaoheihe.cn/app/bbs/topic/" + uid,
+            "platform_protocol": protocol,
             "placement": placement,
             "description": topic.get("description") or topic.get("desc"),
-            "icon_url": topic.get("pic_url") or topic.get("icon")}
+            "icon_url": icon_url}
 
 
 RESPONSES = {
@@ -451,10 +497,10 @@ RESPONSES = {
                                              ("users",), ("items",), ("recommend",), ("list",)),
                                       discovery_user, route="/bbs/app/profile/recommend/following",
                                       empty_gap="recommendations_empty"),
-    "link": ResponseSpec("link", (("links",), ("search_result",), ("items",), ("list",), ("news",)), summary),
+    "link": ResponseSpec("link", (("links",), ("search_result",), ("items",), ("list",), ("news",)), search_link),
     "game": ResponseSpec("game", (("games",), ("search_result",), ("items",), ("list",),
-                                  ("links",), ("news",), ("recommend",), ("similar",)), discovery_game),
-    "user": ResponseSpec("user", (("users",), ("search_result",), ("items",), ("list",), ("links",), ("news",)), discovery_user),
+                                  ("links",), ("news",), ("recommend",), ("similar",)), search_game),
+    "user": ResponseSpec("user", (("users",), ("search_result",), ("items",), ("list",), ("links",), ("news",)), search_user),
 }
 
 
