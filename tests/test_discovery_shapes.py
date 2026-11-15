@@ -4,7 +4,7 @@ import unittest
 
 from test_reader_followup import CommandTests
 from browser import game_detail
-from paging import decode_resume
+from paging import ReadLimit, decode_resume
 from observations import Store
 
 
@@ -80,6 +80,23 @@ class DiscoveryShapeTests(CommandTests):
         self.assertEqual(data["source"]["protocol"], "app")
         self.assertFalse(data["source"]["identity_verified"])
         self.assertNotIn("raw_pages", data)
+
+    def test_game_info_budget_stop_has_no_unusable_resume(self):
+        def handler(path, query):
+            self.assertEqual(path, "/game/get_game_detail")
+            self.assertEqual(query, {"appid": "570"})
+            raise ReadLimit("request_budget")
+
+        code, value, clients = self.run_cli(
+            ["games", "info", "570", "--requests", "1"], handler
+        )
+        self.assertEqual(code, 0, value)
+        self.assertEqual(len(clients[0].calls), 1)
+        self.assertEqual(value["coverage"]["status"], "partial")
+        self.assertEqual(value["coverage"]["stop_reason"], "request_budget")
+        self.assertEqual(value["coverage"]["budget"]["used_requests"], 1)
+        self.assertIsNone(value["coverage"]["resume"])
+        self.assertEqual(value["data"]["items"], [])
 
     def test_game_info_feed_navigation_requires_positive_forum(self):
         for flag, expected in ((True, True), ("1", True), (False, False), ("0", False), (None, None)):
