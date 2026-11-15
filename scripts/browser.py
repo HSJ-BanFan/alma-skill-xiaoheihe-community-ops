@@ -72,7 +72,8 @@ def register(commands):
             parser.add_argument("--limit", type=bounded, default=50)
             parser.add_argument("--sort", choices=("hot", "time_aes", "time_desc"), default="hot")
             if name == "post":
-                parser.add_argument("--reader", choices=("native", "website"), default="native")
+                parser.add_argument("--reader", choices=("auto", "native", "website"), default="auto",
+                                    help="auto uses website for Web sessions and native for App sessions")
                 parser.add_argument("--section", choices=("all", "body", "metadata"), default="all")
                 parser.add_argument("--body-format", choices=("text", "blocks", "both"), default="both")
             if name == "thread":
@@ -359,7 +360,10 @@ class Browser:
                 scope = coverage(result, count=len(records), position=args.offset)
         elif args.command in ("post", "comments"):
             query = {"link_id": args.link_id, "page": str(args.page), "limit": str(args.limit), "sort_filter": args.sort}
-            raw, result, evidence = self.website(query, budget) if getattr(args, "reader", "native") == "website" else self.fetch("/bbs/app/link/tree", query, budget)
+            reader = getattr(args, "reader", "native")
+            if reader == "auto":
+                reader = "website" if self.client.config.protocol_mode == "web" else "native"
+            raw, result, evidence = self.website(query, budget) if reader == "website" else self.fetch("/bbs/app/link/tree", query, budget)
             if args.command == "post" and not isinstance(result.get("link"), dict):
                 raise XhhConfigError("post missing from platform result")
             nodes = floors(result.get("comments"), args.link_id) if args.command == "comments" else []
@@ -369,6 +373,7 @@ class Browser:
                 scope["gaps"].append("comments_not_returned")
             scope["sort"] = args.sort
             if args.command == "post":
+                evidence["reader"] = reader
                 scope["body"] = data["body"]["completeness"]
                 scope["gaps"].extend(data["body"]["gaps"])
                 if args.body_format != "both":

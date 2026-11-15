@@ -137,7 +137,7 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 | `feed ID --order recommended/newest/recent-replies` | 平台原生推荐、发布时间或回复时间排序；与返回范围内的 `--sort` 分开 |
 | `post LINK --section all/body/metadata` | LINK 可为 ID、标准小黑盒 HTTPS 链接或含 ID 的 heybox 链接；不跟随缩短链接 |
 | `post LINK --body-format text/blocks/both` | 控制正文输出，默认 `both`；未知平台块保留 `data` 并标记缺口 |
-| `post LINK --reader native/website` | 显式选择读取身份，网站方式要求 Web 会话，无自动 fallback |
+| `post LINK --reader auto/native/website` | 默认 auto 按会话选择 Web 网站身份或 App 原生身份；显式 website 要求 Web 会话，每次只选择一个入口 |
 | `comments LINK --sort hot/time_aes/time_desc` | 单独读取评论，不重复整个正文 |
 | `replies ROOT --cursor VALUE` | 读取根楼层的游标页；未提供或未核实帖子 ID 时节点的帖子归属未知 |
 | `thread LINK ROOT --around CID` | 围绕精确 CID 读取祖先与后续节点，`--pages` 控制根楼层定位和深楼读取总页数 |
@@ -149,6 +149,8 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 | `snapshot list/show/resume/diff` | 查询、继续或比较本地浏览观察 |
 
 信息流统计的 `charges` 来自 `link_award_num`，不把服务器的占位 `up=0` 当成点赞数。缺失的统计值是 `null`。正文摘要与正文分开，`body_not_returned`、`invalid_body_json` 和未知块均有明确缺口。非空正文自身不证明平台已给出全文。
+
+默认的 `post --reader auto` 在发起请求前按已选会话决定入口，只使用一次读取请求。`source.reader` 记录实际的 `website` 或 `native` 身份。平台错误、正文缺失或预算停止都不会触发另一个入口；显式 native 的结果也保持原生范围。独立 comments 和 thread 继续使用评论入口。
 
 `thread.data.reply_location` 给出该次指定目标的回复位置，字段为 `page`、`limit`、`sort`、`cursor`。`page` 是根楼被观察到的绝对页号；`cursor` 是实际包含目标的子评论页的输入游标，首屏和根楼预览为 `null`。读取更多页后，该位置仍对应目标，独立于最后一页的 `coverage.next`。未观察到目标时位置为 `null`。保存的已观察目标位置可随快照续读保留；旧快照缺少位置时，需重新观察目标。位置仅用于定位，发送前仍核验目标。
 

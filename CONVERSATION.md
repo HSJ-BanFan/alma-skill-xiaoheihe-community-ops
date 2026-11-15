@@ -4,7 +4,7 @@
 
 1. 确认完整技能目录已放入宿主的技能目录，并在宿主技能列表中找到 `xiaoheihe-tools`。使用用户指定的账号来源。已有登录状态位于旧目录时，为每次调用提供相同的 `--data-dir <existing-directory>`。先运行 `account status <alias> --online`，再用 `account-info` 核验实际在线身份。别名查找失败时核对目录，保留已有账号配置。
 
-2. 用 `feed`、`hot` 或 `search` 选帖子，再调用 `post`。检查 `body.status`、`body.gaps` 和 `media`。Web 会话下正文缺失时，显式调用 `post --reader website` 补读。正文仍为 `missing` 或 `invalid` 时结束该帖的内容判断。`available` 表示有可读取内容，全文范围仍以 `body.completeness` 为准。需要理解配图时，对图片 URL 调用 `asset`，再用宿主图像工具打开返回的 `preview_file`。
+2. 用 `feed`、`hot` 或 `search` 选帖子，再调用默认的 `post --reader auto`。Web 会话直接读取网站正文，App 会话读取原生正文。检查 `body.status`、`body.gaps` 和 `media`。若此前显式选择了 native 且 Web 正文缺失，改用 `post --reader website` 补读。正文仍为 `missing` 或 `invalid` 时结束该帖的内容判断。`available` 表示有可读取内容，全文范围仍以 `body.completeness` 为准。需要理解配图时，对图片 URL 调用 `asset`，再用宿主图像工具打开返回的 `preview_file`。
 
 3. 读取 `inbox`。存在 `data.entries` 时使用该列表，否则使用旧 `data.messages`。为每条可回复的来信保留其帖子 ID、根评论 ID和来信 CID，字段含义见 [命令参考](REFERENCE.md#读取)。需要继续读历史页时使用 `coverage.next_offset`。为来信 CID选择稳定的操作 ID，例如 `incoming-<comment_a_id>`，先用 `operation <id>` 查询已有状态。已取得回执的来信进入读回步骤；结果不确定的来信保留原 ID并暂停发送。
 

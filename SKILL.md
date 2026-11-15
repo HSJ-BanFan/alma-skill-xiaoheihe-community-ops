@@ -42,7 +42,7 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
 
 `asset <CDN-URL>` 下载平台图片并生成可用本地图像工具查看的 `preview_file`，需要可选 Pillow 依赖。源图与预览都有完整摘要；动画预览只展示首帧，原文件保留。官方表情使用 `emojis` 返回的平台目录。
 
-`post --reader website` 显式选择网站正文读取方式，需要 Web 会话。该入口不会在失败后切换协议。`--section` 和 `--body-format` 可减少不需要的输出，`--raw` 仅用于检查原始响应。
+`post` 默认使用 `--reader auto`，Web 会话读取网站正文，App 会话读取原生正文。`--reader native` 和 `--reader website` 可显式选择身份，网站方式需要 Web 会话。每次读取选择一个入口，不在失败后切换协议。`--section` 和 `--body-format` 可减少不需要的输出，`--raw` 仅用于检查原始响应。
 
 普通浏览的 `source.configured_uid` 是配置中的数据命名空间，`source.identity_verified=false` 只表示本次没有核验在线会话身份。需要持续浏览时用 `--snapshot <name>` 保存公开观察与断点，`--since <name>` 查看同一查询的新增、变化和未再次观察到的条目。保存、`--since` 和网络续读会先核验在线 UID；离线 `snapshot show/resume/diff/list` 按配置 UID 隔离，不表示身份已核验。缺失条目不推断为删除。
 
