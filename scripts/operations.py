@@ -44,8 +44,12 @@ class Journal:
         try:
             connection.execute("""CREATE TABLE IF NOT EXISTS operations (
                 uid TEXT NOT NULL, operation_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
-                kind TEXT NOT NULL, status TEXT NOT NULL, receipt TEXT, updated_at REAL NOT NULL,
+                kind TEXT NOT NULL, status TEXT NOT NULL, receipt TEXT, updated_at REAL NOT NULL, context TEXT,
                 PRIMARY KEY (uid, operation_id))""")
+            if "context" not in {column[1] for column in connection.execute("PRAGMA table_info(operations)")}:
+                connection.execute("BEGIN IMMEDIATE")
+                if "context" not in {column[1] for column in connection.execute("PRAGMA table_info(operations)")}:
+                    connection.execute("ALTER TABLE operations ADD COLUMN context TEXT")
             connection.commit()
             with connection:
                 yield connection
@@ -60,11 +64,14 @@ class Journal:
                                      (uid, operation_id)).fetchone()
         if row is None:
             return None
-        return {"operation_id": row["operation_id"], "kind": row["kind"], "status": row["status"],
-                "receipt": json.loads(row["receipt"]) if row["receipt"] else None,
-                "updated_at": row["updated_at"]}
+        result = {"operation_id": row["operation_id"], "kind": row["kind"], "status": row["status"],
+                  "receipt": json.loads(row["receipt"]) if row["receipt"] else None,
+                  "updated_at": row["updated_at"]}
+        if row["context"]:
+            result["context"] = json.loads(row["context"])
+        return result
 
-    def execute(self, uid: str, operation_id: str, kind: str, payload: dict, send):
+    def execute(self, uid: str, operation_id: str, kind: str, payload: dict, send, *, context=None):
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", operation_id or ""):
             raise XhhConfigError("--operation-id requires 1-128 letters, digits, underscores or hyphens")
         fingerprint = hashlib.sha256(json_text({"kind": kind, "payload": payload}).encode()).hexdigest()
@@ -79,8 +86,9 @@ class Journal:
                     return {"operation_id": operation_id, "replayed": True,
                             "status": "returned", "receipt": json.loads(row["receipt"])}
                 raise OperationError("operation_pending_or_uncertain", operation=self.read(uid, operation_id))
-            connection.execute("INSERT INTO operations VALUES (?, ?, ?, ?, 'reserved', NULL, ?)",
-                               (uid, operation_id, fingerprint, kind, time.time()))
+            connection.execute("INSERT INTO operations (uid,operation_id,fingerprint,kind,status,receipt,updated_at,context) "
+                               "VALUES (?, ?, ?, ?, 'reserved', NULL, ?, ?)",
+                               (uid, operation_id, fingerprint, kind, time.time(), json_text(context) if context is not None else None))
         try:
             receipt = send()
         except Exception as error:
@@ -197,9 +205,12 @@ def prepare_write(client, kind: str, args):
             cid = client._created_comment_id(result)
             if not cid:
                 raise OperationError("missing_comment_receipt")
-            return {"comment_id": numeric_id(cid), "link_id": args.link_id,
-                    "root_id": getattr(args, "root_id", None), "reply_id": getattr(args, "reply_id", None),
-                    "visibility": "not_checked"}
+            receipt = {"comment_id": numeric_id(cid), "link_id": args.link_id,
+                       "root_id": getattr(args, "root_id", None), "reply_id": getattr(args, "reply_id", None),
+                       "visibility": "not_checked"}
+            if url:
+                receipt["image_url"] = url
+            return receipt
         return payload, send
     if kind == "like":
         client.post_state(args.link_id)

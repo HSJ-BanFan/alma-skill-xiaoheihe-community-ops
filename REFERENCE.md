@@ -60,7 +60,7 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 | `my-comments --offset N --limit N` | 当前账号的评论页 |
 | `drafts --offset N --limit N` | 平台草稿页 |
 | `creator-options --link-id LINK` | 编辑器板块、标签、作者计划选项 |
-| `emojis` | 平台官方表情目录；服务器可能返回空组 |
+| `emojis list/search/get/refresh` | 验证过的官方目录、含义说明、图像预览与官方资源刷新；本地查询不需要账号 |
 | `operation ID` | 本地按真实 UID 隔离的发送状态及回执 |
 
 收件箱使用平台返回的 `entries` 列表，缺少该字段时接受旧 `messages` 列表。平台字段、完整正文和未读数量保持原样；存在但形状错误的列表返回 `invalid_inbox_response`。`comment_a_id` 是来信 CID，`comment_b_id` 是被回复的 CID，`root_comment_id` 是根楼层，`linkid` 是帖子 ID。正文分别在 `comment_a_text` 和 `comment_b_text`。
@@ -70,6 +70,8 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 收件箱的 offset 不是稳定快照游标。分页期间有新消息插入列表前方时，后续页可能重复先前消息。调用方按 `message_id` 或来信 CID跨页、跨轮去重；下一轮最新消息检查从 offset 0 开始。完整处置流程见 [CONVERSATION.md](CONVERSATION.md)。
 
 ## 写入
+
+结构化表情内容使用 `compose SPEC.json --out prepared.json`，然后用 `send prepared.json --confirm --operation-id ID`，最后用 `verify ID`。输入 schema 由 `describe --tool xhh_compose` 返回。素材选择、图片创建与错误恢复见 [表情内容流程](references/EMOJIS.md)。既有纯文本和 SDK 发帖命令仍可使用。
 
 所有下列命令要求 `--confirm --operation-id ID`。正文文件使用 UTF-8，评论和回复最多 1000 字符。工具在写前在线核对账号，不要求调用方提供宿主会话证明。
 

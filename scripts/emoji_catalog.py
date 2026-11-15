@@ -100,7 +100,8 @@ def _record(item):
 
 
 def _validate(snapshot):
-    _need(isinstance(snapshot, dict) and snapshot.get("schema_version") == SCHEMA_VERSION, "catalog schema is not supported")
+    _need(isinstance(snapshot, dict) and type(snapshot.get("schema_version")) is int
+          and snapshot.get("schema_version") == SCHEMA_VERSION, "catalog schema is not supported")
     version, source, items = (snapshot.get(key) for key in ("catalog_version", "source", "items"))
     _need(isinstance(version, str) and version, "catalog version is missing")
     _need(isinstance(source, dict) and source.get("render_contract") == RENDER_CONTRACT, "catalog source contract is not supported")
@@ -175,9 +176,10 @@ class Catalog:
         _need(item is not None, f"emoji ID is not in the catalog: {emoji_id!r:.80}", "unknown_emoji")
         return copy.deepcopy(item)
 
-    def search(self, query="", *, usage=None, limit=5, avoid=()):
+    def search(self, query="", *, usage=None, limit=5, avoid=(), offset=0):
         _need(isinstance(query, str), "search query must be text", "invalid_query")
         _need(type(limit) is int and 1 <= limit <= MAX_LIMIT, f"limit must be an integer from 1 to {MAX_LIMIT}", "invalid_limit")
+        _need(type(offset) is int and offset >= 0, "offset must be a nonnegative integer", "invalid_offset")
         if usage is not None:
             _target(usage)
         try:
@@ -193,8 +195,9 @@ class Catalog:
             if reasons or not terms:
                 ranked.append((sum(score for score, _ in reasons), "; ".join(text for _, text in reasons) or "listed without a query", item))
         ranked.sort(key=lambda entry: -entry[0])
-        items = [{**copy.deepcopy(item), "rank_score": score, "match_reason": reason} for score, reason, item in ranked[:limit]]
-        return {"retrieval": "keyword", "query": query, "matched": len(ranked), "catalog": self.info(), "items": items}
+        items = [{**copy.deepcopy(item), "rank_score": score, "match_reason": reason} for score, reason, item in ranked[offset:offset + limit]]
+        return {"retrieval": "keyword", "query": query, "matched": len(ranked), "catalog": self.info(), "items": items,
+                "offset": offset, "limit": limit, "next_offset": offset + len(items) if offset + len(items) < len(ranked) else None}
 
     def resolve_shortcode(self, value):
         return copy.deepcopy(self._shortcodes.get(value)) if isinstance(value, str) else None

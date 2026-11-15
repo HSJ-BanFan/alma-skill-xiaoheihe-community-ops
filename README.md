@@ -5,6 +5,7 @@
 ```console
 python -I -X utf8 scripts/xhh.py --help
 python -I -X utf8 scripts/xhh.py --protocol web doctor --offline
+python -I -X utf8 scripts/xhh.py describe
 ```
 
 技能只接收明确的账号、目标和内容，并提供小黑盒读取与写入操作。说明入口为 [SKILL.md](SKILL.md)，命令与认证参考为 [REFERENCE.md](REFERENCE.md)。
@@ -15,6 +16,10 @@ python -I -X utf8 scripts/xhh.py --protocol web doctor --offline
 
 浏览工具提供结构化正文、完整性证据、社区发现、评论上下文、预算续读、作者与收藏导航以及账号隔离的公开观察快照。媒体预览按需安装 `requirements-media.txt`。读取输出版本为 `2`，`post/comments` 数据结构已更新；原始平台响应通过 `--raw` 按需取得。
 
+原生表情工具提供官方创作者目录快照、关键词与含义检索、原图裁剪预览，以及已知标签和短码的读取归一化。`compose` 接收文字、原生表情 ID 和登记过的图片贴纸 ID，生成准备结果与自包含 HTML 预览。`send` 复用原有账号核对和操作 ID 去重，`verify` 分别报告读回一致性、公开可见性与图标渲染范围。流程见 [表情内容](references/EMOJIS.md)，MCP stdio 接入见 [MCP.md](MCP.md)。
+
+`describe --tool xhh_compose` 返回当前真实的输入 schema。CLI 与 MCP 的参数说明来自同一命令定义。目录查询和本地准备不需要账号，也不调用特定模型或宿主服务。图片贴纸由调用方创建文件后登记，项目不会创建新的官方原生表情。
+
 实现顺序、行为测试和真实只读范围见 [浏览验证记录](docs/BROWSER_VERIFICATION.md)。没有把测试通过或 API 接受当作全量正文与公开效果证明。
 
 旧账号库与发送台账不会自动导入。配置原来账号时显式指定其所在 `--data-dir`，或使用用户提供的配置文件。新 SQLite 日志按操作 ID 去重，与旧台账并不共享发送锁。切换前结束旧的在途写入任务，并对旧的未知发送结果先在平台核对。
@@ -24,6 +29,9 @@ SDK 的 Python 源码和平台数据目录随技能提供，许可与来源见 [
 验证命令使用隔离测试数据，不登录真实账号，也不向平台写入。
 
 ```console
+python -m pip install -r requirements-test.txt
 python -m unittest discover -s tests -v
 python tests/verify_portable.py
 ```
+
+测试依赖包含图像与 JSON Schema 验证库，不是核心运行依赖。所有发帖、评论、图片上传和读回测试使用合成响应。真实官方资源只用于核对目录和本地图像预览，API 回执与本地渲染不冒充线上公开效果。

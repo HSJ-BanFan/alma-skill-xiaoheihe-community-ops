@@ -1,0 +1,276 @@
+import contextlib
+import io
+import json
+import sqlite3
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(ROOT / "scripts"), str(Path(__file__).resolve().parent)]
+import xhh
+from documents import document, comment
+from messages import compose, MessageError
+from operations import Journal
+from test_tools import PlatformFixture, Response
+from xhh_sdk.payload import Post
+from sticker_store import register as register_sticker
+
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
+
+
+class MessagePlatform(PlatformFixture):
+    def __init__(self):
+        super().__init__()
+        self.posts, self.nodes = {}, {}
+        self.next_post, self.next_comment = 801, 701
+        self.change_body, self.gap_body, self.wrong_author, self.wrong_reply = False, False, False, False
+
+    def __call__(self, request, timeout=None):
+        path = urlsplit(request.full_url).path
+        if request.get_method() == "PUT":
+            return super().__call__(request, timeout)
+        payload = parse_qs(request.data.decode(), keep_blank_values=True) if request.data else {}
+        query = parse_qs(urlsplit(request.full_url).query)
+        if path == "/bbs/app/api/link/post":
+            self.calls.append((path, request.get_method(), payload, query))
+            if self.fail_send:
+                raise TimeoutError("fixture after dispatch")
+            identifier = str(self.next_post)
+            self.next_post += 1
+            self.posts[identifier] = {"id": identifier, "userid": "101", "title": payload["title"][0],
+                                      "text": payload["text"][0], "is_full_text": 1}
+            return Response({"status": "ok", "result": {"link_id": identifier}})
+        if path == "/bbs/app/comment/create":
+            self.calls.append((path, request.get_method(), payload, query))
+            if self.fail_send:
+                raise TimeoutError("fixture after dispatch")
+            identifier = str(self.next_comment)
+            self.next_comment += 1
+            self.nodes[identifier] = {"commentid": identifier, "userid": "101", "text": payload["text"][0],
+                                      "replyid": payload.get("reply_id", [None])[0],
+                                      "root_id": payload.get("root_id", [identifier])[0],
+                                      "imgs": payload.get("imgs", [""])[0] or []}
+            return Response({"status": "ok", "commentid": identifier})
+        if path == "/bbs/app/link/tree":
+            self.calls.append((path, request.get_method(), payload, query))
+            identifier = query["link_id"][0]
+            link = dict(self.posts.get(identifier, {"id": identifier, "userid": "202", "text": "fixture root", "is_full_text": 1}))
+            if self.change_body:
+                link["text"] = "changed by fixture"
+            if self.gap_body:
+                link["text"] = json.dumps([{"type": "text", "text": "fixture"}, {"type": "future"}])
+            floors = [{"comment": [{"commentid": "601", "userid": "202", "text": "root"},
+                                     {"commentid": "602", "userid": "303", "text": "target", "replyid": "601"}]}]
+            for node in self.nodes.values():
+                node = dict(node)
+                if self.wrong_author:
+                    node["userid"] = "999"
+                if self.wrong_reply and node["replyid"]:
+                    node["replyid"] = "601"
+                if node["root_id"] == node["commentid"]:
+                    floors.append({"comment": [node]})
+                else:
+                    floors[0]["comment"].append(node)
+            return Response({"status": "ok", "result": {"link": link, "comments": floors, "total_page": 1}})
+        if path == "/bbs/app/comment/sub/comments":
+            self.calls.append((path, request.get_method(), payload, query))
+            nodes = [dict(node) for node in self.nodes.values() if node["root_id"] == query["root_comment_id"][0]]
+            if self.wrong_reply:
+                for node in nodes:
+                    node["replyid"] = "601"
+            return Response({"status": "ok", "result": {"comments": nodes, "has_more": False}})
+        return super().__call__(request, timeout)
+
+
+class AgentMessageTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.folder = Path(self.temporary.name)
+        self.data = self.folder / "data"
+        self.config = self.folder / "fixture.json"
+        self.config.write_text(json.dumps({"pkey": "fixture-secret-only", "heybox_id": "101", "protocol_mode": "web"}), encoding="utf-8")
+        self.platform = MessagePlatform()
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def cli(self, *args):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), patch("urllib.request.urlopen", self.platform), patch("paging.read_http", side_effect=lambda request, timeout, **kwargs: self.platform(request, timeout).read()):
+            code = xhh.main(["--config", str(self.config), "--data-dir", str(self.data), *args])
+        return code, json.loads(output.getvalue())
+
+    def prepare(self, kind="post", content=None, **extra):
+        spec = {"kind": kind, "content": content or [{"type": "native_emoji", "id": "cube:32"}], **extra}
+        if kind != "post":
+            spec["target"] = {"link_id": "501", **({"root_id": "601", "reply_id": "602"} if kind == "reply" else {})}
+        return compose(spec, self.data)
+
+    def send(self, prepared, operation="fixture-message", *extra):
+        return self.cli("send", "--prepared-json", json.dumps(prepared, ensure_ascii=False), "--operation-id", operation, "--confirm", *extra)
+
+    def test_offline_compose_and_native_span_reading_preserve_identity_and_position(self):
+        prepared = self.prepare(content=[{"type": "text", "text": "before "}, {"type": "native_emoji", "id": "cube:32"}, {"type": "text", "text": " after"}])
+        self.assertFalse(self.data.exists())
+        markup = prepared["preview"]["blocks"][0]["text"]
+        self.assertIn('data-emoji="cube_笑cry"', markup)
+        body = document({"id": 1, "text": markup}, {})["body"]
+        self.assertEqual(body["text"], "before [cube_笑cry] after")
+        self.assertEqual([node["type"] for node in body["blocks"]], ["text", "native_emoji", "text"])
+        self.assertEqual(comment({"commentid": 1, "text": markup}, "1", "1")["text"], body["text"])
+
+    def test_native_only_post_sends_once_and_verifies_body_but_not_public_rendering(self):
+        prepared = self.prepare()
+        code, receipt = self.send(prepared)
+        self.assertEqual(code, 0, receipt)
+        self.assertTrue(receipt["data"]["receipt"]["draft"])
+        code, replay = self.send(prepared)
+        self.assertEqual(code, 0, replay)
+        self.assertTrue(replay["data"]["replayed"])
+        self.assertEqual(sum(call[0] == "/bbs/app/api/link/post" for call in self.platform.calls), 1)
+        code, checked = self.cli("verify", "fixture-message")
+        self.assertEqual(code, 0, checked)
+        self.assertEqual(checked["data"]["status"], "matched", checked)
+        self.assertEqual(checked["data"]["observed_emoji_ids"], ["cube:32"])
+        self.assertEqual(checked["data"]["native_render"]["status"], "unknown")
+        self.assertEqual(checked["data"]["public_visibility"], "not_checked")
+
+    def test_prepared_change_or_protocol_mismatch_cannot_send(self):
+        prepared = self.prepare()
+        prepared["spec"]["content"][0]["id"] = "cube:43"
+        code, value = self.send(prepared)
+        self.assertEqual(code, 1)
+        self.assertEqual(value["error"]["code"], "prepared_message_changed")
+        app = compose({"kind": "post", "content": [{"type": "native_emoji", "id": "cube:32"}]}, self.data, protocol="app")
+        code, value = self.send(app)
+        self.assertEqual(value["error"]["code"], "prepared_protocol_mismatch")
+        self.assertFalse(any(call[0] == "/bbs/app/api/link/post" for call in self.platform.calls))
+
+    def test_unknown_emoji_and_unconfirmed_send_do_not_write(self):
+        with self.assertRaises(MessageError):
+            self.prepare(content=[{"type": "native_emoji", "id": "cube:999"}])
+        code, value = self.cli("send", "--prepared-json", json.dumps(self.prepare()), "--operation-id", "missing-confirm")
+        self.assertEqual(code, 1)
+        self.assertEqual(value["error"]["code"], "confirmation_required")
+        self.assertFalse(self.platform.calls)
+        self.assertFalse(self.data.exists())
+
+    def test_uncertain_delivery_retains_context_and_never_resends(self):
+        self.platform.fail_send = True
+        prepared = self.prepare()
+        self.assertEqual(self.send(prepared)[0], 1)
+        operation = Journal(self.data).read("101", "fixture-message")
+        self.assertEqual(operation["status"], "uncertain")
+        self.assertEqual(operation["context"]["expected"]["emoji_ids"], ["cube:32"])
+        self.assertEqual(self.send(prepared)[1]["error"]["code"], "operation_pending_or_uncertain")
+        self.assertEqual(sum(call[0] == "/bbs/app/api/link/post" for call in self.platform.calls), 1)
+        self.assertEqual(self.cli("verify", "fixture-message")[1]["data"]["status"], "unverified")
+
+    def test_readback_change_and_gaps_are_not_a_pass(self):
+        self.assertEqual(self.send(self.prepare())[0], 0)
+        self.platform.change_body = True
+        self.assertEqual(self.cli("verify", "fixture-message")[1]["data"]["status"], "mismatch")
+        self.platform.change_body, self.platform.gap_body = False, True
+        checked = self.cli("verify", "fixture-message")[1]["data"]
+        self.assertEqual(checked["status"], "unverified")
+        self.assertEqual(checked["reason"], "readback_body_has_gaps")
+
+    def test_reply_has_exact_target_and_native_shortcode(self):
+        code, value = self.send(self.prepare("reply"))
+        self.assertEqual(code, 0, value)
+        sent = next(call[2] for call in self.platform.calls if call[0] == "/bbs/app/comment/create")
+        self.assertEqual((sent["root_id"], sent["reply_id"], sent["text"]), (["601"], ["602"], ["[cube_笑cry]"]))
+        checked = self.cli("verify", "fixture-message")[1]["data"]
+        self.assertEqual(checked["status"], "matched", checked)
+        self.platform.wrong_reply = True
+        self.assertEqual(self.cli("verify", "fixture-message")[1]["data"]["status"], "mismatch")
+
+    def test_legacy_journal_migration_preserves_receipts(self):
+        self.data.mkdir()
+        connection = sqlite3.connect(self.data / "operations.sqlite3")
+        try:
+            connection.execute("CREATE TABLE operations (uid TEXT, operation_id TEXT, fingerprint TEXT, kind TEXT, status TEXT, receipt TEXT, updated_at REAL, PRIMARY KEY(uid,operation_id))")
+            connection.execute("INSERT INTO operations VALUES ('101','old','hash','comment','returned','{}',1)")
+            connection.commit()
+        finally:
+            connection.close()
+        self.assertEqual(Journal(self.data).read("101", "old")["receipt"], {})
+        self.assertEqual(self.cli("verify", "old")[1]["data"]["status"], "unverified")
+
+    def test_sdk_native_span_count_and_image_only_payload(self):
+        span = '<span data-emoji="cube_笑cry" class="hb-emoji hb-emoji-cube hb-emoji-cube_32"></span>'
+        payload = Post(content=span, original=False).build()
+        self.assertEqual(payload["desc"], "[cube_笑cry]")
+        picture = Post(content="", images=["https://cdn.max-c.com/fixture.png"], original=False).build()
+        self.assertEqual(json.loads(picture["text"]), [{"type": "img", "url": "https://cdn.max-c.com/fixture.png"}])
+        self.assertEqual(picture["words_count"], "0")
+
+    def test_public_post_uses_the_explicit_mode_and_community(self):
+        prepared = self.prepare(topic_ids=["111"])
+        code, value = self.send(prepared, "public-native", "--public")
+        self.assertEqual(code, 0, value)
+        self.assertFalse(value["data"]["receipt"]["draft"])
+        payload = next(call[2] for call in self.platform.calls if call[0] == "/bbs/app/api/link/post")
+        self.assertEqual(payload["draft"], ["0"])
+        self.assertEqual(payload["topic_ids"], ["111"])
+        self.assertNotIn("original", payload)
+
+    def test_wrong_readback_author_is_not_a_match(self):
+        self.assertEqual(self.send(self.prepare("comment"))[0], 0)
+        self.platform.wrong_author = True
+        checked = self.cli("verify", "fixture-message")[1]["data"]
+        self.assertEqual(checked["status"], "mismatch")
+        self.assertEqual(checked["reason"], "readback_author_not_verified")
+
+    @unittest.skipIf(Image is None, "Pillow is optional")
+    def test_image_sticker_is_uploaded_once_and_preserves_mixed_post_order(self):
+        image_file = self.folder / "sticker.png"
+        with Image.new("RGB", (20, 10), "blue") as image:
+            image.save(image_file)
+        sticker = register_sticker(image_file, self.data, caption="synthetic")
+        prepared = self.prepare(content=[{"type": "text", "text": "before "}, {"type": "native_emoji", "id": "cube:32"},
+                                         {"type": "image_sticker", "id": sticker["id"]}, {"type": "text", "text": "after"}])
+        code, value = self.send(prepared)
+        self.assertEqual(code, 0, value)
+        code, checked = self.cli("verify", "fixture-message")
+        self.assertEqual(checked["data"]["status"], "matched", checked)
+        self.assertTrue(checked["data"]["checks"]["content_order"])
+        self.assertEqual(self.send(prepared)[0], 0)
+        self.assertEqual(sum(call[1] == "PUT" for call in self.platform.calls), 1)
+        stored = next(iter(self.platform.posts.values()))
+        blocks = json.loads(stored["text"])
+        stored["text"] = json.dumps([blocks[1], blocks[0], blocks[2]])
+        checked = self.cli("verify", "fixture-message")[1]["data"]
+        self.assertEqual(checked["status"], "mismatch")
+        self.assertFalse(checked["checks"]["content_order"])
+
+    @unittest.skipIf(Image is None, "Pillow is optional")
+    def test_image_sticker_usage_rejects_reply_and_mid_comment_placement(self):
+        image_file = self.folder / "sticker.png"
+        with Image.new("RGB", (20, 10), "blue") as image:
+            image.save(image_file)
+        sticker = register_sticker(image_file, self.data)
+        content = [{"type": "text", "text": "before"}, {"type": "image_sticker", "id": sticker["id"]}, {"type": "text", "text": "after"}]
+        with self.assertRaises(MessageError):
+            self.prepare("comment", content=content)
+        with self.assertRaises(MessageError):
+            self.prepare("reply", content=content)
+
+    def test_body_only_text_projection_retains_native_shortcode(self):
+        span = '<span data-emoji="cube_笑cry" class="hb-emoji hb-emoji-cube hb-emoji-cube_32"></span>'
+        self.platform.posts["801"] = {"id": "801", "userid": "101", "text": span, "is_full_text": 1}
+        code, value = self.cli("post", "801", "--section", "body", "--body-format", "text")
+        self.assertEqual(code, 0, value)
+        self.assertEqual(value["data"]["body"]["text"], "[cube_笑cry]")
+        self.assertNotIn("blocks", value["data"]["body"])
+
+
+if __name__ == "__main__":
+    unittest.main()

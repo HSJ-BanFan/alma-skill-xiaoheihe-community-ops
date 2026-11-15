@@ -18,8 +18,11 @@ from xhh_sdk.config import XhhConfig
 from xhh_sdk.exceptions import XhhError, XhhConfigError
 from documents import link_id
 import browser
+import agent_commands
+from emoji_catalog import EmojiError
+from messages import MessageError
 
-WRITES = {"comment", "reply", "like", "favourite", "unfavourite", "delete-comment", "delete-post", "upload", "publish"}
+WRITES = {"comment", "reply", "like", "favourite", "unfavourite", "delete-comment", "delete-post", "upload", "publish", "send"}
 
 
 def data_root() -> Path:
@@ -49,7 +52,7 @@ def parser():
     result.add_argument("--protocol", choices=("app", "web"))
     result.add_argument("--data-dir", type=Path, default=data_root())
     commands = result.add_subparsers(dest="command", required=True)
-    for name in ("account-info", "emojis", "operation"):
+    for name in ("account-info", "operation"):
         command = commands.add_parser(name)
         if name == "operation":
             command.add_argument("operation_id")
@@ -68,7 +71,8 @@ def parser():
         command.add_argument("--offset", type=nonnegative, default=0)
         command.add_argument("--limit", type=positive, default=20)
     browser.register(commands)
-    for name in sorted(WRITES):
+    agent_commands.register(commands)
+    for name in sorted(WRITES - {"send"}):
         command = commands.add_parser(name)
         command.add_argument("--confirm", action="store_true")
         command.add_argument("--operation-id", required=True)
@@ -127,7 +131,7 @@ def redact(value, secret=""):
 
 
 def emit(ok, kind, data=None, *, coverage=None, error=None, secret=""):
-    version = 2 if kind in browser.COMMANDS or kind in {"asset", "snapshot"} else 1
+    version = 2 if kind in browser.COMMANDS or kind in {"asset", "snapshot"} | agent_commands.ROOTS else 1
     print(json.dumps(redact({"version": version, "ok": ok, "kind": kind, "data": data,
                      "coverage": coverage or {}, "error": error}, secret), ensure_ascii=False), flush=True)
 
@@ -166,6 +170,15 @@ def main(argv=None, *, client_factory=XhhClient):
     try:
         if args.command in WRITES and not args.confirm:
             raise OperationError("confirmation_required")
+        if args.command in agent_commands.ROOTS:
+            client = None
+            if args.command in agent_commands.AUTH_ROOTS:
+                config = load_config(args)
+                secret = config.pkey
+                client = client_factory(config)
+            data, coverage = agent_commands.execute(args, client=client)
+            emit(True, args.command, data, coverage=coverage, secret=secret)
+            return 0
         if args.command == "asset":
             from assets import fetch
             data = fetch(args.url, args.data_dir, refresh=args.refresh, seconds=args.seconds)
@@ -274,6 +287,9 @@ def main(argv=None, *, client_factory=XhhClient):
     except OperationError as error:
         emit(False, args.command, {"operation": error.operation, "receipt": error.receipt},
              error={"code": error.code, "retry_allowed": False}, secret=secret)
+        return 1
+    except (EmojiError, MessageError) as error:
+        emit(False, args.command, error={"code": error.code, "message": str(error), "retry_allowed": False}, secret=secret)
         return 1
     except (XhhError, OSError, ValueError, TypeError, sqlite3.Error) as error:
         emit(False, args.command, error={"code": type(error).__name__, "message": str(error)}, secret=secret)

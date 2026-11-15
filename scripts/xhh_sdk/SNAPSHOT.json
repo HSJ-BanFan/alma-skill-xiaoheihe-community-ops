@@ -9,14 +9,14 @@
     "browse.py": "32e9ec642d3fcce1b2f8b98460aa21530f93c75e3361846f78df6d8e5c02fcc5",
     "catalog.py": "be1b48f8793a8629fe3a700e5e684741484a5536c254a53bcdcb3cbeb2f43a12",
     "cli.py": "d8ea1d42611071e18cbc62c53d87af66f8a317e93c99c8f7887dd0dac9cfddf6",
-    "client.py": "c0b381b5f0a17dcff4657dba009e8e8d281d946769fd686affad87bba3188b5f",
+    "client.py": "26f55e094d5b54c21f4d0a37a73c0f03ad67becf896fcdb1edb814097388f084",
     "config.py": "7a2a4edd3cf252a15b241b79910a7206f1b30a05dc54dc2d01c9df0194280d82",
     "exceptions.py": "8767302e0dd54765f15de0632cd98b5a05f6ae1d4c0af4e9beaa00b60c6fc0bd",
     "groups.py": "7f96d995622909d99bd128f996037fa8ab5ef24ec0e8d4e104c82049765e8f5d",
     "interaction.py": "5afad9aac800b7c3e5cf432e7eee0666542e8b50be55194975db524b5360ab57",
     "LICENSE": "6ad220b8dbff857ab6579903d8d4d5912bab9f99e0e03f63d317c04fbe6544c5",
     "login.py": "dd4f28858e3237e0bc90bd2f4600bdfdd83223a1e13bd284f82addf88c3af39f",
-    "payload.py": "69a736924f8832580894db27d0e9fb575b5bd51885de755ef99e47c8682d2ebf",
+    "payload.py": "e5f58f8d80b3a1e9b30596d9afa7db44693b39fccbe92644cce3f7b8eb314615",
     "routes.py": "2388c0bac8df4979e4b72f19ddcda685449105cc9a6e007a84aded175175b024",
     "secure_phone.py": "ca0e8d142a42e3103e7fb7fdf948489035bfdde6f291d93bf841d53208fc5aac",
     "signer.py": "4a57bbdbe14d379bf373b36aab23a49701019bc4187033b66e0321d9c235a3e2",
@@ -24,5 +24,9 @@
     "signer_resources.py": "2c13da12b28dc71f14214c692725d531f305b2e528ef18bc5aab42ad7a5f7599",
     "transport.py": "4d356b54e77b48de1eff2f722d11d645a30d60c7f5fbc536395ee7725f33439f",
     "web_signer.py": "684793405b16818a0866305afcf27e43c455a5d4e1643b6b35dc9dd9028a24e7"
+  },
+  "downstream_patches": {
+    "client.py": "Reject a missing or non-object emoji catalog result.",
+    "payload.py": "Count native data-emoji spans and accept nonempty image-only body blocks."
   }
 }
