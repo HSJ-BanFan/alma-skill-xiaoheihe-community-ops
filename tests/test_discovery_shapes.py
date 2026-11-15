@@ -96,7 +96,7 @@ class DiscoveryShapeTests(CommandTests):
         self.assertEqual(value["coverage"]["stop_reason"], "request_budget")
         self.assertEqual(value["coverage"]["budget"]["used_requests"], 1)
         self.assertIsNone(value["coverage"]["resume"])
-        self.assertEqual(value["data"]["items"], [])
+        self.assertIsNone(value["data"])
 
     def test_game_info_feed_navigation_requires_positive_forum(self):
         for flag, expected in ((True, True), ("1", True), (False, False), ("0", False), (None, None)):
@@ -219,6 +219,19 @@ class DiscoveryShapeTests(CommandTests):
         self.assertEqual(value["data"]["raw_pages"], [payload])
         self.assertEqual(len(clients[0].calls), 1)
         self.assertNotIn("extra", value["data"]["game"])
+
+    def test_game_info_raw_survives_normalization_failure(self):
+        payload = {"status": "ok", "result": {
+            **self.game_info(), "steam_appid": 730,
+        }}
+        code, value, clients = self.run_cli(
+            ["games", "info", "570", "--raw"], lambda *args: payload
+        )
+        self.assertEqual(code, 1, value)
+        self.assertEqual(len(clients[0].calls), 1)
+        self.assertEqual(value["data"], {"raw_pages": [payload]})
+        self.assertEqual(value["error"]["code"], "configuration_error")
+        self.assertIn("identity does not match", value["error"]["message"])
 
     def test_game_info_rejects_page_resume_invalid_targets_and_web_before_fetch(self):
         for options in (["--pages", "2"], ["--resume", "invalid-token"]):
