@@ -134,6 +134,7 @@ class Budget:
 
 class StopKind(str, Enum):
     COMPLETE = "complete"
+    DATA_GAP = "data_gap"
     BUDGET_PAUSE = "budget_pause"
     BLOCKED = "blocked"
     RETRYABLE_FAILURE = "retryable_failure"
@@ -175,6 +176,7 @@ class StopState:
 
 _STATUS = {
     StopKind.COMPLETE: "complete",
+    StopKind.DATA_GAP: "partial",
     StopKind.BUDGET_PAUSE: "partial",
     StopKind.BLOCKED: "blocked",
     StopKind.RETRYABLE_FAILURE: "retryable_failure",

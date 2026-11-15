@@ -13,7 +13,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Callable
 
-from documents import author, comment, document, floors, identifier, integer, link_id, merge_media, result_object, source, summary, entity_id, enrich_observation
+from documents import author, comment, document, floors, identifier, integer, link_id, media, merge_media, result_object, source, summary, entity_id, enrich_observation
 from network_io import read_http
 from paging import (
     Budget,
@@ -43,6 +43,16 @@ class ReaderSpec:
     protocol: str
     route: str
     handler: Callable
+
+
+@dataclass(frozen=True)
+class ResponseSpec:
+    name: str
+    paths: tuple[tuple[str, ...], ...]
+    adapter: Callable
+    route: str | None = None
+    placements: tuple[str, ...] = ()
+    empty_gap: str | None = None
 
 
 def bounded(value):
@@ -360,6 +370,126 @@ def game(raw):
     }
 
 
+def discovery_user(raw):
+    user = author(raw)
+    if not user["uid"]:
+        raise XhhConfigError("user record has no valid ID")
+    return user
+
+
+def discovery_game(raw):
+    return game(raw.get("game", raw))
+
+
+def story(raw):
+    if "link_card_info" not in raw:
+        post = summary(raw)
+        post.update(type="story", provenance={"identity": "link_id", "shape": "link"})
+        return post
+    card, identity = raw["link_card_info"], raw.get("card_id_info")
+    uid = identifier(identity.get("item_id")) if isinstance(identity, dict) else None
+    if not isinstance(card, dict) or not uid:
+        raise XhhConfigError("story card has no valid item ID or link content")
+    fields = {key: card.get(key) for key in (
+        "title", "is_article", "post_type", "link_tag", "userid",
+        "create_at", "modify_at", "topics", "imgs", "has_video",
+        "comment_num", "link_award_num", "favour_count", "click",
+    )}
+    post = summary({**fields, "linkid": uid,
+                    "description": card.get("description") or card.get("desc") or card.get("excerpt"),
+                    "user": card.get("user") or card.get("user_info")})
+    stats = card.get("stat") or card.get("stats") or card.get("statistics")
+    if isinstance(stats, dict):
+        for name, key in (("comments", "comment_num"), ("charges", "link_award_num"),
+                          ("favourites", "favour_count"), ("views", "click")):
+            if post["statistics"][name] is None:
+                post["statistics"][name] = integer(stats.get(key, stats.get(name)))
+    video = card.get("video_info") or card.get("video")
+    video = video if isinstance(video, dict) else {}
+    cover = media(card.get("cover") or card.get("cover_url") or card.get("thumb")
+                  or video.get("cover") or video.get("cover_url"))
+    playable = media({**video, "url": video.get("url") or video.get("video_url")})
+    post.update(
+        type="story",
+        description=post["excerpt"],
+        cover_url=cover["url"] if cover else None,
+        video={**playable, "duration": integer(video.get("duration"))} if playable else None,
+        provenance={"identity": "card_id_info.item_id", "shape": "link_card_info",
+                    "card_type": raw.get("card_type")
+                    if isinstance(raw.get("card_type"), (str, int)) else None},
+    )
+    if post["has_video"] is None and video:
+        post["has_video"] = True
+    return post
+
+
+def banner(raw):
+    topic = raw.get("topic_info") or raw.get("topic") or raw
+    if not isinstance(topic, dict):
+        raise XhhConfigError("banner community must be an object")
+    uid = identifier(topic.get("topic_id") or topic.get("topicid") or topic.get("id"))
+    if not uid:
+        raise XhhConfigError("banner community has no valid ID")
+    name = topic.get("name") or topic.get("topic_name")
+    placement = raw.get("placement")
+    return {"id": f"{placement}:{uid}" if placement else uid,
+            "name": name, "community": {"id": uid, "name": name},
+            "url": "https://www.xiaoheihe.cn/app/bbs/topic/" + uid,
+            "placement": placement,
+            "description": topic.get("description") or topic.get("desc"),
+            "icon_url": topic.get("pic_url") or topic.get("icon")}
+
+
+RESPONSES = {
+    "stories": ResponseSpec("story", (("links",), ("items",), ("list",), ("stories",)),
+                            story, route="/bbs/app/story_mode/list"),
+    "banners": ResponseSpec("banner", (("topic_banner", "top_topics"),
+                                     ("topic_banner", "subscribed_topics"),
+                                     ("banners",), ("items",), ("list",)),
+                            banner, route="/bbs/app/feeds/banner", placements=("top", "subscribed")),
+    "recommended-users": ResponseSpec("user", (("recommend_list",), ("rec_users",),
+                                             ("users",), ("items",), ("recommend",), ("list",)),
+                                      discovery_user, route="/bbs/app/profile/recommend/following",
+                                      empty_gap="recommendations_empty"),
+    "link": ResponseSpec("link", (("links",), ("search_result",), ("items",), ("list",), ("news",)), summary),
+    "game": ResponseSpec("game", (("games",), ("search_result",), ("items",), ("list",),
+                                  ("links",), ("news",), ("recommend",), ("similar",)), discovery_game),
+    "user": ResponseSpec("user", (("users",), ("search_result",), ("items",), ("list",), ("links",), ("news",)), discovery_user),
+}
+
+
+def normalize_response(result, spec):
+    candidates = []
+    for path in spec.paths:
+        value = result
+        for key in path:
+            value = value.get(key) if isinstance(value, dict) else None
+        candidates.append(value)
+    grouped = candidates[:len(spec.placements)]
+    if spec.placements and any(isinstance(value, list) for value in grouped):
+        records = [dict(row, placement=placement) if isinstance(row, dict) else row
+                   for value, placement in zip(grouped, spec.placements)
+                   if isinstance(value, list) for row in value]
+    else:
+        lists = [value for value in candidates if isinstance(value, list)]
+        if not lists:
+            raise XhhConfigError("expected list not present in platform result")
+        records = next((value for value in lists if value), lists[0])
+    items, invalid = [], 0
+    for row in records:
+        if not isinstance(row, dict):
+            invalid += 1
+            continue
+        try:
+            items.append(spec.adapter(row))
+        except XhhConfigError:
+            invalid += 1
+    gaps = [f"invalid_{spec.name}_records"] if invalid else []
+    if not records and spec.empty_gap:
+        gaps.append(spec.empty_gap)
+    return items, len(records), invalid, gaps
+
+
 def relation(raw, user_id, current_user_id):
     if not isinstance(raw, dict):
         raise XhhConfigError("relation summary must be an object")
@@ -534,6 +664,7 @@ class Browser:
         duplicates = 0
         identity_positions = {}
         returned_total, excluded_total = 0, 0
+        invalid_total, normalization_gaps = 0, set()
         matched_total = 0
         stop = None
         resume_parameters = None
@@ -583,6 +714,8 @@ class Browser:
                 next_position = None
             returned_total += current.get("returned", 0)
             excluded_total += current.get("excluded", 0)
+            invalid_total += current.get("invalid", 0)
+            normalization_gaps.update(current.get("gaps", []))
             if not paged:
                 break
             page_keys = []
@@ -686,11 +819,16 @@ class Browser:
                 limit_reached=matched_total > len(items),
                 truncated=matched_total > len(items),
             )
-            if args.command == "feed":
+            if args.command in ("feed", "search"):
                 scope.update(selected=len(items), excluded=excluded_total,
                              matched_total=matched_total)
             else:
                 scope.update(selected=len(items), matched_total=matched_total)
+            if "invalid" in scope or invalid_total:
+                scope["invalid"] = invalid_total
+            if "excluded" in scope or excluded_total:
+                scope["excluded"] = excluded_total
+            scope["gaps"] = sorted(normalization_gaps)
         elif isinstance(data.get("items"), list) and hasattr(args, "limit"):
             if _fit_items(data, args, scope, matched=len(data["items"])):
                 public = XhhConfigError(
@@ -713,6 +851,8 @@ class Browser:
                 resume_parameters = {"position": next_position}
             else:
                 stop = StopState.fatal("continuation_missing")
+        if invalid_total and stop.kind == StopKind.COMPLETE:
+            stop = StopState(StopKind.DATA_GAP, reason="invalid_records")
         budget.consume_items(len(data.get("items") or []))
         scope["budget"] = budget.view()
         scope["observed_positions"] = observed_positions
@@ -1234,54 +1374,34 @@ class Browser:
                 route, query = "/game/all_recommend/v2", {
                     "offset": str(args.offset), "limit": str(args.limit)}
             raw, result, evidence = self.fetch(route, query, budget)
-            records = first_rows(
-                result, ("games", "items", "list", "recommend", "similar"))
+            items, count, invalid, gaps = normalize_response(result, RESPONSES["game"])
             data = {
-                "items": [game(row) for row in records],
+                "items": items,
                 "source": evidence,
                 "action": args.action,
             }
-            scope = coverage(result, count=len(records),
+            scope = coverage(result, count=count,
                              position=args.offset)
+            scope["gaps"].extend(gaps)
+            scope.update(invalid=invalid, excluded=invalid)
         elif args.command in ("stories", "recommended-users", "banners"):
+            spec = RESPONSES[args.command]
+            query = {} if args.command == "banners" else {
+                "offset": str(args.offset), "limit": str(args.limit)}
+            raw, result, evidence = self.fetch(spec.route, query, budget)
+            items, count, invalid, gaps = normalize_response(result, spec)
+            data = {"items": items, "source": evidence}
             if args.command == "banners":
-                raw, result, evidence = self.fetch(
-                    "/bbs/app/feeds/banner", {}, budget)
-                records = first_rows(
-                    result, ("banners", "items", "list"))
-                data = {
-                    "items": records,
-                    "source": evidence,
-                    "contract_evidence": "historical_default_call_ok",
-                }
                 scope = {"completion": "unknown", "gaps": [],
                          "full_history": False}
-            elif args.command == "stories":
-                raw, result, evidence = self.fetch(
-                    "/bbs/app/story_mode/list",
-                    {"offset": str(args.offset), "limit": str(args.limit)},
-                    budget)
-                records = first_rows(result, ("links", "items", "list"))
-                data = {
-                    "items": [summary(row) if isinstance(
-                        row.get("linkid") or row.get("link_id"), (str, int)) else row
-                              for row in records],
-                    "source": evidence,
-                }
-                scope = coverage(result, count=len(records),
-                                 position=args.offset)
             else:
-                raw, result, evidence = self.fetch(
-                    "/bbs/app/profile/recommend/following",
-                    {"offset": str(args.offset), "limit": str(args.limit)},
-                    budget)
-                records = first_rows(result, ("users", "items", "recommend", "list"))
-                data = {
-                    "items": [author(row) for row in records],
-                    "source": evidence,
-                }
-                scope = coverage(result, count=len(records),
-                                 position=args.offset)
+                if (args.command == "recommended-users" and not count
+                        and integer(result.get("recommend_nums")) == 0
+                        and "has_more" not in result):
+                    result = {**result, "has_more": False}
+                scope = coverage(result, count=count, position=args.offset)
+            scope["gaps"].extend(gaps)
+            scope.update(invalid=invalid, excluded=invalid)
         elif args.command == "comments":
             query = {"link_id": args.link_id, "page": str(args.page), "limit": str(args.limit), "sort_filter": args.sort}
             raw, result, evidence = self.fetch(
@@ -1350,16 +1470,17 @@ class Browser:
                 raw, result, evidence = self.fetch(
                     route, {**query, "offset": str(args.offset),
                             "limit": str(args.limit)}, budget)
-                records = first_rows(
-                    result, ("links", "search_result", "items", "list", "news"))
-                if args.command != "search" or args.type == "link":
-                    items = [summary(row) for row in records]
-                elif args.type == "game":
-                    items = [game(row.get("game", row)) for row in records]
+                if args.command == "search":
+                    items, count, invalid, gaps = normalize_response(result, RESPONSES[args.type])
                 else:
-                    items = [author(row.get("user", row)) for row in records]
-                scope = coverage(result, count=len(records),
+                    records = first_rows(result, ("links", "items", "list", "news"))
+                    items = [summary(row) for row in records]
+                    count, invalid, gaps = len(records), 0, []
+                scope = coverage(result, count=count,
                                  position=args.offset)
+                scope["gaps"].extend(gaps)
+                if args.command == "search":
+                    scope["invalid"] = invalid
                 if args.command in ("feed", "search"):
                     if getattr(args, "type", "link") == "link" or args.command == "feed":
                         items = [
@@ -1374,7 +1495,7 @@ class Browser:
                         ]
                     scope.update(
                         selected=len(items),
-                        excluded=len(records) - len(items),
+                        excluded=count - len(items),
                         sorting_scope="returned_items",
                         sort=args.sort,
                         platform_order=getattr(args, "order", None) or "default",
