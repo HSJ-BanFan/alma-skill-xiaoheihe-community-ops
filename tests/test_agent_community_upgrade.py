@@ -66,10 +66,17 @@ class AccountSessionTests(unittest.TestCase):
         self.dpapi = patch.object(accounts, "_dpapi",
                                   side_effect=lambda value, decrypt=False: value)
         self.restrict = patch.object(accounts, "_restrict_directory", return_value=None)
+        self.locked = patch.object(
+            accounts.AccountStore,
+            "_locked",
+            new=lambda self: contextlib.nullcontext(),
+        )
         self.dpapi.start()
         self.restrict.start()
+        self.locked.start()
 
     def tearDown(self):
+        self.locked.stop()
         self.restrict.stop()
         self.dpapi.stop()
         self.temp.cleanup()

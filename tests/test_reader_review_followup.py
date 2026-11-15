@@ -487,7 +487,12 @@ class SnapshotAndStatusTests(unittest.TestCase):
             with patch.object(accounts, "_dpapi",
                               side_effect=lambda value, decrypt=False: value), \
                     patch.object(accounts, "_restrict_directory",
-                                 return_value=None):
+                                 return_value=None), \
+                    patch.object(
+                        accounts.AccountStore,
+                        "_locked",
+                        new=lambda self: contextlib.nullcontext(),
+                    ):
                 store = accounts.AccountStore(root)
                 store.add("web-only", identity="101")
                 account = store.get("web-only")
