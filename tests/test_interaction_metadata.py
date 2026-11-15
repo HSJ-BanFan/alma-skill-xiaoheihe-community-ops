@@ -335,8 +335,10 @@ class InteractionMetadataTest(unittest.TestCase):
         self.assertEqual(status["known_actions"][0]["source"], "operation_reservation")
         self.assertEqual((status["participation"], status["pending"], status["unresolved_operations"]), ("unknown", [], []))
 
-    def test_upload_and_publish_receipts_keep_content_in_the_immediate_result_only(self):
-        cases = (("upload", {"image_sha256": digest(self.body)}, {"url": self.image, "width": 1, "height": 1, "raw": self.raw}, {}),
+    def test_upload_receipts_keep_replay_metadata_and_publish_discards_content(self):
+        upload_url = "https://imgheybox.max-c.com/receipt-result.png"
+        cases = (("upload", {"image_sha256": digest(self.body)}, {"url": upload_url, "width": 1, "height": 1, "raw": self.raw},
+                  {"url": upload_url, "width": 1, "height": 1}),
                  ("publish", {"text": self.body, "imgs": [self.image]}, {"link_id": "801", "draft": True, "text": self.body,
                      "raw": {"media": [self.image], "body": self.raw}}, {"link_id": "801", "draft": True}))
         for kind, payload, receipt, expected in cases:
@@ -347,6 +349,7 @@ class InteractionMetadataTest(unittest.TestCase):
             self.assertTrue(replay["replayed"])
             self.assertEqual(replay["receipt"], expected)
         self.assertEqual(self.store.history(self.scope)["known_actions"], [])
+        self.assertNotIn(upload_url, encoded(self.store.history(self.scope)))
         self.assert_private_storage()
 
     def legacy(self):

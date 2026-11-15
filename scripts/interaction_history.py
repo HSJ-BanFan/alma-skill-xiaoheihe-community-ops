@@ -243,6 +243,13 @@ def receipt_metadata(kind, value):
     if value is None:
         return None
     value = value if isinstance(value, dict) else {}
+    if kind == "upload":
+        result = {key: value[key] for key in ("url", "key", "bucket", "region", "file")
+                  if isinstance(value.get(key), str)}
+        for key in ("bytes", "width", "height"):
+            if key in value and (value[key] is None or type(value[key]) is int and value[key] >= 0):
+                result[key] = value[key]
+        return result
     result = {}
     names = ("link_id", "root_id", "reply_id")
     if kind in (*COMMENT_KINDS, "delete-comment"):
