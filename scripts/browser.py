@@ -597,9 +597,10 @@ def game_detail(result, target, evidence):
                 "type": entry.get("type"),
                 "protocol": entry.get("protocol") or entry.get("prot"),
                 "value": entry.get("value"),
-                "parameters": (entry.get("uidsl_params")
-                               or entry.get("parameters")
-                               or entry.get("params")),
+                "parameters": next((
+                    entry.get(key) for key in ("uidsl_params", "parameters", "params")
+                    if entry.get(key) is not None
+                ), None),
             })
         else:
             if "invalid_menu_v2_records" not in gaps:
@@ -907,10 +908,14 @@ class Browser:
     def fetch(self, route, query, budget, *, client=None):
         selected = client or self.client
         raw = budget.call(selected, lambda: selected.transport.signed_request(route, query=query))
-        if route == "/bbs/app/profile/user/link/list" and isinstance(raw.get("post_links"), list):
-            result = {"links": raw["post_links"], "user": raw.get("user"), "has_more": raw.get("has_more")}
-        else:
-            result = result_object(raw)
+        try:
+            if route == "/bbs/app/profile/user/link/list" and isinstance(raw.get("post_links"), list):
+                result = {"links": raw["post_links"], "user": raw.get("user"), "has_more": raw.get("has_more")}
+            else:
+                result = result_object(raw)
+        except XhhError as error:
+            error.raw_response = raw
+            raise
         evidence = source(selected, route)
         evidence["identity_verified"] = id(selected) in self.verified_client_ids
         evidence["session_revision"] = self._session_revision(selected)
@@ -1776,13 +1781,16 @@ class Browser:
                 raise XhhConfigError("games info requires a numeric Steam app ID")
             if self.client.config.protocol_mode != "app":
                 raise XhhConfigError("games info requires App protocol; select --protocol app")
-            raw, result, evidence = self.fetch(
-                "/game/get_game_detail", {"appid": args.target}, budget)
+            raw = None
             try:
+                raw, result, evidence = self.fetch(
+                    "/game/get_game_detail", {"appid": args.target}, budget)
                 data, scope = game_detail(result, args.target, evidence)
             except XhhError as error:
                 if args.raw:
-                    error.partial_data = {"raw_pages": [raw]}
+                    raw = getattr(error, "raw_response", raw)
+                    if raw is not None:
+                        error.partial_data = {"raw_pages": [raw]}
                 raise
         elif args.command == "games":
             if args.offset < 0:
