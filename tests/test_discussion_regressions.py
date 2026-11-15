@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
@@ -13,6 +14,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import test_tools
 import xhh
+from browser import Browser
 from documents import comment, summary
 
 
@@ -237,7 +239,7 @@ class DiscussionRegressionTests(unittest.TestCase):
 
     def test_read_reply_and_readback_loop_reuses_message_operation_id(self):
         self.fixture.article = True
-        post = self.assert_success(self.run_cli("post", "501"))
+        post = self.assert_success(self.run_cli("post", "501", "--reader", "native"))
         self.assertEqual(post["data"]["body"]["status"], "missing")
         post = self.assert_success(self.run_cli("post", "501", "--reader", "website"))
         self.assertEqual(post["data"]["body"]["status"], "available")
@@ -256,6 +258,33 @@ class DiscussionRegressionTests(unittest.TestCase):
             node = next(node for node in visible["data"]["items"] if node["id"] == reply_id)
             self.assertEqual((node["reply_to_id"], node["author"]["uid"]), ("603", "101"))
         self.assertEqual(len(self.sends()), 1)
+
+    def test_web_default_reader_returns_article_body_in_one_request(self):
+        self.fixture.article = True
+        post = self.assert_success(self.run_cli("post", "501", "--requests", "1"))
+        self.assertEqual(post["data"]["body"]["status"], "available")
+        self.assertEqual(post["data"]["source"]["reader"], "website")
+        self.assertEqual(len(post["data"]["media"]), 1)
+        self.assertEqual(len(self.fixture.calls), 1)
+
+    def test_explicit_native_reader_keeps_native_identity_without_retry(self):
+        self.fixture.article = True
+        post = self.assert_success(self.run_cli("post", "501", "--reader", "native"))
+        self.assertEqual(post["data"]["body"]["status"], "missing")
+        self.assertEqual(len(self.fixture.calls), 1)
+
+    def test_app_default_reader_uses_the_native_session(self):
+        calls = []
+        config = SimpleNamespace(protocol_mode="app", heybox_id="101", timeout=5)
+        def native(route, query=None):
+            calls.append((route, query))
+            return {"status": "ok", "result": {"link": {"id": "501", "text": "native body"},
+                                               "comments": [], "total_page": 1}}
+        client = SimpleNamespace(config=config, transport=SimpleNamespace(signed_request=native))
+        data, scope = Browser(client).execute(xhh.parser().parse_args(["post", "501", "--requests", "1"]))
+        self.assertEqual(data["body"]["text"], "native body")
+        self.assertEqual(data["source"]["protocol"], "app")
+        self.assertEqual(len(calls), 1)
 
     def test_missing_public_readback_does_not_cause_another_send(self):
         self.fixture.show_created = False
