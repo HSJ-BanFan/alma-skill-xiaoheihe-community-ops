@@ -171,7 +171,11 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 
 `thread.data.reply_location` 给出该次指定目标的回复位置，字段为 `page`、`limit`、`sort`、`cursor`。`page` 是根楼被观察到的绝对页号；`cursor` 是实际包含目标的子评论页的输入游标，首屏和根楼预览为 `null`。读取更多页后，该位置仍对应目标，独立于最后一页的 `coverage.next`。未观察到目标时位置为 `null`。保存的已观察目标位置可随快照续读保留；旧快照缺少位置时，需重新观察目标。位置仅用于定位，发送前仍核验目标。
 
+`post --reader native` 缺少保存的 App 会话时返回 `app_session_missing`。`post --reader website` 缺少保存的 Web 会话时返回 `web_session_missing`。显式 reader 在缺会话时不会借用另一协议。`post --reader auto` 按 App、Web、公开 HTML 的顺序尝试当前实际拥有的 reader，缺会话本身不会伪造一次网络尝试。
+
 分页的 `completion=complete` 需要平台终点或总页数证据。空数组、缺少游标或达到预算只能产生 `unknown` 或停止状态，不能证明全量读取结束。`coverage.resume` 绑定真实账号、协议、资源和筛选；换资源或账号时被拒绝。页内与本次多页之间按 ID 去重。
+
+发现和搜索列表按记录规范化。无法解析的混合记录不会让整页丢弃可用条目；`coverage.invalid` 计数，`coverage.gaps` 加入对应的 `invalid_*_records`，`partial` 或 `unknown` 保留读取范围的不确定性。
 
 `--page` 是绝对页号，不受单次 `--pages` 最多 100 页的预算限制。多页信息流排序在汇总并去重后执行；`returned_total` 报告本次各页实际返回数之和。App 签名调用使用剩余时间，发起 HTTP 前再次检查截止时间。`thread --raw` 返回根楼层和子评论的全部已取得原始页。
 
@@ -291,7 +295,11 @@ python -I -X utf8 "<skill>/scripts/xhh.py" corpus resume campus-savings --max-re
 
 每次 run 的输出 `data` 包含 `delivery_id`、`revision`、`run`、`queries`、`pages`、`new_items`、`updated_items`、`remainders` 和 `counts`。`pages` 保存位置与 coverage，`new_items` 和 `updated_items` 从去重后的 entity 引用投影生成。`counts.provider` 统计平台位置数，`counts.new` 和 `counts.updated` 统计去重实体数，`counts.deferred` 统计尚未消费的位置，`counts.invalid` 统计缺少可用实体的记录，`counts.excluded` 统计平台返回但被查询过滤的记录。SQLite 另存 query membership，记录帖子在哪些查询中出现。正文只保存一份在 entity 层，delivery 不复制正文。
 
-run 状态为 `planned`、`running`、`paused_budget`、`blocked_human`、`complete` 或 `failed`。query 还可处于 `pending`、`pending_remainder` 和 `quota_reached`。`paused_budget` 在 Manifest 仍有配额时可以继续；`quota_reached` 只表示查询达到声明配额，不表示平台历史结束。
+run 状态为 `planned`、`running`、`paused_budget`、`paused_retryable`、`blocked_human`、`complete` 或 `failed`。query 还可处于 `pending`、`pending_remainder`、`paused_retryable` 和 `quota_reached`。`paused_budget` 在 Manifest 仍有配额时可以继续；`paused_retryable` 表示 HTTP 408、5xx 等可重试平台错误，可直接 resume；`quota_reached` 只表示查询达到声明配额，不表示平台历史结束。
+
+`limits.requests` 和 invocation 的 `--max-requests` 是 wire request 上限。每次持久化 `corpus_attempts` 行最多派发一次 HTTP 请求；身份核对、页面读取和 fallback 各使用独立 attempt。请求后进程退出时，reservation 保持已计费状态，避免把未知的网络副作用当成未发生。额度不足会在下一次 dispatch 前暂停。
+
+当 request 配额为 0 但 checkpoint 中仍有同页 remainder 时，`corpus resume <run-id> --max-requests 0` 先交付并消费这些本地位置。只有同页余量耗尽且还有新页面要读时，run 才保持 `paused_budget`。
 
 验证码、限流、会话失效和不可重试平台错误将 run 置为 `blocked_human`，同时停止后续 query、fallback 和自动重试。处理平台阻塞后显式执行：
 

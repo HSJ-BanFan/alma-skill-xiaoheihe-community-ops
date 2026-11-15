@@ -28,13 +28,13 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
 
 用户要求逛论坛、回复收件箱来信或继续多轮讨论时，先读取 [CONVERSATION.md](CONVERSATION.md)。按其中的每轮流程补读正文、定位目标、复用操作 ID并读回新评论。
 
-公开 HTML 正文、媒体下载和离线快照查看不要求账号。App 或 Web 会话只用于对应协议的认证读取、个人数据和写操作；短信验证码只用于创建缺失的 App 会话。保存成功后复用会话，不重复登录。
+公开 HTML 正文、媒体下载和离线快照查看不要求账号。App 或 Web 会话只用于对应协议的认证读取、个人数据和写操作；短信验证码只用于创建缺失的 App 会话。保存成功后复用会话，不重复登录。`native` 缺少 App 会话时返回 `app_session_missing`，`website` 缺少 Web 会话时返回 `web_session_missing`；`auto` 跳过缺失的会话并继续尝试可用的公开 HTML。
 
 ## 平台数据
 
 `post` 返回结构化正文，`comments` 返回独立评论节点。正文按顺序保留文字、图片和链接，未知块保留平台数据并报告缺口。`body.status` 区分可用、缺失和解析失败；`body.completeness` 只有在明确证据存在时才为 `complete`。摘要留在 `excerpt`，不会替代正文。
 
-用 `community list/search/info/children` 找社区，`topics` 搜话题，`feed` 和 `hot` 浏览轻量条目，`search` 搜帖子、游戏或用户。信息流的创建时间、评论数和充电数排序只作用于本次返回的条目，不能当作全站排序。评论可选 `--sort hot/time_aes/time_desc`。
+用 `community list/search/info/children` 找社区，`topics` 搜话题，`feed` 和 `hot` 浏览轻量条目，`search` 搜帖子、游戏或用户。信息流的创建时间、评论数和充电数排序只作用于本次返回的条目，不能当作全站排序。评论可选 `--sort hot/time_aes/time_desc`。列表中出现无法规范化的混合记录时，工具保留可用条目，并在 `coverage.gaps` 与 `coverage.invalid` 中报告缺口。
 
 `feed --order newest/recommended/recent-replies` 选择平台原生发布时间、推荐或回复时间排序。`--sort` 只对已取得条目排序，两个选择的作用范围不同。
 
@@ -42,15 +42,15 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
 
 分页读取可设置 `--pages`、`--requests`、`--seconds` 和条目上限 `--limit`。这些是硬上限；同一次读取中的重定向也计入请求数。`coverage.completion` 区分确认结束、还有更多和未知。预算停止时保留已读内容与 `coverage.resume`。相同资源、筛选和账号可用 `--resume` 续读。`complete`、`partial`、`blocked`、`retryable_failure`、`failed` 和 `cursor_stalled` 是不同状态。验证码、限流、会话失效和未知非成功状态会停止且不返回 resume。
 
-需要按多个社区、查询或话题批量收集公开条目时使用 `corpus`。v1 支持 `feed`、`search --type link` 和 `hashtags links`。Manifest 固定账号、协议、查询、过滤和配额，一个 run 的所有身份核对、页面请求和 reader fallback 共享全局预算。每一页会先持久化，再交付条目、去重实体、查询成员关系和未消费的同页余量。相同帖子出现在多个查询中只保存一份内容，并保留多条 membership。完整 Manifest 字段、query 类型和输出见 [REFERENCE.md](REFERENCE.md#有界-corpus)。
+需要按多个社区、查询或话题批量收集公开条目时使用 `corpus`。v1 支持 `feed`、`search --type link` 和 `hashtags links`。Manifest 固定账号、协议、查询、过滤和配额，一个 run 的所有身份核对、页面请求和 reader fallback 共享全局预算。每次持久化 request attempt 最多派发一次 HTTP 请求；进程在请求后退出时，这次 reservation 仍计入配额。每一页会先持久化，再交付条目、去重实体、查询成员关系和未消费的同页余量。相同帖子出现在多个查询中只保存一份内容，并保留多条 membership。完整 Manifest 字段、query 类型和输出见 [REFERENCE.md](REFERENCE.md#有界-corpus)。
 
-`corpus plan`、`corpus status`、`corpus run` 和 `corpus resume` 是完整入口。`plan` 与 `status` 不加载账号。`status` 可在无凭据、无签名器时读取持久化 checkpoint。`paused_budget` 只有在原 Manifest 仍有配额时可恢复。验证码、限流、会话失效或不可重试平台错误产生 `blocked_human`，不得自动恢复。用户处理阻塞后执行 `corpus resume <run-id> --acknowledge-block`。固定配额耗尽不能通过 resume 扩大。`quota_reached` 只表示达到声明的配额，不表示平台历史已抓完。
+`corpus plan`、`corpus status`、`corpus run` 和 `corpus resume` 是完整入口。`plan` 与 `status` 不加载账号。`status` 可在无凭据、无签名器时读取持久化 checkpoint。`paused_budget` 只有在原 Manifest 仍有配额时可恢复。HTTP 408、5xx 等可重试平台错误产生 `paused_retryable`，可直接 resume。验证码、限流、会话失效或不可重试平台错误产生 `blocked_human`，不得自动恢复。用户处理阻塞后执行 `corpus resume <run-id> --acknowledge-block`。固定配额耗尽不能通过 resume 扩大。`quota_reached` 只表示达到声明的配额，不表示平台历史已抓完。若 request 配额已经耗尽但同一页仍有 remainder，可用 `corpus resume <run-id> --max-requests 0` 先消费本地 remainder；只有需要读取新页面时才要求新的网络额度。
 
 `user <uid>` 读取作者公开资料，`--view posts/followers/following` 继续导航。`favourites folders/posts` 读取当前账号的收藏夹和内容。`inbox` 保留平台消息字段，读取 `entries` 或旧 `messages` 列表，不改已读状态。
 
 `asset <CDN-URL>` 下载平台图片并生成可用本地图像工具查看的 `preview_file`，需要可选 Pillow 依赖。源图与预览都有完整摘要；动画预览只展示首帧，原文件保留。官方表情使用 `emojis` 返回的平台目录。
 
-`post --reader native/website/html/auto` 选择正文读取方式。`native` 要求 App，`website` 要求 Web，`html` 读取无凭据的公开页面；显式入口不会切换协议，`auto` 按可用读取器顺序记录每次尝试。正文和身份证据按实际读取器记录，公开 HTML 不会继承 App 或 Web 的核验结果。除只读元数据外，所需正文为空会以 `body_missing` 失败。标题或作者没有公开证据时保留缺口，不从帖子 ID 或通用站点标题推断。`--section` 和 `--body-format` 可减少不需要的输出，`--raw` 仅用于检查原始响应。
+`post --reader native/website/html/auto` 选择正文读取方式。`native` 要求 App，`website` 要求 Web，`html` 读取无凭据的公开页面。`html` 不接受 `--protocol`，不需要账号或签名器；显式入口不会切换协议，`auto` 只跳过缺失的会话并记录每次尝试。正文和身份证据按实际读取器记录，公开 HTML 不会继承 App 或 Web 的核验结果。除只读元数据外，所需正文为空会以 `body_missing` 失败。标题或作者没有公开证据时保留缺口，不从帖子 ID 或通用站点标题推断。`--section` 和 `--body-format` 可减少不需要的输出，`--raw` 包含成功 reader 的原始响应，仅用于检查。
 
 普通浏览的 `source.configured_uid` 是配置中的数据命名空间，`source.identity_verified=false` 只表示本次没有核验在线会话身份。需要持续浏览时用 `--snapshot <name>` 保存公开观察与断点，`--since <name>` 查看同一查询的新增、变化和未再次观察到的条目。保存、`--since` 和网络续读会先核验在线 UID。未交付的 pending 响应可以在唯一名称下先离线重放；名称跨多个账号时仍需显式选择账号。其他离线快照操作按配置 UID 隔离，不表示身份已核验。缺失条目不推断为删除。
 
