@@ -19,6 +19,8 @@ from xhh_sdk.exceptions import XhhError, XhhConfigError
 from documents import link_id
 from paging import delivery_ok, project_coverage
 import browser
+from corpus_cli import dispatch as dispatch_corpus
+from corpus_cli import register as register_corpus
 
 WRITES = {"comment", "reply", "like", "favourite", "unfavourite", "delete-comment", "delete-post", "upload", "publish"}
 
@@ -69,6 +71,7 @@ def parser():
         command.add_argument("--offset", type=nonnegative, default=0)
         command.add_argument("--limit", type=positive, default=20)
     browser.register(commands)
+    register_corpus(commands)
     for name in sorted(WRITES):
         command = commands.add_parser(name)
         command.add_argument("--confirm", action="store_true")
@@ -239,7 +242,9 @@ def redact(value, secret=""):
 
 
 def emit(ok, kind, data=None, *, coverage=None, error=None, secret=""):
-    version = 2 if kind in browser.COMMANDS or kind in {"asset", "snapshot"} else 1
+    version = 2 if kind in browser.COMMANDS or kind in {
+        "asset", "snapshot", "corpus",
+    } else 1
     print(json.dumps(redact({"version": version, "ok": ok, "kind": kind, "data": data,
                      "coverage": coverage or {}, "error": error}, secret), ensure_ascii=False), flush=True)
 
@@ -276,6 +281,10 @@ def main(argv=None, *, client_factory=XhhClient):
         root_parser.error("unrecognized arguments: " + " ".join(remaining))
     secret = ""
     try:
+        if args.command == "corpus":
+            return dispatch_corpus(
+                args, client_factory=client_factory, parser=parser,
+                emitter=emit)
         if args.command in WRITES and not args.confirm:
             raise OperationError("confirmation_required")
         if args.command == "asset":
