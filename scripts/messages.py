@@ -334,7 +334,9 @@ def send(client, prepared, data_dir, operation_id, *, confirm=False, public=Fals
     context = {"prepared_fingerprint": current["fingerprint"], "kind": kind, "target": current["spec"].get("target"),
                "expected": current["expected"], "catalog_version": current["catalog_version"],
                "renderer_version": RENDERER_VERSION, "public_requested": public, "author_uid": uid}
+    context.update(protocol=client.config.protocol_mode, **(current["spec"].get("target") or {}))
     identity = {"prepared_fingerprint": current["fingerprint"], "public": public}
+    journal = Journal(Path(data_dir))
     if kind == "post":
         options = _post_options(current["spec"])
         if public and client.config.protocol_mode == "web" and not options.get("topic_ids"):
@@ -358,10 +360,10 @@ def send(client, prepared, data_dir, operation_id, *, confirm=False, public=Fals
             expected_blocks = document({"id": result["link_id"], "text": blocks}, {}, catalog)["body"]["blocks"]
             return {"link_id": result["link_id"], "url": result["url"], "draft": result["draft"],
                     "kind": kind, "expected": {**current["expected"],
-                                              "image_urls": [block["url"] for block in blocks if block["type"] == "img"],
+                                              "image_urls_sha256": _hash([block["url"] for block in blocks if block["type"] == "img"]),
                                               "content_sha256": _content_hash(expected_blocks)},
                     "prepared_fingerprint": current["fingerprint"], "visibility": "not_checked"}
-        return Journal(Path(data_dir)).execute(uid, operation_id, "publish", identity, execute, context=context)
+        return journal.execute(uid, operation_id, "publish", identity, execute, identity_verified=True, context=context)
     target = current["spec"]["target"]
     directory = Path(data_dir) / "message-preparation"
     directory.mkdir(parents=True, exist_ok=True)
@@ -370,7 +372,8 @@ def send(client, prepared, data_dir, operation_id, *, confirm=False, public=Fals
         text_file.write_text(current["preview"]["text"], encoding="utf-8")
         args = SimpleNamespace(**target, text_file=text_file, image_url=None,
                                image_file=Path(current["preview"]["image_stickers"][0]["file"]) if current["preview"]["image_stickers"] else None)
-        payload, execute_comment = prepare_write(client, kind, args)
+        payload, execute_comment = prepare_write(client, kind, args,
+            before_post=lambda request: journal.bind_submitted_request(uid, operation_id, request))
 
         def execute():
             result = execute_comment()
@@ -379,9 +382,9 @@ def send(client, prepared, data_dir, operation_id, *, confirm=False, public=Fals
             parsed.feed(current["preview"]["text"])
             parsed.flush()
             image_urls = [result["image_url"]] if result.get("image_url") else []
-            return {**result, "kind": kind, "expected": {**current["expected"], "image_urls": image_urls,
+            return {**result, "kind": kind, "expected": {**current["expected"], "image_urls_sha256": _hash(image_urls),
                     "content_sha256": _content_hash(parsed.events, image_urls)}, "prepared_fingerprint": current["fingerprint"]}
-        return Journal(Path(data_dir)).execute(uid, operation_id, kind, {**identity, **payload}, execute, context=context)
+        return journal.execute(uid, operation_id, kind, {**identity, **payload}, execute, identity_verified=True, context=context)
 
 
 def verify(client, operation_id, data_dir, *, pages=3, requests=10, seconds=30):
@@ -398,11 +401,13 @@ def verify(client, operation_id, data_dir, *, pages=3, requests=10, seconds=30):
     if operation["status"] != "returned" or expected is None:
         return {**baseline, "reason": "missing_receipt_or_expected_manifest",
                 "next_action": "Keep this operation ID and inspect the recorded target before retrying; do not send under a new ID."}
-    verify_identity(client)
+    from interaction_history import InteractionHistory
+    history = InteractionHistory(data_dir)
+    capture = xhh.browsing_capture(history, str(client.config.heybox_id), client.config.pkey)
     if receipt.get("kind") == "post":
         args = xhh.parser().parse_args(["--data-dir", str(data_dir), "post", numeric_id(receipt.get("link_id")), "--reader", "auto",
                                        "--requests", str(requests), "--seconds", str(seconds)])
-        data, scope = Browser(client).execute(args)
+        data, scope = Browser(client, capture=capture).execute(args, verify_account=True)
         observed = data.get("body") or {}
         if observed.get("status") != "available":
             return {**baseline, "reason": "body_not_observed", "coverage": scope}
@@ -425,7 +430,7 @@ def verify(client, operation_id, data_dir, *, pages=3, requests=10, seconds=30):
             arguments = ["comments", numeric_id(receipt.get("link_id")), "--pages", str(pages), "--sort", "time_desc"]
         arguments += ["--requests", str(requests), "--seconds", str(seconds)]
         args = xhh.parser().parse_args(["--data-dir", str(data_dir), *arguments])
-        data, scope = Browser(client).execute(args)
+        data, scope = Browser(client, capture=capture).execute(args, verify_account=True)
         observed = next((node for node in data.get("items", []) if node.get("id") == str(receipt.get("comment_id"))), None)
         if observed is None:
             return {**baseline, "reason": "comment_not_observed_in_read_scope", "coverage": scope}
@@ -444,8 +449,8 @@ def verify(client, operation_id, data_dir, *, pages=3, requests=10, seconds=30):
         content_sha256 = _content_hash(blocks, [url for url in images if url not in inline])
     emoji_ids = [block["id"] for block in blocks if block.get("type") == "native_emoji"]
     checks = {"text": _text_hash(text) == expected["text_sha256"], "emoji_order": emoji_ids == expected["emoji_ids"]}
-    if "image_urls" in expected:
-        checks["images"] = images == expected["image_urls"]
+    if "image_urls_sha256" in expected:
+        checks["images"] = _hash(images) == expected["image_urls_sha256"]
     if "content_sha256" in expected:
         checks["content_order"] = content_sha256 == expected["content_sha256"]
     return {**baseline, "status": "matched" if all(checks.values()) else "mismatch", "checks": checks,

@@ -302,6 +302,26 @@ class AgentMessageTests(unittest.TestCase):
         changed = self.prepare(content=[{"type": "native_emoji", "id": "cube:43"}])
         self.assertNotEqual(prepared["fingerprint"], changed["fingerprint"])
 
+    def test_typed_reply_records_interaction_facts_and_digest_only_context(self):
+        private_text = "fixture message body should not persist in interaction metadata"
+        prepared = self.prepare("reply", content=[{"type": "text", "text": private_text}, {"type": "native_emoji", "id": "cube:32"}])
+        code, result = self.send(prepared)
+        self.assertEqual(code, 0, result)
+        code, history = self.cli("interaction", "history", "501")
+        self.assertEqual(code, 0, history)
+        self.assertTrue(any(item.get("id") == "701" for item in history["data"]["items"]), history)
+        operation = Journal(self.data).read("101", "fixture-message")
+        self.assertEqual(operation["context"]["target"]["reply_id"], "602")
+        self.assertEqual(operation["receipt"]["expected"]["emoji_ids"], ["cube:32"])
+        connection = sqlite3.connect(self.data / "operations.sqlite3")
+        try:
+            self.assertEqual(len(connection.execute("PRAGMA table_info(operations)").fetchall()), 7)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 2)
+            self.assertNotIn(private_text, "\n".join(connection.iterdump()))
+            self.assertIsNotNone(connection.execute("SELECT submission_fingerprint FROM interaction_write_context WHERE operation_id='fixture-message'").fetchone()[0])
+        finally:
+            connection.close()
+
 
 if __name__ == "__main__":
     unittest.main()

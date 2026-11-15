@@ -17,7 +17,7 @@ from xhh_sdk.exceptions import XhhConfigError
 
 ROOTS = {"describe", "emojis", "stickers", "compose", "send", "verify"}
 AUTH_ROOTS = {"send", "verify"}
-READ_TOOLS = {"post", "comments", "thread", "feed", "inbox"}
+READ_TOOLS = {"post", "comments", "thread", "feed", "inbox", "interaction"}
 CREATOR_URL = "https://creator.xiaoheihe.cn/creator"
 
 
@@ -317,7 +317,7 @@ def tool_definitions():
             constraints.append({"oneOf": branches})
         if constraints:
             schema["allOf"] = constraints
-        mutating = path in (("send",), ("compose",), ("stickers", "import"), ("emojis", "refresh"), ("emojis", "get"))
+        mutating = path in (("send",), ("compose",), ("stickers", "import"), ("emojis", "refresh"), ("emojis", "get"), ("interaction", "sync"))
         tools.append({"name": "xhh_" + "_".join(path).replace("-", "_"), "description": help_text or parser.description or "Read Xiaoheihe " + " ".join(path) + " with an explicit account.",
                       "inputSchema": schema, "outputSchema": output_schema(path), "annotations": {"readOnlyHint": not mutating,
                       "destructiveHint": path[0] == "send", "openWorldHint": auth or path in (("emojis", "refresh"), ("emojis", "get"))},

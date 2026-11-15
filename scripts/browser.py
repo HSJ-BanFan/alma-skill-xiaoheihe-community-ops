@@ -160,10 +160,22 @@ def request_arguments(args):
 
 
 class Browser:
-    def __init__(self, client):
+    def __init__(self, client, *, capture=None):
         self.client = client
         self.identity_verified = False
         self.catalog = None
+        self.capture = capture
+        self.capture_results = []
+
+    def record(self, nodes, evidence, post_id, root_id, scope):
+        if self.capture is not None:
+            result = self.capture(nodes, evidence, post_id, root_id, scope)
+            self.capture_results.append(result)
+
+    def capture_coverage(self, scope):
+        if self.capture_results:
+            scope["interaction_capture"] = {"pages": self.capture_results,
+                "complete": all(result.get("persisted") or result.get("reason") == "no_trusted_uid_namespace" for result in self.capture_results)}
 
     def fetch(self, route, query, budget):
         raw = budget.call(self.client, lambda: self.client.transport.signed_request(route, query=query))
@@ -173,6 +185,7 @@ class Browser:
             result = result_object(raw)
         evidence = source(self.client, route)
         evidence["identity_verified"] = self.identity_verified
+        evidence["identity_verified_this_read"] = self.identity_verified
         return raw, result, evidence
 
     def execute(self, args, *, verify_account=False, prior_data=None):
@@ -184,6 +197,9 @@ class Browser:
                 raise XhhConfigError("saving, resuming, or comparing observations requires at least two requests including account verification")
             budget.call(self.client, lambda: verify_identity(self.client))
             self.identity_verified = True
+            identity_source = source(self.client, "/account/restore_login")
+            identity_source.update(identity_verified=True, identity_verified_this_read=True)
+            self.record([], identity_source, None, None, {"scope": "identity_check", "completion": "unknown"})
         if args.command == "thread":
             return self.thread(args, budget, prior_data)
         paged = (args.command in ("comments", "replies", "feed", "hot", "search")
@@ -280,6 +296,7 @@ class Browser:
             scope["resume"] = None
         scope["budget"] = budget.view()
         scope["observed_positions"] = observed_positions
+        self.capture_coverage(scope)
         return data, scope
 
     def website(self, query, budget):
@@ -297,6 +314,7 @@ class Browser:
         raw = budget.call(self.client, lambda: transport._checked_response(route, transport._decode(transport._open(request))))
         evidence = source(self.client, route)
         evidence["identity_verified"] = self.identity_verified
+        evidence["identity_verified_this_read"] = self.identity_verified
         evidence["reader"] = "website"
         return raw, result_object(raw), evidence
 
@@ -369,12 +387,14 @@ class Browser:
             raw, result, evidence = self.website(query, budget) if reader == "website" else self.fetch("/bbs/app/link/tree", query, budget)
             if args.command == "post" and not isinstance(result.get("link"), dict):
                 raise XhhConfigError("post missing from platform result")
-            nodes = floors(result.get("comments"), args.link_id, self.catalog) if args.command == "comments" else []
+            nodes = floors(result.get("comments"), args.link_id, self.catalog) if args.command == "comments" or "comments" in result else []
             data = document(result["link"], evidence, self.catalog) if args.command == "post" else {"post_id": args.link_id, "items": nodes, "source": evidence}
             scope = coverage(result, count=len(result.get("comments", [])), position=args.page, mode="page")
             if "comments" not in result:
                 scope["gaps"].append("comments_not_returned")
             scope["sort"] = args.sort
+            if "comments" in result:
+                self.record(nodes, evidence, args.link_id, None, scope)
             if args.command == "post":
                 evidence["reader"] = reader
                 scope["body"] = data["body"]["completeness"]
@@ -396,6 +416,9 @@ class Browser:
                     "root_id": args.root_id, "post_id": args.post_id,
                     "post_id_source": "caller" if args.post_id else "unknown"}
             scope = coverage(result, count=len(nodes), position=args.cursor, mode="cursor")
+            evidence["post_id_source"] = "caller" if args.post_id else "unknown"
+            if args.post_id:
+                self.record(data["items"], evidence, args.post_id, args.root_id, scope)
         else:
             specs = {"feed": ("/bbs/app/topic/feeds", {"topic_id": getattr(args, "topic_id", ""), "h_src": ""}),
                      "hot": ("/bbs/app/hot_news/main_list", {}),
@@ -454,6 +477,8 @@ class Browser:
                     if args.raw:
                         raw_pages.append(raw)
                     parsed = floors(result.get("comments"), args.link_id, self.catalog)
+                    page_scope = coverage(result, count=len(result["comments"]), position=page, mode="page")
+                    self.record(parsed, evidence, args.link_id, args.root_id, page_scope)
                     for node in parsed:
                         if node["root_id"] == args.root_id:
                             node["source"] = evidence
@@ -486,8 +511,10 @@ class Browser:
                     if args.raw:
                         raw_pages.append(raw)
                     records = rows(result, ("comments",))
-                    for item in records:
-                        node = comment(item, args.link_id, args.root_id, self.catalog)
+                    parsed = [comment(item, args.link_id, args.root_id, self.catalog) for item in records]
+                    self.record(parsed, evidence, args.link_id, args.root_id,
+                                coverage(result, count=len(records), position=cursor, mode="cursor"))
+                    for node in parsed:
                         node["source"] = evidence
                         nodes[node["id"]] = (enrich_observation(nodes[node["id"]], node)
                                              if node["id"] in nodes else node)
@@ -548,4 +575,5 @@ class Browser:
                 "items": list(nodes.values())}
         if args.raw:
             data["raw_pages"] = raw_pages
+        self.capture_coverage(last_scope)
         return data, last_scope

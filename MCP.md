@@ -19,6 +19,8 @@
 
 `tools/list` 的输入 schema 来自同一 CLI 定义，输出 schema 描述共同结果封套及准备、读回结果。`xhh_describe` 可以查询单个工具的 schema。原生表情用 `xhh_emojis_search/get`，本地图片用 `xhh_stickers_import/get/search`，内容用 `xhh_compose/send/verify`。帖子、评论、楼层、信息流和收件箱读取也通过同一 CLI 提供。
 
+互动状态、历史和预算同步分别通过 `xhh_interaction_status/history/sync` 提供，与 CLI 使用同一元数据台账。结构化发送也记录精确目标和提交摘要，读回取得的公开关系可以补充互动事实。
+
 `xhh_compose` 接收 `spec` 对象，`xhh_send` 接收完整的 `prepared` 对象。MCP 调用无需先在服务器创建 JSON 文件。发送要求 `confirm=true` 和稳定的 `operation_id`。生成预览的工具结果可包含标准图片内容；指定 `preview_file` 时，组合预览还以嵌入 HTML 资源返回，资源中的图片已嵌入。
 
 服务支持 2025-03-26、2025-06-18、2025-11-25 的 `initialize` 流程，以及 2026-07-28 的每请求协议元数据和 `server/discover`。2026 请求在 `params._meta` 中提供 `io.modelcontextprotocol/protocolVersion` 与 `io.modelcontextprotocol/clientCapabilities`。协议不支持时返回可用版本，不执行工具。
