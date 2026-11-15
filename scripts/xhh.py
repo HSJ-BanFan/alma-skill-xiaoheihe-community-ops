@@ -101,7 +101,8 @@ def parser():
 
 
 def load_config(args):
-    if args.command == "post" and args.reader == "html":
+    reader = browser.READERS.get(getattr(args, "reader", None))
+    if args.command == "post" and reader and reader.protocol == "public":
         if args.protocol:
             raise XhhConfigError(
                 "the html reader is public and cannot use --protocol")
@@ -133,13 +134,14 @@ def load_config(args):
 def load_clients(args, config, client_factory):
     if args.command != "post":
         return {config.protocol_mode: client_factory(config)}
-    if args.reader == "html":
+    reader = browser.READERS.get(args.reader)
+    if reader and reader.protocol == "public":
         if args.protocol:
             raise XhhConfigError(
                 "the html reader is public and cannot use --protocol")
         return {config.protocol_mode: client_factory(config)}
 
-    provider = {"native": "app", "website": "web"}.get(args.reader)
+    provider = reader.protocol if reader else None
     if provider and args.protocol and args.protocol != provider:
         raise XhhConfigError(
             f"{args.reader} reader requires the {provider} protocol",
@@ -281,6 +283,27 @@ def main(argv=None, *, client_factory=XhhClient):
             data = fetch(args.url, args.data_dir, refresh=args.refresh, seconds=args.seconds)
             emit(True, args.command, data, coverage={"preview_scope": "first_frame"})
             return 0
+        if (args.command == "snapshot"
+                and args.action == "resume"
+                and not (args.account or args.config or args.env)):
+            from observations import Store
+            store = Store(args.data_dir)
+            uid, pending_snapshot = store.pending_by_name(args.name)
+            pending = pending_snapshot["pending_response"]
+            projected, pending_error, ok = project_delivery(
+                pending.get("coverage") or {},
+                pending.get("error"),
+            )
+            emit(
+                ok,
+                args.command,
+                pending["data"],
+                coverage={**projected, "replayed_delivery": True},
+                error=pending_error,
+            )
+            acknowledge_delivery(
+                store, uid, args.name, pending_snapshot["revision"])
+            return 0 if ok else 1
         config = load_config(args)
         secret = config.pkey
         if args.command == "snapshot":

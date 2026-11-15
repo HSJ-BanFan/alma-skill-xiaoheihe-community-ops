@@ -8,7 +8,7 @@ import re
 import time
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Callable
@@ -36,13 +36,27 @@ COMMANDS = {
     "banners", "recommended-users", "games",
 }
 
+PUBLIC_TITLE_FALLBACKS = {
+    "xiaoheihe",
+    "小黑盒",
+    "小黑盒 - 玩家的游戏社区",
+}
+
 
 @dataclass(frozen=True)
 class ReaderSpec:
     reader: str
     protocol: str
     route: str
-    handler: Callable
+    handler: Callable | None = None
+
+
+READER_SPECS = (
+    ReaderSpec("native", "app", "/bbs/app/link/tree"),
+    ReaderSpec("website", "web", "/bbs/app/link/tree"),
+    ReaderSpec("html", "public", "/app/bbs/link/{post_id}"),
+)
+READERS = {spec.reader: spec for spec in READER_SPECS}
 
 
 @dataclass(frozen=True)
@@ -140,6 +154,10 @@ class PublicPageParser(HTMLParser):
         self.article_depth = 0
         self.in_title = False
         self.title = []
+        self.meta = {}
+        self.heading_depth = 0
+        self.headings = []
+        self._heading = []
         self.parts = []
         self.json_ld = []
         self._script = None
@@ -151,6 +169,14 @@ class PublicPageParser(HTMLParser):
             self.article_depth = self.depth
         if tag == "title":
             self.in_title = True
+        if tag == "meta":
+            key = values.get("property") or values.get("name")
+            content = values.get("content")
+            if key and content:
+                self.meta[str(key).casefold()] = content
+        if tag == "h1" and self.article_depth:
+            self.heading_depth = self.depth
+            self._heading = []
         if tag == "script":
             kind = str(values.get("type") or "").casefold()
             if kind == "application/ld+json":
@@ -166,6 +192,12 @@ class PublicPageParser(HTMLParser):
             self._script = None
         if tag == "title":
             self.in_title = False
+        if tag == "h1" and self.heading_depth:
+            text = re.sub(r"\s+", " ", "".join(self._heading)).strip()
+            if text:
+                self.headings.append(text)
+            self.heading_depth = 0
+            self._heading = []
         if self.article_depth and tag in {
                 "p", "div", "li", "blockquote", "pre", "h1", "h2", "h3",
                 "h4", "h5", "h6", "tr"}:
@@ -179,6 +211,8 @@ class PublicPageParser(HTMLParser):
             self._script.append(data)
         if self.in_title:
             self.title.append(data)
+        if self.heading_depth:
+            self._heading.append(data)
         if self.article_depth:
             self.parts.append(data)
 
@@ -191,6 +225,95 @@ def _walk_json(value):
     elif isinstance(value, list):
         for child in value:
             yield from _walk_json(child)
+
+
+def _public_author(value):
+    if isinstance(value, str):
+        name = re.sub(r"\s+", " ", value).strip()
+        return {"uid": None, "name": name or None, "avatar_url": None}
+    if not isinstance(value, dict):
+        return None
+    identifier_value = value.get("identifier")
+    if isinstance(identifier_value, dict):
+        identifier_value = (identifier_value.get("value")
+                            or identifier_value.get("id"))
+    uid = identifier(identifier_value)
+    if uid is None:
+        url = value.get("url") or value.get("sameAs")
+        match = re.search(r"/(?:app/)?(?:user|profile)/(\d+)(?:/|$)",
+                          str(url or ""))
+        uid = match.group(1) if match else None
+    name = value.get("name") or value.get("username")
+    name = re.sub(r"\s+", " ", name).strip() if isinstance(name, str) else None
+    avatar = value.get("image") or value.get("avatar")
+    if isinstance(avatar, dict):
+        avatar = avatar.get("url") or avatar.get("contentUrl")
+    if not uid and not name and not avatar:
+        return None
+    return {
+        "uid": uid,
+        "name": name or None,
+        "avatar_url": avatar if isinstance(avatar, str) else None,
+    }
+
+
+def _public_page_metadata(parser):
+    nodes = []
+    article_body = None
+    for script in parser.json_ld:
+        try:
+            decoded = json.loads(script)
+        except ValueError:
+            continue
+        for node in _walk_json(decoded):
+            nodes.append(node)
+            candidate = node.get("articleBody")
+            if article_body is None and isinstance(candidate, str) and candidate.strip():
+                article_body = candidate.strip()
+    article_nodes = [
+        node for node in nodes
+        if any(
+            isinstance(kind, str)
+            and kind.casefold() in {
+                "article", "blogposting", "newsarticle", "socialmediaposting",
+            }
+            for kind in (
+                node.get("@type")
+                if isinstance(node.get("@type"), list)
+                else [node.get("@type")]
+            )
+        )
+    ]
+    title, title_source = None, None
+    author, author_source = None, None
+    for node in article_nodes:
+        candidate = node.get("headline") or node.get("name")
+        if title is None and isinstance(candidate, str) and candidate.strip():
+            title = re.sub(r"\s+", " ", candidate).strip()
+            title_source = "json_ld.headline"
+        candidate = _public_author(node.get("author"))
+        if author is None and candidate:
+            author = candidate
+            author_source = "json_ld.author"
+    if title is None:
+        title = parser.meta.get("og:title") or parser.meta.get("twitter:title")
+        if isinstance(title, str) and title.strip():
+            title = re.sub(r"\s+", " ", title).strip()
+            title_source = "meta.title"
+        else:
+            title = None
+    if title is None and parser.headings:
+        title = parser.headings[0]
+        title_source = "article.h1"
+    if title is None:
+        candidate = re.sub(r"\s+", " ", "".join(parser.title)).strip()
+        if candidate and candidate.casefold() not in PUBLIC_TITLE_FALLBACKS:
+            title, title_source = candidate, "html.title"
+    if author is None:
+        author = _public_author(parser.meta.get("author"))
+        if author:
+            author_source = "meta.author"
+    return title, title_source, author, author_source, article_body
 
 
 def register(commands):
@@ -240,7 +363,7 @@ def register(commands):
             if name == "post":
                 parser.add_argument(
                     "--reader",
-                    choices=("native", "website", "html", "auto"),
+                    choices=("auto", *READERS),
                     default="auto",
                 )
                 parser.add_argument("--section", choices=("all", "body", "metadata"), default="all")
@@ -370,7 +493,8 @@ def game(raw):
         "is_free": truth(raw.get("is_free")),
         "chinese_support": truth(raw.get("chinese_support")),
         "followers": integer(raw.get("follow_num")),
-        "score": raw.get("score_comment"),
+        "score": raw.get("score"),
+        "score_comment": raw.get("score_comment"),
         "communities": communities or None,
         "navigation": {
             "feed": ({"command": "feed", "topic_id": communities[0]["id"]}
@@ -618,7 +742,7 @@ class Browser:
     def __init__(self, client, *, clients=None):
         self.client = client
         self.clients = dict(clients or {client.config.protocol_mode: client})
-        self.identity_verified = False
+        self.verified_client_ids = set()
 
     @staticmethod
     def _session_revision(client):
@@ -633,7 +757,7 @@ class Browser:
         else:
             result = result_object(raw)
         evidence = source(selected, route)
-        evidence["identity_verified"] = self.identity_verified
+        evidence["identity_verified"] = id(selected) in self.verified_client_ids
         evidence["session_revision"] = self._session_revision(selected)
         return raw, result, evidence
 
@@ -651,7 +775,7 @@ class Browser:
             if args.requests < 2:
                 raise XhhConfigError("saving, resuming, or comparing observations requires at least two requests including account verification")
             budget.call(self.client, lambda: verify_identity(self.client))
-            self.identity_verified = True
+            self.verified_client_ids.add(id(self.client))
         if args.command == "post":
             return self.post(args, budget, plan=post_plan)
         if args.command == "thread":
@@ -950,7 +1074,7 @@ class Browser:
         transport = selected.transport
         raw = budget.call(selected, lambda: transport._checked_response(route, transport._decode(transport._open(request))))
         evidence = source(selected, route)
-        evidence["identity_verified"] = self.identity_verified
+        evidence["identity_verified"] = id(selected) in self.verified_client_ids
         evidence["session_revision"] = self._session_revision(selected)
         evidence["reader"] = "website"
         return raw, result_object(raw), evidence
@@ -968,10 +1092,15 @@ class Browser:
             "Accept": "text/html,application/xhtml+xml",
             "User-Agent": self.client.config.user_agent_web,
         }, method="GET")
-        body = budget.call(
-            self.client,
-            lambda: read_http(request, max(0.01, budget.deadline - time.monotonic()),
-                              profile="public", http_timeout=self.client.config.timeout),
+        body = budget.call_wire(
+            lambda remaining, wire_limit, wire_counter: read_http(
+                request,
+                max(0.01, remaining),
+                profile="public",
+                http_timeout=min(self.client.config.timeout, remaining),
+                wire_limit=wire_limit,
+                wire_counter=wire_counter,
+            ),
         )
         try:
             page = body.decode("utf-8")
@@ -979,28 +1108,33 @@ class Browser:
             page = body.decode("utf-8", errors="replace")
         parser = PublicPageParser()
         parser.feed(page)
-        title = re.sub(r"\s+", " ", "".join(parser.title)).strip() or None
-        article_body = None
-        for script in parser.json_ld:
-            try:
-                decoded = json.loads(script)
-            except ValueError:
-                continue
-            for node in _walk_json(decoded):
-                candidate = node.get("articleBody")
-                if isinstance(candidate, str) and candidate.strip():
-                    article_body = candidate.strip()
-                    break
-            if article_body:
-                break
+        title, title_source, page_author, author_source, article_body = (
+            _public_page_metadata(parser)
+        )
         text = article_body or re.sub(r"[ \t]+", " ", "".join(parser.parts))
         text = re.sub(r"\n{3,}", "\n\n", text).strip()
-        link = {"id": post_id, "title": title, "text": text}
+        link = {"id": post_id, "text": text}
+        if title is not None:
+            link["title"] = title
+        if page_author is not None:
+            link["user"] = page_author
         evidence = {"route": route, "protocol": "public", "observed_at": time.time(),
                     "configured_uid": str(self.client.config.heybox_id),
                     "identity_verified": False, "reader": "html",
-                    "credentials_sent": False, "session_revision": None}
+                    "credentials_sent": False, "session_revision": None,
+                    "metadata_sources": {
+                        key: value for key, value in {
+                            "title": title_source,
+                            "author": author_source,
+                        }.items() if value is not None
+                    }}
         data = document(link, evidence)
+        metadata_gaps = []
+        if title is None:
+            metadata_gaps.append("html_title_not_found")
+        if page_author is None:
+            metadata_gaps.append("html_author_not_found")
+        data["metadata_gaps"] = metadata_gaps
         if not text:
             data["body"]["gaps"] = sorted(set(
                 data["body"]["gaps"] + ["html_article_not_found"]))
@@ -1025,13 +1159,21 @@ class Browser:
             "statistics", "has_video",
         }
         result = dict(body_document)
+        def metadata_present(value, key):
+            candidate = value.get(key)
+            if key == "author":
+                return isinstance(candidate, dict) and any(
+                    item is not None for item in candidate.values())
+            return candidate is not None
+
         metadata_source = max(
             documents,
             key=lambda value: sum(
-                value.get(key) is not None for key in content_keys),
+                metadata_present(value, key) for key in content_keys),
         )
         for key in content_keys:
-            if result.get(key) is None and metadata_source.get(key) is not None:
+            if not metadata_present(result, key) and metadata_present(
+                    metadata_source, key):
                 result[key] = metadata_source[key]
         supplemental = []
         for value in documents:
@@ -1075,16 +1217,14 @@ class Browser:
         return self.public_html(args.link_id, budget)
 
     def _reader_specs(self):
+        handlers = {
+            "native": self._read_native_post,
+            "website": self._read_website_post,
+            "html": self._read_html_post,
+        }
         return {
-            "native": ReaderSpec(
-                "native", "app", "/bbs/app/link/tree",
-                self._read_native_post),
-            "website": ReaderSpec(
-                "website", "web", "/bbs/app/link/tree",
-                self._read_website_post),
-            "html": ReaderSpec(
-                "html", "public", "/app/bbs/link/{post_id}",
-                self._read_html_post),
+            reader: replace(spec, handler=handlers[reader])
+            for reader, spec in READERS.items()
         }
 
     def _reader_plan(self, args):
@@ -1126,25 +1266,43 @@ class Browser:
             for key in (
                 "reader", "protocol", "status", "body_status",
                 "completeness", "body_characters", "route",
-                "session_revision",
+                "session_revision", "reader_offset", "identity_verified",
             )
         }
+
+    @staticmethod
+    def _document_has_body(value):
+        body = value.get("body") if isinstance(value, dict) else None
+        return (
+            isinstance(body, dict)
+            and body.get("status") == "available"
+            and bool(body.get("text") or body.get("blocks"))
+        )
 
     def post(self, args, budget, *, plan=None):
         attempts, documents, errors, raw_responses = [], [], [], []
         binding = query_key(args)
+        plan = plan or self._reader_plan(args)
+        reader_offset = 0
         if args.resume:
             token = decode_resume(
                 args.resume, "post", self.client.config.heybox_id)
-            if (token.get("binding") != binding
+            required = {
+                "binding", "protocol", "position", "reader_offset",
+            }
+            if (set(token) != required
+                    or token.get("binding") != binding
                     or token.get("protocol") != self.client.config.protocol_mode
                     or type(token.get("position")) is not int
-                    or token["position"] < 1):
+                    or token["position"] < 1
+                    or type(token.get("reader_offset")) is not int
+                    or not 0 <= token["reader_offset"] < len(plan)):
                 raise XhhConfigError(
                     "post continuation does not match this read")
+            reader_offset = token["reader_offset"]
         stop = None
-        plan = plan or self._reader_plan(args)
-        for spec in plan:
+        for index, spec in enumerate(
+                plan[reader_offset:], start=reader_offset):
             session_revision = (
                 self._session_revision(self.clients[spec.protocol])
                 if spec.protocol in self.clients else None
@@ -1157,6 +1315,8 @@ class Browser:
                     if "{post_id}" in spec.route else spec.route
                 ),
                 "session_revision": session_revision,
+                "reader_offset": index,
+                "identity_verified": False,
                 "status": "pending",
                 "body_status": None,
                 "completeness": None,
@@ -1179,6 +1339,7 @@ class Browser:
                     "body_status": value["body"]["status"],
                     "completeness": value["body"]["completeness"],
                     "body_characters": len(value["body"]["text"]),
+                    "identity_verified": value["source"]["identity_verified"],
                 })
             except ReadLimit as error:
                 attempt.update({
@@ -1212,12 +1373,6 @@ class Browser:
                 raise ReadLimit(attempts[0]["reason"])
             raise XhhConfigError(
                 "no reader is available; store an App or Web session")
-        if stop is None:
-            stop = (
-                StopState.complete()
-                if args.reader != "auto"
-                else StopState(StopKind.BUDGET_PAUSE)
-            )
         selected_index, selected = max(
             enumerate(documents),
             key=lambda pair: (self._reader_score(pair[1]), -pair[0]),
@@ -1228,6 +1383,24 @@ class Browser:
             attempt for attempt in attempts if attempt["status"] == "ok"
         ]
         selected_attempt = successful[selected_index]
+        if args.section != "metadata" and not self._document_has_body(selected):
+            if stop is None:
+                public = XhhConfigError(
+                    "reader returned no post body",
+                    code="body_missing",
+                    fix="use another reader or retry when the platform provides body content",
+                ).public()
+                stop = StopState.fatal("body_missing", public)
+                selected_attempt["error"] = public
+        if stop is None:
+            stop = (
+                StopState.complete()
+                if args.reader != "auto"
+                else StopState(
+                    StopKind.DATA_GAP,
+                    reason="reader_order_exhausted",
+                )
+            )
         metadata_attempt = next(
             (
                 attempt for attempt in successful
@@ -1238,6 +1411,13 @@ class Browser:
         )
         data["reader_attempts"] = attempts
         data["selected_reader"] = data["source"]["reader"]
+        metadata_gaps = sorted({
+            gap
+            for value in documents
+            for gap in value.get("metadata_gaps", [])
+        })
+        if metadata_gaps:
+            data["metadata_gaps"] = metadata_gaps
         data["provenance"] = {
             "metadata": self._reader_provenance(metadata_attempt),
             "body": self._reader_provenance(selected_attempt),
@@ -1245,9 +1425,11 @@ class Browser:
         if args.raw:
             data["raw_responses"] = raw_responses
         scope = coverage({"has_more": False}, count=0, position=args.page, mode="page")
-        scope.update(body=data["body"]["completeness"], gaps=list(data["body"]["gaps"]),
+        scope.update(body=data["body"]["completeness"],
+                     gaps=sorted(set(data["body"]["gaps"] + metadata_gaps)),
                      reader=data["source"]["reader"], readers_attempted=len(attempts),
-                     sort=args.sort, budget=budget.view())
+                     reader_offset=reader_offset, sort=args.sort,
+                     budget=budget.view())
         finalize_coverage(
             scope,
             stop,
@@ -1256,7 +1438,10 @@ class Browser:
             protocol=self.client.config.protocol_mode,
             binding=binding,
             resume_parameters=(
-                {"position": args.page}
+                {
+                    "position": args.page,
+                    "reader_offset": attempts[-1]["reader_offset"],
+                }
                 if stop.kind == StopKind.BUDGET_PAUSE else None
             ),
         )

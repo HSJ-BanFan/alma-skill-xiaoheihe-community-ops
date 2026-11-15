@@ -42,6 +42,7 @@ from .exceptions import (
     XhhError,
     XhhIdentityUnboundError,
     XhhRiskTokenError,
+    XhhSessionMissingError,
 )
 from .payload import Post
 
@@ -274,10 +275,16 @@ def _manage_account(args) -> int:
             report = _account_view(account)
             report["protocol_mode"] = getattr(args, "protocol", None) or report["protocol_mode"]
             if args.online:
-                if report["protocol_mode"] not in account.sessions:
+                try:
+                    selection = account.select_session(
+                        getattr(args, "protocol", None))
+                except XhhSessionMissingError:
                     _print(report)
                     return 1
-                config = store.get_config(args.alias, protocol=report["protocol_mode"])
+                report["protocol_mode"] = selection.protocol
+                report["session_selection"] = selection.public()
+                config = store.get_config(
+                    args.alias, protocol=selection.protocol)
                 try:
                     data = XhhClient(config).account_info()
                 except XhhAuthError:

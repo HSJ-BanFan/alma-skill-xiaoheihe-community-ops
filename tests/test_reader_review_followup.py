@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request
 
 sys.path[:0] = [str(Path(__file__).resolve().parents[1] / "scripts"),
@@ -43,7 +44,15 @@ class ClientFixture:
         return {"userid": self.config.heybox_id}
 
     def _open(self, request):
-        raise AssertionError("transport must be mocked")
+        query = {
+            key: values[-1]
+            for key, values in parse_qs(urlsplit(request.full_url).query).items()
+        }
+        path = "/bbs/app/link/tree"
+        self.calls.append((path, query))
+        return json.dumps(
+            self.handler(path, query, self.config.protocol_mode)
+        ).encode()
 
     @staticmethod
     def _decode(body):
@@ -99,6 +108,26 @@ class WireBoundaryTests(unittest.TestCase):
             with self.assertRaises(ReadLimit) as raised:
                 budget.call(client, lambda: transport._open(request))
         self.assertEqual(raised.exception.reason, "request_budget")
+
+    def test_public_html_wire_redirects_consume_the_request_budget(self):
+        client = ClientFixture(
+            "web",
+            lambda path, query, protocol: self.fail("signed request"),
+        )
+        budget = Budget(requests=1)
+
+        def public_get(request, timeout, **kwargs):
+            self.assertEqual(kwargs["profile"], "public")
+            self.assertEqual(kwargs["wire_limit"], 1)
+            kwargs["wire_counter"](2)
+            return b"<article>body</article>"
+
+        with patch("browser.read_http", side_effect=public_get):
+            with self.assertRaises(ReadLimit) as raised:
+                browser.Browser(client).public_html("123", budget)
+
+        self.assertEqual(raised.exception.reason, "request_budget")
+        self.assertEqual(budget.used, 1)
 
     def test_public_http_403_is_an_access_failure_not_session_expiry(self):
         response = subprocess_result({

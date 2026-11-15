@@ -246,6 +246,7 @@ class DiscoveryShapeTests(CommandTests):
                 "is_free": False,
                 "chinese_support": True,
                 "follow_num": 68,
+                "score": 9.2,
                 "score_comment": 3,
             }}], "has_more": False},
         })
@@ -259,7 +260,8 @@ class DiscoveryShapeTests(CommandTests):
         self.assertFalse(item["is_free"])
         self.assertTrue(item["chinese_support"])
         self.assertEqual(item["followers"], 68)
-        self.assertEqual(item["score"], 3)
+        self.assertEqual(item["score"], 9.2)
+        self.assertEqual(item["score_comment"], 3)
         self.assertEqual(value["coverage"]["invalid"], 0)
 
     def test_search_rejects_typed_payload_of_the_wrong_kind(self):

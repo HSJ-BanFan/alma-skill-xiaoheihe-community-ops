@@ -32,7 +32,9 @@ def _classify_block(value, *, stop_reason=None):
     status = str(error.get("status") or "").casefold()
     budget = stop_reason in _BUDGET_CODES or code in _BUDGET_CODES.values()
     blocked = (
-        error.get("retry_allowed") is False and not budget
+        error.get("retry_allowed") is False
+        and stop_reason == "platform_error"
+        and not budget
         or code in _BLOCK_CODES
         or status in _CAPTCHA_STATUSES
         or status in _RATE_STATUSES
@@ -67,16 +69,30 @@ class Budget:
         self.pages_used = 0
         self.items_used = 0
 
-    def call(self, client, function):
+    def _start(self):
         remaining = self.deadline - time.monotonic()
         if self.used >= self.request_limit:
             raise ReadLimit("request_budget")
         if remaining <= 0:
             raise ReadLimit("time_budget")
-        original = client.config.timeout
-        client.config.timeout = min(original, remaining)
         starting_used = self.used
         self.used += 1
+        return starting_used, remaining
+
+    def _wire_tracking(self, starting_used):
+        wire_limit = self.request_limit - starting_used
+
+        def record_wire_requests(count):
+            if type(count) is not int or count < 0 or count > wire_limit:
+                raise NetworkRequestLimit()
+            self.used = starting_used + count
+
+        return wire_limit, record_wire_requests
+
+    def call(self, client, function):
+        starting_used, remaining = self._start()
+        original = client.config.timeout
+        client.config.timeout = min(original, remaining)
         transport = client.transport
         original_open = (getattr(transport, "_open", None)
                          if isinstance(transport, Transport) else None)
@@ -87,12 +103,7 @@ class Budget:
             if remaining <= 0:
                 raise ReadLimit("time_budget")
             client.config.timeout = min(original, remaining)
-            wire_limit = self.request_limit - starting_used
-
-            def record_wire_requests(count):
-                if type(count) is not int or count < 0 or count > wire_limit:
-                    raise NetworkRequestLimit()
-                self.used = starting_used + count
+            wire_limit, record_wire_requests = self._wire_tracking(starting_used)
 
             try:
                 data = read_http(
@@ -128,6 +139,19 @@ class Budget:
             if signer_timeout is not None:
                 signer.timeout = signer_timeout
             client.config.timeout = original
+
+    def call_wire(self, function):
+        starting_used, remaining = self._start()
+        wire_limit, record_wire_requests = self._wire_tracking(starting_used)
+        try:
+            value = function(remaining, wire_limit, record_wire_requests)
+        except NetworkRequestLimit:
+            raise ReadLimit("request_budget") from None
+        except NetworkDeadline:
+            raise ReadLimit("time_budget") from None
+        if time.monotonic() >= self.deadline:
+            raise ReadLimit("time_budget")
+        return value
 
     def reserve_page(self):
         if self.pages_used >= self.page_limit:

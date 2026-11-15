@@ -138,6 +138,30 @@ class Store:
             exists = connection.execute("SELECT 1 FROM snapshots WHERE uid=? AND name=?", (uid, name)).fetchone()
         return self.get(uid, name) if exists else None
 
+    def pending_by_name(self, name):
+        if not isinstance(name, str) or not re.fullmatch(
+                r"[A-Za-z0-9_-]{1,64}", name):
+            raise XhhConfigError(
+                "snapshot name must use 1-64 letters, digits, underscores or hyphens")
+        if not self.path.exists():
+            raise XhhConfigError("snapshot not found")
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT uid FROM snapshots "
+                "WHERE name=? AND pending_response IS NOT NULL",
+                (name,),
+            ).fetchall()
+        if not rows:
+            raise XhhConfigError("pending snapshot not found")
+        if len(rows) != 1:
+            raise XhhConfigError(
+                "pending snapshot name belongs to more than one account",
+                code="snapshot_account_required",
+                fix="select --account or --config before resuming this snapshot",
+            )
+        uid = rows[0]["uid"]
+        return uid, self.get(uid, name)
+
     def delivered(self, uid, name, revision):
         with self.connect() as connection:
             connection.execute("UPDATE snapshots SET pending_response=NULL WHERE uid=? AND name=? AND revision=?", (uid, name, revision))

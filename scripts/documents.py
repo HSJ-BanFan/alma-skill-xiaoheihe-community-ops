@@ -147,10 +147,16 @@ def plain(value):
 
 
 def author(raw):
-    user = raw.get("user") if isinstance(raw.get("user"), dict) else {}
-    return {"uid": identifier(raw.get("userid") or user.get("userid") or user.get("id")),
-            "name": user.get("username") or user.get("nickname") or raw.get("username") or raw.get("nickname") or None,
-            "avatar_url": user.get("avatar") or user.get("avartar") or raw.get("avatar") or raw.get("avartar") or None}
+    user = raw.get("user") if isinstance(raw.get("user"), dict) else raw
+    nested = user is not raw
+    return {"uid": identifier(
+                raw.get("userid") or user.get("userid") or user.get("uid")
+                or (user.get("id") if nested else None)),
+            "name": user.get("username") or user.get("nickname")
+                    or user.get("name") or raw.get("username")
+                    or raw.get("nickname") or None,
+            "avatar_url": user.get("avatar") or user.get("avartar")
+                          or raw.get("avatar") or raw.get("avartar") or None}
 
 
 def media(raw, position=None):
