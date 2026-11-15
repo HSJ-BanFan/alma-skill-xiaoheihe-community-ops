@@ -1786,7 +1786,7 @@ class Browser:
                 raw, result, evidence = self.fetch(
                     "/game/get_game_detail", {"appid": args.target}, budget)
                 data, scope = game_detail(result, args.target, evidence)
-            except XhhError as error:
+            except (XhhError, TypeError, ValueError) as error:
                 if args.raw:
                     raw = getattr(error, "raw_response", raw)
                     if raw is not None:

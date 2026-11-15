@@ -428,6 +428,11 @@ def main(argv=None, *, client_factory=XhhClient):
             data, coverage = browser.Browser(client, clients=clients).execute(
                 args, verify_account=bool(args.snapshot or args.since),
                 prior_data=existing["data"] if args.resume and existing else None)
+            if data is None:
+                coverage, stopped, ok = project_delivery(coverage)
+                emit(ok, args.command, None, coverage=coverage,
+                     error=stopped, secret=secret)
+                return 0 if ok else 1
             if previous is not None:
                 coverage["delta"] = difference(previous["data"], data)
             if args.snapshot:
