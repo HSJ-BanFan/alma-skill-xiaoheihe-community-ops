@@ -636,7 +636,7 @@ class CorpusRunnerTests(unittest.TestCase):
             store = CorpusStore(root)
             manifest = store.manifest("runner-run")
             lease = store.acquire_lease(
-                "runner-run", "child", lease_seconds=0.1, max_requests=2)
+                "runner-run", "child", lease_seconds=10, max_requests=2)
             query = manifest.queries[0]
             position = Position("offset", 0)
             key = frame_key(query, position, manifest.reader)
@@ -670,7 +670,12 @@ class CorpusRunnerTests(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIsNotNone(store.pending_delivery("runner-run"))
-        time.sleep(0.15)
+        with closing(sqlite3.connect(store.path)) as connection:
+            connection.execute(
+                "UPDATE corpus_runs SET lease_expires_at=0 WHERE run_id=?",
+                ("runner-run",),
+            )
+            connection.commit()
 
         output = io.StringIO()
         with patch(
