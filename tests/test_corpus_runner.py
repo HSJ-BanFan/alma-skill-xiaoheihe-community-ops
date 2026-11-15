@@ -25,7 +25,7 @@ from corpus_model import (
     frame_key,
     sha256_value,
 )
-from corpus_store import CorpusConflict, CorpusLocked, CorpusStore
+from corpus_store import CorpusLocked, CorpusStore
 from paging import coverage
 from xhh_sdk.config import XhhConfig
 from xhh_sdk.exceptions import (
@@ -34,6 +34,7 @@ from xhh_sdk.exceptions import (
     XhhCaptchaError,
     XhhRateLimitError,
     XhhSignerError,
+    XhhTransportError,
 )
 
 
@@ -1055,6 +1056,49 @@ class CorpusRunnerTests(unittest.TestCase):
             resumed,
             parser=xhh.parser,
             client_loader=lambda: first_client,
+            browser_factory=Browser,
+        ), store)
+        store.release_lease(resumed)
+
+        self.assertEqual(resumed_events[-1]["event"], "delivery")
+        self.assertEqual(resumed_final["run"]["state"], "complete")
+        self.assertEqual(resumed_final["queries"][0]["state"], "complete")
+
+    def test_transport_error_pauses_retryable_and_resumes(self):
+        parsed, store = self.prepare(manifest("one"))
+        responses = [XhhTransportError("network reset"), feed(["1"])]
+
+        def handler(path, query):
+            return responses.pop(0)
+
+        client = Client(handler)
+        first_lease = store.acquire_lease(
+            "runner-run", "transport-first", max_requests=3)
+        first_events, first_final = self.run_events(CorpusRunner(
+            store,
+            parsed,
+            first_lease,
+            parser=xhh.parser,
+            client_loader=lambda: client,
+            browser_factory=Browser,
+        ), store)
+        store.release_lease(first_lease)
+
+        self.assertEqual(first_events[-1]["event"], "status")
+        self.assertEqual(first_events[-1]["error"]["code"], "transport_error")
+        self.assertTrue(first_events[-1]["error"]["retry_allowed"])
+        self.assertEqual(first_final["run"]["state"], "paused_retryable")
+        self.assertEqual(
+            first_final["queries"][0]["state"], "paused_retryable")
+
+        resumed = store.acquire_lease(
+            "runner-run", "transport-second", max_requests=3)
+        resumed_events, resumed_final = self.run_events(CorpusRunner(
+            store,
+            parsed,
+            resumed,
+            parser=xhh.parser,
+            client_loader=lambda: client,
             browser_factory=Browser,
         ), store)
         store.release_lease(resumed)

@@ -77,7 +77,6 @@ class CorpusPageTests(unittest.TestCase):
         self.temp.cleanup()
 
     def _page_result(self, contents):
-        query = self.manifest.queries[0]
         current = Position("offset", 0)
         result_coverage = coverage(
             {"has_more": True}, count=len(contents), position=0)

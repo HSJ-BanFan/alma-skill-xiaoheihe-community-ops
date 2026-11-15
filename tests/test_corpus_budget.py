@@ -1,7 +1,6 @@
 import json
 import sys
 import tempfile
-import time
 import unittest
 import urllib.request
 from contextlib import closing
@@ -314,7 +313,7 @@ class CorpusBudgetTests(unittest.TestCase):
         self.assertEqual(restarted["request_limit"], 1)
 
     def test_expired_lease_without_attempts_preserves_time_quota(self):
-        lease = self.store.acquire_lease(
+        self.store.acquire_lease(
             "budget-run", "idle-worker", max_seconds=4)
         with closing(
                 __import__("sqlite3").connect(self.store.path)) as connection:

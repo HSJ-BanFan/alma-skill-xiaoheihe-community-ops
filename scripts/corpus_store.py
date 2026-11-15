@@ -18,7 +18,6 @@ from corpus_model import (
     canonical_json,
     merge_content,
     observation_hash,
-    sha256_value,
 )
 from local_files import protect
 from observations import Store
@@ -1386,7 +1385,7 @@ class CorpusStore:
             if query is None:
                 raise XhhConfigError("corpus query not found")
             manifest = self._manifest_from_row(run)
-            bound = self._bound_queries(connection, run_id, manifest)
+            self._bound_queries(connection, run_id, manifest)
             spec = next(
                 item for item in manifest.queries
                 if item.query_id == query_id)

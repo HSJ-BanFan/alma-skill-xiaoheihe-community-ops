@@ -2,7 +2,6 @@ import contextlib
 import ctypes as C
 import io
 import json
-import os
 import sys
 import tempfile
 import unittest

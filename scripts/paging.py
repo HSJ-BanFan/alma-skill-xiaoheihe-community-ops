@@ -219,7 +219,8 @@ class StopState:
 
     @classmethod
     def from_error(cls, error):
-        blocked, public = _classify_block(error.public())
+        blocked, public = _classify_block(
+            error.public(), stop_reason="platform_error")
         if blocked:
             return cls(
                 StopKind.BLOCKED, reason="platform_error", error=public)

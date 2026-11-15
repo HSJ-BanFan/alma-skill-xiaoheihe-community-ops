@@ -289,7 +289,7 @@ def stop_for_error(error) -> StopDecision:
         )
     if isinstance(error, XhhTransportError):
         return StopDecision(
-            "paused_budget", error.code, str(error), True,
+            "paused_retryable", error.code, str(error), True,
             fix=error.fix)
     if isinstance(error, XhhConfigError):
         code = getattr(error, "code", "configuration_error")
