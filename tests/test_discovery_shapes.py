@@ -233,6 +233,51 @@ class DiscoveryShapeTests(CommandTests):
         self.assertEqual(value["error"]["code"], "configuration_error")
         self.assertIn("identity does not match", value["error"]["message"])
 
+    def test_game_info_raw_survives_malformed_platform_fields(self):
+        result = self.game_info()
+        result["platform_infos"] = 42
+        payload = {"status": "ok", "result": result}
+        code, value, clients = self.run_cli(
+            ["games", "info", "570", "--raw"], lambda *args: payload
+        )
+        self.assertEqual(code, 1, value)
+        self.assertEqual(len(clients[0].calls), 1)
+        self.assertEqual(value["data"], {"raw_pages": [payload]})
+        self.assertEqual(value["error"]["code"], "internal_error")
+        self.assertEqual(value["error"]["type"], "TypeError")
+
+    def test_game_info_raw_survives_malformed_result_envelope(self):
+        payloads = (
+            {"status": "ok"},
+            {"status": "ok", "result": None},
+            {"status": "ok", "result": []},
+        )
+        for payload in payloads:
+            with self.subTest(payload=payload):
+                code, value, clients = self.run_cli(
+                    ["games", "info", "570", "--raw"], lambda *args: payload
+                )
+                self.assertEqual(code, 1, value)
+                self.assertEqual(len(clients[0].calls), 1)
+                self.assertEqual(value["data"], {"raw_pages": [payload]})
+                self.assertEqual(value["error"]["code"], "configuration_error")
+
+    def test_game_info_preserves_explicit_empty_menu_parameters(self):
+        for field in ("uidsl_params", "parameters", "params"):
+            with self.subTest(field=field):
+                payload = self.game_info()
+                payload["menu_v2"] = [{
+                    "uidsl_key": "empty",
+                    "name": "Empty",
+                    field: {},
+                }]
+                code, value, _ = self.run_cli(
+                    ["games", "info", "570"],
+                    lambda *args: {"result": payload},
+                )
+                self.assertEqual(code, 0, value)
+                self.assertEqual(value["data"]["menus"][0]["parameters"], {})
+
     def test_game_info_rejects_page_resume_invalid_targets_and_web_before_fetch(self):
         for options in (["--pages", "2"], ["--resume", "invalid-token"]):
             with self.subTest(options=options):
