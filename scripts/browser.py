@@ -1014,7 +1014,7 @@ class Browser:
                 page, current = self.page(args, budget)
             except ReadLimit as error:
                 stop = StopState.budget_pause(error.reason)
-                if next_position is not None:
+                if paged and next_position is not None:
                     resume_parameters = {"position": next_position}
                 break
             except XhhError as error:
