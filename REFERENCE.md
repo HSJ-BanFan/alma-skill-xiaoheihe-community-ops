@@ -19,7 +19,7 @@
 
 复用旧账号库时，在全局参数中明确提供其所在 `--data-dir`，并在该目录运行 `account list`、`account status <alias> --online`。默认目录中的状态不代表其他目录的登录状态。目录选择和在线核验成功后，后续读取、回复与回执查询使用同一目录和账号。
 
-账号与签名器管理复用随技能提供的 `xhh_sdk`，返回 SDK 自身的 JSON 或 CLI 帮助。安装 Creator 登录所需的可选依赖后，在用户的交互浏览器中登录。
+账号与签名器管理复用随技能提供的 `xhh_sdk`，返回 SDK 自身的 JSON 或 CLI 帮助。Web 登录可以选择 Creator 页面、扫码或浏览器流程。App 阅读和写操作需要 App 会话；首次创建 App 会话时使用官方短信登录，之后命令直接复用已保存的会话。
 
 ```console
 python -m pip install "playwright>=1.50,<2"
@@ -33,6 +33,19 @@ python -I -X utf8 "<skill>/scripts/xhh.py" account --help
 `account status --online` 优先使用账号配置的协议；该协议没有保存的会话时，使用账号实际拥有的 App 或 Web 会话。Web-only 账号不需要伪造 App 配置。
 
 Creator 登录使用官方创作者页面，用户自行扫码或输入验证码。登录候选通过身份核对后才保存。凭据留在用户提供的配置或本地账号库，输出脱敏。
+
+App 短信登录还要求四项输入。签名器为每次 App 请求生成平台签名。`x_xhh_tokenid` 风险令牌是登录接口使用的设备反滥用值，可由 `account risk-token` 在用户自己的浏览器中取得。数字 UID 把保存的会话绑定到预期账号。短信验证码只用于创建会话。
+
+```console
+python -I -X utf8 "<skill>/scripts/xhh.py" account add <alias> --identity <uid>
+python -I -X utf8 "<skill>/scripts/xhh.py" account configure <alias> --set signer_jar=<managed-or-local-jar> --set java=<java-path> --confirm
+python -I -X utf8 "<skill>/scripts/xhh.py" account risk-token <alias> --confirm
+python -I -X utf8 "<skill>/scripts/xhh.py" account login <alias> --method sms --phone <phone> --confirm
+python -I -X utf8 "<skill>/scripts/xhh.py" account login <alias> --method sms --phone <phone> --code <code> --confirm
+python -I -X utf8 "<skill>/scripts/xhh.py" account status <alias> --online
+```
+
+第一条 `account login` 请求平台发送短信。第二条用收到的验证码换取 App 会话。技能不把手机号、验证码、风险令牌或会话写入仓库输出。已保存的会话失效前不需要再次发送短信。公开 HTML 正文、媒体下载和离线快照查看都不要求账号或短信登录。
 
 Web 不需要 Java。App 需要独立配置，技能包不附带 JAR、APK 或用户凭据。
 
@@ -191,3 +204,99 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> snapshot diff basel
 ```
 
 差异为 `new`、`changed`、`unchanged`、`not_observed`，始终 `deletion_inferred=false`。来源检查时间不制造内容变化。未知身份只能使用明确标记的内容指纹，不能据此推断作者或帖子归属。快照记录公开观察，不维护人格、兴趣或互动处置策略。
+
+## 有界 corpus
+
+`corpus` 将 `feed`、帖子搜索和 hashtag 动态页收进一个可恢复 run。v1 只保存公开条目、查询成员关系和分页证据，不批量读取正文。正文使用 `post` 的 reader 单独读取。
+
+Manifest 使用严格 JSON，不允许未知字段、重复键、非有限数字或凭据字段。一个完整示例：
+
+```json
+{
+  "schema_version": 1,
+  "run_id": "campus-savings",
+  "account": {
+    "alias": "fixture",
+    "uid": "101"
+  },
+  "reader": {
+    "protocol": "app",
+    "page_size": 20
+  },
+  "limits": {
+    "requests": 12,
+    "seconds": 90,
+    "unique_records": 100
+  },
+  "queries": [
+    {
+      "query_id": "campus-feed",
+      "kind": "feed",
+      "target": {
+        "topic_id": "549999"
+      },
+      "filters": {
+        "order": "newest"
+      },
+      "limits": {
+        "pages": 3,
+        "new_records": 40
+      }
+    },
+    {
+      "query_id": "savings-search",
+      "kind": "search",
+      "target": {
+        "query": "存钱"
+      },
+      "filters": {
+        "content_type": "all"
+      },
+      "limits": {
+        "pages": 2,
+        "new_records": 30
+      }
+    },
+    {
+      "query_id": "savings-hashtag",
+      "kind": "hashtag_links",
+      "target": {
+        "hashtag_id": "23455",
+        "hashtag_name": "存钱"
+      },
+      "filters": {},
+      "limits": {
+        "pages": 2,
+        "new_records": 30
+      }
+    }
+  ]
+}
+```
+
+`reader.protocol` 为 `app` 或 `web`，`page_size` 为 1 到 100。`limits.requests` 和 `limits.unique_records` 是正整数，`limits.seconds` 大于 0 且不超过 120。每个 query 的 `pages` 和 `new_records` 也是正整数。相同 `run_id` 只能绑定同一 Manifest；修改配额后不能用旧 ID 覆盖原计划。
+
+query 的 `kind`、`target` 和 `filters` 按类型约束。`feed` 的 target 为 `topic_id`。`search` 的 target 为 `query`。`hashtag_links` 的 target 必须同时提供 `hashtag_id` 和 `hashtag_name`。
+
+`feed` 和 `search` 支持 `order`、`time_range`、`platform_filters`、`content_type`、`after`、`min_comments` 和 `sort`，`search` 还支持 `community`。`content_type` 为 `all`、`article` 或 `dynamic`。`sort` 为 `platform`、`created`、`comments` 或 `charges`。`hashtag_links` 的 `filters` 必须为空。
+
+```console
+python -I -X utf8 "<skill>/scripts/xhh.py" corpus plan corpus.json
+python -I -X utf8 "<skill>/scripts/xhh.py" corpus status campus-savings
+python -I -X utf8 "<skill>/scripts/xhh.py" corpus run campus-savings --max-requests 4 --max-seconds 30 --max-new-records 20
+python -I -X utf8 "<skill>/scripts/xhh.py" corpus resume campus-savings --max-requests 4 --max-seconds 30 --max-new-records 20
+```
+
+`corpus plan` 和 `corpus status` 不加载账号、会话或签名器。`corpus run` 从 Manifest 绑定账号和协议，全局参数仍可指定 `--data-dir` 或 `XHH_DATA_DIR`。`--max-requests`、`--max-seconds` 和 `--max-new-records` 只缩小本次 invocation，不能超过 Manifest 的固定配额。
+
+每次 run 的输出 `data` 包含 `delivery_id`、`revision`、`run`、`queries`、`pages`、`new_items`、`updated_items`、`remainders` 和 `counts`。`pages` 保存位置与 coverage，`new_items` 和 `updated_items` 从去重后的 entity 引用投影生成。`counts.provider` 统计平台位置数，`counts.new` 和 `counts.updated` 统计去重实体数，`counts.deferred` 统计尚未消费的位置，`counts.invalid` 统计缺少可用实体的记录，`counts.excluded` 统计平台返回但被查询过滤的记录。SQLite 另存 query membership，记录帖子在哪些查询中出现。正文只保存一份在 entity 层，delivery 不复制正文。
+
+run 状态为 `planned`、`running`、`paused_budget`、`blocked_human`、`complete` 或 `failed`。query 还可处于 `pending`、`pending_remainder` 和 `quota_reached`。`paused_budget` 在 Manifest 仍有配额时可以继续；`quota_reached` 只表示查询达到声明配额，不表示平台历史结束。
+
+验证码、限流、会话失效和不可重试平台错误将 run 置为 `blocked_human`，同时停止后续 query、fallback 和自动重试。处理平台阻塞后显式执行：
+
+```console
+python -I -X utf8 "<skill>/scripts/xhh.py" corpus resume campus-savings --acknowledge-block
+```
+
+页面和 attempt 通过持久化 stage 一起保存。进程在请求成功、frame 提交或 delivery 确认之间退出时，后续进程先恢复已暂存页面，再读取新页面。pending delivery 只在一个 lease 持有者确认后转为已交付。一个查询的新记录上限耗尽时，同页余量优先在下次 run 中消费，之后才请求下一页。已提交页面的临时正文会从 stage 清除，正式实体内容仍只保留一份。

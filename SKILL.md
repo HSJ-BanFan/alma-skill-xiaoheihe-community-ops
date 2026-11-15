@@ -1,6 +1,6 @@
 ---
 name: xiaoheihe-tools
-description: 提供小黑盒账号、帖子、评论楼层、收件箱、搜索、图片上传、评论回复、点赞收藏和发帖工具。用户需要读取或操作小黑盒时使用。
+description: 独立的小黑盒社区工具，提供社区发现、信息流、搜索、正文、评论、账号和写入功能，以及有预算和 checkpoint 的多查询 corpus。用户需要读取或操作小黑盒时使用。
 ---
 
 # 小黑盒工具
@@ -17,6 +17,8 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --protocol web doctor --offline
 python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> account-info
 python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> feed <topic-id> --limit 20
 python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> post <link-id>
+python -I -X utf8 "<skill>/scripts/xhh.py" corpus plan <manifest.json>
+python -I -X utf8 "<skill>/scripts/xhh.py" corpus run <run-id>
 python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
 ```
 
@@ -25,6 +27,8 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
 首次登录、凭据配置与 App 签名器见 [REFERENCE.md](REFERENCE.md)。Web 协议使用内置 Python 签名器；App 协议需要用户提供签名器和 Java。协议由账号配置或 `--protocol` 明确选择，失败后保持该协议。
 
 用户要求逛论坛、回复收件箱来信或继续多轮讨论时，先读取 [CONVERSATION.md](CONVERSATION.md)。按其中的每轮流程补读正文、定位目标、复用操作 ID并读回新评论。
+
+公开 HTML 正文、媒体下载和离线快照查看不要求账号。App 或 Web 会话只用于对应协议的认证读取、个人数据和写操作；短信验证码只用于创建缺失的 App 会话。保存成功后复用会话，不重复登录。
 
 ## 平台数据
 
@@ -36,7 +40,11 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
 
 `thread <post-id> <root-id> --around <comment-id>` 读取根楼层、回复对象、祖先链和当前可取得的后续回复。已观察目标的 `reply_location` 给出回复所需的根楼页号、每页大小、排序和目标所在页的输入游标。`target_observed=false` 和 `missing_ancestor_ids` 表示上下文仍不足，不生成缺失楼层。
 
-分页读取可设置 `--pages`、`--requests`、`--seconds`。`coverage.completion` 区分确认结束、还有更多和未知；预算停止时保留已读内容与 `coverage.resume`。相同资源、筛选和账号可用 `--resume` 续读。平台错误会停止且保留已取得的数据。
+分页读取可设置 `--pages`、`--requests`、`--seconds` 和条目上限 `--limit`。这些是硬上限；同一次读取中的重定向也计入请求数。`coverage.completion` 区分确认结束、还有更多和未知。预算停止时保留已读内容与 `coverage.resume`。相同资源、筛选和账号可用 `--resume` 续读。`complete`、`partial`、`blocked`、`retryable_failure`、`failed` 和 `cursor_stalled` 是不同状态。验证码、限流、会话失效和未知非成功状态会停止且不返回 resume。
+
+需要按多个社区、查询或话题批量收集公开条目时使用 `corpus`。v1 支持 `feed`、`search --type link` 和 `hashtags links`。Manifest 固定账号、协议、查询、过滤和配额，一个 run 的所有身份核对、页面请求和 reader fallback 共享全局预算。每一页会先持久化，再交付条目、去重实体、查询成员关系和未消费的同页余量。相同帖子出现在多个查询中只保存一份内容，并保留多条 membership。完整 Manifest 字段、query 类型和输出见 [REFERENCE.md](REFERENCE.md#有界-corpus)。
+
+`corpus plan`、`corpus status`、`corpus run` 和 `corpus resume` 是完整入口。`plan` 与 `status` 不加载账号。`status` 可在无凭据、无签名器时读取持久化 checkpoint。`paused_budget` 只有在原 Manifest 仍有配额时可恢复。验证码、限流、会话失效或不可重试平台错误产生 `blocked_human`，不得自动恢复。用户处理阻塞后执行 `corpus resume <run-id> --acknowledge-block`。固定配额耗尽不能通过 resume 扩大。`quota_reached` 只表示达到声明的配额，不表示平台历史已抓完。
 
 `user <uid>` 读取作者公开资料，`--view posts/followers/following` 继续导航。`favourites folders/posts` 读取当前账号的收藏夹和内容。`inbox` 保留平台消息字段，读取 `entries` 或旧 `messages` 列表，不改已读状态。
 

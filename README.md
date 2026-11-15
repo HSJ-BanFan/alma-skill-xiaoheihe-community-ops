@@ -15,6 +15,8 @@ python -I -X utf8 scripts/xhh.py --protocol web doctor --offline
 
 浏览工具提供结构化正文、完整性证据、社区发现、评论上下文、预算续读、作者与收藏导航以及账号隔离的公开观察快照。媒体预览按需安装 `requirements-media.txt`。读取输出版本为 `2`，`post/comments` 数据结构已更新；原始平台响应通过 `--raw` 按需取得。
 
+`corpus` 命令把多个社区、搜索词和话题纳入一个可恢复 run。Manifest 固定账号、协议、查询、过滤和配额，请求、时间、页数和唯一记录都有硬上限。每页内容、同页余量、实体去重、查询 membership 和待交付引用在同一事务保存。`corpus status` 不需要账号。验证码或限流会让整个 run 停在 `blocked_human`，恢复需要显式 `--acknowledge-block`。Corpus v1 收集公开条目，不批量抓取正文。正文仍由 `post` 的 `native`、`website`、`html` 或 `auto` reader 单独读取。
+
 实现顺序、行为测试和真实只读范围见 [浏览验证记录](docs/BROWSER_VERIFICATION.md)。没有把测试通过或 API 接受当作全量正文与公开效果证明。
 
 旧账号库与发送台账不会自动导入。配置原来账号时显式指定其所在 `--data-dir`，或使用用户提供的配置文件。新 SQLite 日志按操作 ID 去重，与旧台账并不共享发送锁。切换前结束旧的在途写入任务，并对旧的未知发送结果先在平台核对。
