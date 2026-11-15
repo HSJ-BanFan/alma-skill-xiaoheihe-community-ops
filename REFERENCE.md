@@ -30,6 +30,8 @@ python -I -X utf8 "<skill>/scripts/xhh.py" account status <alias> --online
 python -I -X utf8 "<skill>/scripts/xhh.py" account --help
 ```
 
+`account status --online` 优先使用账号配置的协议；该协议没有保存的会话时，使用账号实际拥有的 App 或 Web 会话。Web-only 账号不需要伪造 App 配置。
+
 Creator 登录使用官方创作者页面，用户自行扫码或输入验证码。登录候选通过身份核对后才保存。凭据留在用户提供的配置或本地账号库，输出脱敏。
 
 Web 不需要 Java。App 需要独立配置，技能包不附带 JAR、APK 或用户凭据。
@@ -139,7 +141,7 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 | `feed ID --order recommended/newest/recent-replies` | 平台原生推荐、发布时间或回复时间排序；与返回范围内的 `--sort` 分开 |
 | `post LINK --section all/body/metadata` | LINK 可为 ID、标准小黑盒 HTTPS 链接或含 ID 的 heybox 链接；不跟随缩短链接 |
 | `post LINK --body-format text/blocks/both` | 控制正文输出，默认 `both`；未知平台块保留 `data` 并标记缺口 |
-| `post LINK --reader auto/native/website` | 默认 auto 按会话选择 Web 网站身份或 App 原生身份；显式 website 要求 Web 会话，每次只选择一个入口 |
+| `post LINK --reader native/website/html/auto` | `native` 要求 App，`website` 要求 Web，`html` 读取无凭据的公开页面；`auto` 依次尝试可用 App、Web 和 HTML 读取器 |
 | `comments LINK --sort hot/time_aes/time_desc` | 单独读取评论，不重复整个正文 |
 | `replies ROOT --cursor VALUE` | 读取根楼层的游标页；未提供或未核实帖子 ID 时节点的帖子归属未知 |
 | `thread LINK ROOT --around CID` | 围绕精确 CID 读取祖先与后续节点，`--pages` 控制根楼层定位和深楼读取总页数 |
@@ -152,7 +154,7 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 
 信息流统计的 `charges` 来自 `link_award_num`，不把服务器的占位 `up=0` 当成点赞数。缺失的统计值是 `null`。正文摘要与正文分开，`body_not_returned`、`invalid_body_json` 和未知块均有明确缺口。非空正文自身不证明平台已给出全文。
 
-默认的 `post --reader auto` 在发起请求前按已选会话决定入口，只使用一次读取请求。`source.reader` 记录实际的 `website` 或 `native` 身份。平台错误、正文缺失或预算停止都不会触发另一个入口；显式 native 的结果也保持原生范围。独立 comments 和 thread 继续使用评论入口。
+正文读取的 `reader_attempts` 和 `provenance` 分别记录每次读取及最终元数据、正文来源。`identity_verified` 属于实际完成会话核对的读取器；公开 HTML 不发送凭据，也不会继承 App/Web 的核验结果。公开 HTML 只从结构化元数据、文章标题或非通用页面标题提取标题，只从结构化作者或作者元数据提取作者；缺失时分别报告 `html_title_not_found` 和 `html_author_not_found`。公开 HTTP 401/403 返回 `http_access_denied`，超过 4 MiB 返回 `public_response_too_large`。除 `--section metadata` 外，所需正文为空会以 `body_missing` 失败，不会返回 `complete`。
 
 `thread.data.reply_location` 给出该次指定目标的回复位置，字段为 `page`、`limit`、`sort`、`cursor`。`page` 是根楼被观察到的绝对页号；`cursor` 是实际包含目标的子评论页的输入游标，首屏和根楼预览为 `null`。读取更多页后，该位置仍对应目标，独立于最后一页的 `coverage.next`。未观察到目标时位置为 `null`。保存的已观察目标位置可随快照续读保留；旧快照缺少位置时，需重新观察目标。位置仅用于定位，发送前仍核验目标。
 
@@ -160,9 +162,9 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 
 `--page` 是绝对页号，不受单次 `--pages` 最多 100 页的预算限制。多页信息流排序在汇总并去重后执行；`returned_total` 报告本次各页实际返回数之和。App 签名调用使用剩余时间，发起 HTTP 前再次检查截止时间。`thread --raw` 返回根楼层和子评论的全部已取得原始页。
 
-时间预算覆盖网络建立和完整响应接收；超时会终止该网络读取并保留之前完成的页。空评论页如果仍有明确总页数证据会继续。`unknown_parent_ids` 和 `ancestry_complete` 描述精确父节点是否已知，根楼层归属不会被当作直接回复关系。影音块保留可播放地址与原始元数据，无法解析时报告缺口。评论中的内嵌图片也会保留，HTML 标题和表格单元格不会被拼成无分隔文字。
+时间预算覆盖网络建立和完整响应接收；`--requests` 按实际发起的 HTTPS GET 计数，允许的同站或小黑盒子域重定向也消耗请求预算。超时会终止该网络读取并保留之前完成的页。空评论页如果仍有明确总页数证据会继续。`unknown_parent_ids` 和 `ancestry_complete` 描述精确父节点是否已知，根楼层归属不会被当作直接回复关系。影音块保留可播放地址与原始元数据，无法解析时报告缺口。评论中的内嵌图片也会保留，HTML 标题和表格单元格不会被拼成无分隔文字。
 
-预算和页数停止后，可重复同一查询并提供 `--resume <value>`。`thread` 的 `coverage.continuation` 返回可继续的 comments 页或 replies 游标。错误发生在后续页时，已读条目保留，`ok=false`，停止原因是 `platform_error`；不自动换账号、协议或入口。
+预算和页数停止后，可重复同一查询并提供 `--resume <value>`。正文读取的续读令牌保留下一个读取器位置。`thread` 的 `coverage.continuation` 返回可继续的 comments 页或 replies 游标。错误发生在后续页时，已读条目保留，`ok=false`，停止原因是 `platform_error`；验证码、限流、会话失效、公开 HTTP 访问失败和未知非成功状态都停止且不返回 resume，也不自动换账号、协议或入口。
 
 媒体依赖按需安装，核心读取和 Web 签名没有新增依赖。
 
@@ -177,7 +179,7 @@ python -I -X utf8 "<skill>/scripts/xhh.py" asset "https://imgheybox.max-c.com/�
 
 浏览来源的 `configured_uid` 是配置中的数据命名空间，`identity_verified` 表示该次读取是否已在网络中核对当前会话。浏览快照保存在独立的 `browsing/snapshots.sqlite3`，与发送日志分开。快照按配置 UID 分组，这属于数据命名空间，不是同一本地操作系统用户之间的身份权限边界。缓存目录和文件限制为本地所有者访问；Windows 使用受保护 DACL，POSIX 使用目录 0700、数据库 0600。离线查看不需要有效网络会话，也不能证明身份。新保存、`--since` 和网络续读会核对真实会话 UID，身份验证也计入请求预算，因此这些在线操作至少需要两个请求。`--since` 和 `snapshot diff` 只比较相同资源与筛选的查询。
 
-快照使用递增修订号拒绝并发陈旧更新，冲突时保留数据库与本次已读结果。续读既可以用 `snapshot resume`，也可以用原命令的 `--resume --snapshot`，均保留先前页。响应与下一断点在同一事务持久化，stdout 成功写出并刷新后才确认已交付；中断时下次调用先离线重放未交付响应，不跳过数据。原型期旧 `browsing.sqlite3` 路径不自动导入。
+快照使用递增修订号拒绝并发陈旧更新，冲突时保留数据库与本次已读结果。续读既可以用 `snapshot resume`，也可以用原命令的 `--resume --snapshot`，均保留先前页。`snapshot resume NAME` 会先按名称查找未交付响应；仅当一个账号拥有该 pending 快照时，无需先加载账号配置即可离线重放。名称存在于多个账号时要求先用 `--account` 或 `--config` 选择账号。响应与下一断点在同一事务持久化，stdout 成功写出并刷新后才确认已交付；中断时下次调用先离线重放未交付响应，不跳过数据。原型期旧 `browsing.sqlite3` 路径不自动导入。
 
 ```console
 python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> comments <link-id> --pages 3 --requests 2 --snapshot discussion

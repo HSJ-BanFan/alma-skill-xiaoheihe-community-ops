@@ -2,11 +2,13 @@
 
 2026-11-14，在独立工作区基于已合并主分支实现。按正文数据、社区发现、分页与上下文、媒体、作者收藏、观察快照的顺序提交。
 
+2026-11-15 的审阅跟进在 `fix/reader-review-followup` 上完成。专项离线回归 14 项通过，完整 `unittest` 175 项通过；全部 Python 文件通过 `py_compile`，`git diff --check` 无输出。`tests/verify_portable.py` 在无关工作目录和隔离解释器中验证 21 个 SDK 文件摘要，输出 `ok=true`、`offline_state_writes=0`。本次跟进没有执行真实平台请求、登录、短信或写入；以下 2026-11-14 实测记录不用于证明本次改动的真实平台行为。
+
 ## 本地行为
 
 `python -m unittest discover -s tests -q` 覆盖原有发送合同及浏览功能，包括正文缺失与无全文证据、图文顺序、未知块、帖子链接、社区分类、条目筛选、真实搜索列表结构、三态分页、预算、账号与查询绑定续读、重复节点、后续页错误、祖先链、图片摘要缓存、GIF 首帧、作者身份、收藏夹、观察差异和跨进程续读。
 
-`python tests/verify_portable.py` 复制全部脚本与测试到无关目录。核心帮助、账号帮助和 Web offline doctor 使用 `-I -S`，不依赖原 checkout 或 site-packages；媒体测试在安装 Pillow 的环境执行。21 个 SDK 文件摘要保持与原快照一致。
+`python tests/verify_portable.py` 复制全部脚本与测试到无关目录。核心帮助、账号帮助和 Web offline doctor 使用 `-I -S`，不依赖原 checkout 或 site-packages；媒体测试在安装 Pillow 的环境执行。21 个 SDK 文件摘要与当前随包快照一致。账号默认会话 fallback、例外层级和传输状态处理已在随包 SDK 副本中修正，因此该快照冻结当前可移植副本，不声称与上游导入版本逐字节一致。
 
 skill-creator 的 `quick_validate.py` 验证技能结构。核心运行没有增加 Python 依赖，媒体预览按需安装 `requirements-media.txt`。
 
