@@ -264,6 +264,21 @@ class InteractionCLITest(unittest.TestCase):
         self.assertTrue(any(call[0] == "/bbs/app/link/tree" for call in self.fixture.calls))
         self.assertEqual(self.sends(), [])
 
+    def test_sync_resume_cannot_replace_requested_root_with_a_known_sibling(self):
+        self.fixture_for_interactions()
+        first = self.run_cli("interaction", "sync", "501", "--root", "601", "--pages", "1")[1]
+        token = decode_resume(first["coverage"]["resume"], "interaction-sync", "101")
+        self.store().capture("101", [{"id": "903", "post_id": "501", "root_id": "903", "author": {"uid": "303"},
+                                      "text": "same post different root"}], "public",
+                             {"route": "fixture", "observed_at": 100, "identity_verified_this_read": True})
+        state = {**token["state"], "phase": "replies", "roots": ["903"], "cursor": None, "comments_done": True}
+        forged = encode_resume("interaction-sync", "101", {**token, "state": state})
+        before = len(self.fixture.calls)
+        code, value = self.run_cli("interaction", "sync", "501", "--root", "601", "--resume", forged)
+        self.assertEqual(code, 1)
+        self.assertEqual(value["error"]["code"], "XhhConfigError")
+        self.assertEqual(len(self.fixture.calls), before)
+
     def test_sync_malformed_later_page_retains_imported_facts_and_failed_position(self):
         self.fixture_for_interactions()
         self.fixture.bad_second_page = True

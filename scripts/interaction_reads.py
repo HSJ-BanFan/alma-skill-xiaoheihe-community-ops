@@ -129,7 +129,7 @@ def synchronize(store, client, scope, args, *, sanitize=lambda value: value):
             raise XhhConfigError("sync resume belongs to a different account, protocol or query")
         state = token["state"]
         validate_state(state)
-        if any(store.root_post(scope.account_uid, root) != scope.post_id for root in state["roots"]):
+        if any(store.root_post(scope.account_uid, root) != scope.post_id or scope.root_id and root != scope.root_id for root in state["roots"]):
             raise XhhConfigError("sync continuation root is not established on the selected post")
     budget = Budget(args.requests, args.seconds)
     imported, pages, gaps, stop = 0, 0, [], None
