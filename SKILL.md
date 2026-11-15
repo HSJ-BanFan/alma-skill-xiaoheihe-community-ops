@@ -1,6 +1,6 @@
 ---
 name: xiaoheihe-tools
-description: 提供小黑盒账号、帖子、评论楼层、收件箱、搜索、图片上传、评论回复、点赞收藏和发帖工具。用户需要读取或操作小黑盒时使用。
+description: 提供小黑盒账号、帖子、评论楼层、收件箱、互动历史、搜索、图片上传、评论回复、点赞收藏和发帖工具。用户需要读取或操作小黑盒时使用。
 ---
 
 # 小黑盒工具
@@ -26,6 +26,8 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
 
 用户要求逛论坛、回复收件箱来信或继续多轮讨论时，先读取 [CONVERSATION.md](CONVERSATION.md)。按其中的每轮流程补读正文、定位目标、复用操作 ID并读回新评论。
 
+准备继续既有讨论、核对来信处置或恢复发送结果时，读取 [互动参考](docs/INTERACTION.md)。`interaction status <post-id>` 和 `interaction history <post-id>` 查询本地事实，`--peer <uid>`、`--root <cid>` 缩小讨论范围；`interaction sync <post-id>` 在预算内核验账号并补录平台读取。工具自动保存目标、回执和可信读取，调用方决定是否回复及回复风格。
+
 ## 平台数据
 
 `post` 返回结构化正文，`comments` 返回独立评论节点。正文按顺序保留文字、图片和链接，未知块保留平台数据并报告缺口。`body.status` 区分可用、缺失和解析失败；`body.completeness` 只有在明确证据存在时才为 `complete`。摘要留在 `excerpt`，不会替代正文。
@@ -47,6 +49,8 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
 普通浏览的 `source.configured_uid` 是配置中的数据命名空间，`source.identity_verified=false` 只表示本次没有核验在线会话身份。需要持续浏览时用 `--snapshot <name>` 保存公开观察与断点，`--since <name>` 查看同一查询的新增、变化和未再次观察到的条目。保存、`--since` 和网络续读会先核验在线 UID；离线 `snapshot show/resume/diff/list` 按配置 UID 隔离，不表示身份已核验。缺失条目不推断为删除。
 
 `coverage.full_history=false` 表示有限范围。空单页不能证明全量历史已查完。平台接口缺少预期消息字段时返回错误，不把协议异常当作空收件箱。
+
+`post.data.interaction` 和 `feed`、`hot` 各条目的 `interaction` 是本地轻量摘要，不增加 HTTP 请求。`unknown` 和已知零条都不能证明从未参与。`identity_established` 表示该 UID 曾在本地历史中被核验；`source.identity_verified_this_read` 表示本次读取核验。普通公开读取可以为已有可信 UID 补充公开事实，仍保留本次未核验的标签。仅配置 UID 且没有可信历史时，公开读取不会建立个人历史。`inbox` 和 `my-comments` 每次先核验实际 UID，验证请求计入 `--requests` 和 `--seconds`。
 
 ## 写操作
 

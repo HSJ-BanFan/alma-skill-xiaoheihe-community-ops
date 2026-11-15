@@ -90,7 +90,7 @@ def truth(value):
 def source(client, route):
     return {"route": route, "protocol": client.config.protocol_mode,
             "observed_at": time.time(), "configured_uid": str(client.config.heybox_id),
-            "identity_verified": False}
+            "identity_verified": False, "identity_verified_this_read": False}
 
 
 class Markup(HTMLParser):
@@ -148,7 +148,7 @@ def plain(value):
 
 def author(raw):
     user = raw.get("user") if isinstance(raw.get("user"), dict) else {}
-    return {"uid": identifier(raw.get("userid") or user.get("userid") or user.get("id")),
+    return {"uid": identifier(raw.get("userid") or raw.get("user_id") or user.get("userid") or user.get("user_id") or user.get("heybox_id") or user.get("id")),
             "name": user.get("username") or user.get("nickname") or raw.get("username") or raw.get("nickname") or None,
             "avatar_url": user.get("avatar") or user.get("avartar") or raw.get("avatar") or raw.get("avartar") or None}
 
@@ -294,9 +294,11 @@ def comment(raw, post_id, root_id):
     explicit = [asset for asset in (media(item) for item in assets) if asset]
     text = raw.get("text")
     return {"id": uid, "post_id": post_id, "root_id": root_id,
-            "reply_to_id": identifier(raw.get("replyid") or raw.get("reply_id")) if uid != root_id else None,
-            "reply_to_uid": identifier(raw.get("replyuserid")), "author": author(raw),
+            "reply_to_id": identifier(raw.get("replyid") or raw.get("reply_id") or raw.get("reply_to_id")) if uid != root_id else None,
+            "reply_to_uid": identifier(raw.get("replyuserid") or raw.get("reply_userid") or raw.get("reply_to_uid")), "author": author(raw),
             "text": plain(text) if text is not None else None,
+            "raw_text": text, "updated_at": integer(raw.get("modify_at") or raw.get("update_at")),
+            "observed_fields": ["media"] if any(key in raw for key in ("imgs", "images")) else [],
             "created_at": integer(raw.get("create_at")), "children_count": integer(raw.get("child_num")),
             "has_more": truth(raw.get("has_more")), "statistics": {"up": integer(raw.get("up"))},
             "media": merge_media(inline, explicit)}

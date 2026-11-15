@@ -5,11 +5,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(os.environ.get("XHH_TEST_SKILL_ROOT") or Path(__file__).resolve().parents[1])
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from interaction_history import InteractionHistory, Scope
+from operations import Journal
 
 
 def comment(cid, author, *, parent=None, root="601", text="text", created=10, updated=None):
@@ -62,13 +64,19 @@ class InteractionSemanticsTest(unittest.TestCase):
         self.assertEqual(first["items"][0]["created_at"], 20)
 
     def test_later_platform_edit_overrides_old_public_text_but_not_with_receipt(self):
+        journal = Journal(self.folder / "state")
+        payload = {"link_id": "501", "root_id": "601", "reply_id": "601", "text": "stale submitted body"}
+        with patch("operations.project_receipts", side_effect=OSError("fixture projection interruption")):
+            returned = journal.execute("101", "late-receipt", "reply", payload, lambda: {"comment_id": "701"}, identity_verified=True)
+        self.assertEqual(returned["status"], "returned")
         self.capture([comment("701", "101", parent="601", text="public original", updated=10)], at=100)
         self.capture([comment("701", "101", parent="601", text="new own-list edit", updated=20)], kind="own_list", at=200)
         first = self.store.history(Scope("101", "501"))["items"][0]
         self.assertEqual(first["text"], "new own-list edit")
         self.assertEqual(first["public_seen_at"], 100)
         self.assertEqual(first["own_list_seen_at"], 200)
-        self.capture([comment("701", "101", parent="601", text="stale submitted body")], kind="receipt", at=300)
+        replay = journal.execute("101", "late-receipt", "reply", payload, lambda: self.fail("duplicate POST"), identity_verified=True)
+        self.assertTrue(replay["replayed"])
         current = self.store.history(Scope("101", "501"))["items"][0]
         self.assertEqual(current["text"], "new own-list edit")
 

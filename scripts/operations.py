@@ -4,7 +4,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import sqlite3
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -59,6 +58,7 @@ class Journal:
             raise XhhConfigError("--operation-id requires 1-128 letters, digits, underscores or hyphens")
         fingerprint = hashlib.sha256(json_text({"kind": kind, "payload": payload}).encode()).hexdigest()
         replay = None
+        closed = None
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute("SELECT * FROM operations WHERE uid=? AND operation_id=?",
@@ -72,7 +72,7 @@ class Journal:
                     replay = {"operation_id": operation_id, "replayed": True,
                               "status": "returned", "receipt": json.loads(row["receipt"])}
                 else:
-                    raise OperationError("operation_pending_or_uncertain", operation=self.read(uid, operation_id))
+                    closed = self.read(uid, operation_id)
             else:
                 connection.execute("INSERT INTO operations VALUES (?, ?, ?, ?, 'reserved', NULL, ?)",
                                    (uid, operation_id, fingerprint, kind, time.time()))
@@ -80,6 +80,8 @@ class Journal:
                              identity_verified=identity_verified)
         if replay is not None:
             return {**replay, **self.project(uid)}
+        if closed is not None:
+            raise OperationError("operation_pending_or_uncertain", operation=closed)
         try:
             receipt = send()
         except Exception as error:
@@ -103,8 +105,23 @@ class Journal:
                 connection.execute("BEGIN IMMEDIATE")
                 project_receipts(connection, uid)
             return {"interaction_projection_complete": True}
-        except (sqlite3.Error, OSError, XhhConfigError, ValueError, TypeError) as error:
+        except Exception as error:
             return {"interaction_projection_complete": False, "interaction_projection_error": type(error).__name__}
+
+    def bind_submitted_request(self, uid, operation_id, request):
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT payload_json FROM interaction_write_context WHERE uid=? AND operation_id=?",
+                                     (uid, operation_id)).fetchone()
+            if row is None:
+                raise XhhConfigError("submitted comment requires reserved context")
+            payload = json.loads(row["payload_json"])
+            for key in ("link_id", "text", "root_id", "reply_id"):
+                if request.get(key) != payload.get(key):
+                    raise XhhConfigError("submitted request differs from reserved context")
+            payload["submitted_request"] = request
+            connection.execute("UPDATE interaction_write_context SET payload_json=? WHERE uid=? AND operation_id=?",
+                               (json_text(payload), uid, operation_id))
 
     def settle(self, uid: str, operation_id: str, status: str, receipt):
         with self.connect() as connection:
@@ -123,7 +140,7 @@ def verify_identity(client) -> dict:
             for key in ("heybox_id", "userid", "user_id", "id"):
                 if container.get(key) is not None:
                     identities.add(str(container[key]))
-    if str(client.config.heybox_id) not in identities:
+    if identities != {str(client.config.heybox_id)}:
         raise OperationError("account_identity_not_verified")
     return data
 
@@ -167,7 +184,7 @@ def read(client, kind: str, args) -> tuple[object, dict]:
     return data, {**coverage, "offset": args.offset, "limit": args.limit}
 
 
-def prepare_write(client, kind: str, args):
+def prepare_write(client, kind: str, args, *, before_post=None):
     payload = {"link_id": getattr(args, "link_id", None)}
     if kind in ("comment", "reply"):
         body = _validate_text(args.text_file.read_text(encoding="utf-8-sig"))
@@ -208,6 +225,8 @@ def prepare_write(client, kind: str, args):
             request = {"link_id": args.link_id, "text": body, "imgs": url or "", "is_cy": "0"}
             if kind == "reply":
                 request.update(root_id=args.root_id, reply_id=args.reply_id)
+            if before_post:
+                before_post(request)
             result = client.transport.signed_request("/bbs/app/comment/create", query={"h_src": ""}, payload=request)
             cid = client._created_comment_id(result)
             if not cid:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import concurrent.futures
-from contextlib import closing
+from contextlib import closing, contextmanager
 import hashlib
 import json
 import os
@@ -95,7 +95,7 @@ class InteractionStoreTest(unittest.TestCase):
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM interaction_sync_state").fetchone()[0], 0)
 
     def test_returned_receipt_survives_failed_projection_and_restart(self):
-        with patch("operations.project_receipts", side_effect=OSError("fixture failure")):
+        with patch("operations.project_receipts", side_effect=RuntimeError("fixture failure")):
             result = self.send()
         self.assertEqual(result["status"], "returned")
         self.assertFalse(result["interaction_projection_complete"])
@@ -198,6 +198,8 @@ class InteractionStoreTest(unittest.TestCase):
         for kind in ("own_list", "inbox"):
             with self.assertRaises(XhhConfigError):
                 self.store.capture("102", [node("602")], kind, evidence(verified=False))
+        with self.assertRaises(XhhConfigError):
+            self.store.capture("102", [node("602", uid="102")], "receipt", evidence())
         self.assertFalse(self.store.capture("102", [node("602")], "public", evidence(verified=False))["persisted"])
         self.assertEqual(self.store.status(Scope("102", "501"))["participation"], "unknown")
         self.assertTrue(self.store.capture("101", [node("603")], "public", evidence(verified=False))["persisted"])
@@ -205,13 +207,75 @@ class InteractionStoreTest(unittest.TestCase):
     def test_peer_and_root_history_resume_is_bound_and_full_text_retained(self):
         self.capture([node("602", text="  raw body\n" * 1000), node("603"), node("604", uid="303")])
         page = self.store.history(Scope("101", "501", "202", "601"), limit=1)
-        self.assertEqual(page["items"][0]["text"], "  raw body\n" * 1000)
+        self.assertEqual(page["items"][0]["id"], "603")
         token = page["coverage"]["resume"]
         next_page = self.store.history(Scope("101", "501", "202", "601"), limit=1, resume=token)
-        self.assertEqual(next_page["items"][0]["id"], "603")
+        self.assertEqual(next_page["items"][0]["id"], "602")
+        self.assertEqual(next_page["items"][0]["text"], "  raw body\n" * 1000)
         for scope in (Scope("102", "501", "202", "601"), Scope("101", "502", "202", "601"), Scope("101", "501", "303", "601"), Scope("101", "501", "202", "999")):
             with self.assertRaises(XhhConfigError):
                 self.store.history(scope, resume=token)
+
+    def test_sparse_public_cid_alone_does_not_confirm_author_and_reply_relation(self):
+        self.capture([node("602", to="101")])
+        self.send()
+        self.capture([node("701", uid=None, parent=None, text=None, created=None)])
+        status = self.store.status(self.scope)
+        self.assertEqual(status["completed_round_count"], 0)
+        self.assertEqual(status["my_publicly_observed_comment_count"], 0)
+        self.assertEqual(status["pending"][0]["state"], "awaiting_public_readback")
+        self.capture([node("701", uid="101", parent="602")])
+        self.assertEqual(self.store.status(self.scope)["completed_round_count"], 1)
+
+    def test_ambiguous_peer_and_root_relationships_cannot_inflate_filtered_rounds(self):
+        self.capture([node("602", uid="303", root="800"), node("701", uid="101", root="601", parent="602", to="202")])
+        self.assertEqual(self.store.status(Scope("101", "501", "202"))["completed_round_count"], 0)
+        self.assertEqual(self.store.status(Scope("101", "501", root_id="601"))["completed_round_count"], 0)
+
+    def test_newer_database_version_is_not_overwritten_or_reported_as_empty_history(self):
+        self.capture([node("602")])
+        with database(self.store.path, write=True) as connection:
+            connection.execute("PRAGMA user_version=99")
+        with self.assertRaises(XhhConfigError):
+            self.store.status(self.scope)
+        with self.assertRaises(XhhConfigError):
+            self.send()
+        with database(self.store.path) as connection:
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 99)
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM interaction_comments").fetchone()[0], 1)
+
+    def test_exact_own_list_reply_with_missing_root_is_not_treated_as_unsent_in_root_scope(self):
+        self.capture([node("601", uid="101"), node("602", to="101", parent="601")])
+        self.capture([node("701", uid="101", parent="602", root=None)], "own_list")
+        status = self.store.status(Scope("101", "501", root_id="601"))
+        self.assertEqual(status["pending"][0]["state"], "replied_visibility_unverified")
+        self.assertIn("701", status["unknown_parent_ids"])
+        self.assertFalse(status["ancestry_complete"])
+
+    def test_identity_check_does_not_claim_history_coverage_and_cycles_remain_incomplete(self):
+        self.store.establish("101", {"source": "fixture identity"})
+        self.assertIsNone(self.store.status(self.scope)["coverage"]["last_checked_at"])
+        self.capture([node("601", uid="101"), node("602", parent="603"), node("603", parent="602")])
+        status = self.store.status(self.scope)
+        self.assertFalse(status["ancestry_complete"])
+        self.assertEqual(status["cyclic_reply_ids"], ["602", "603"])
+
+    def test_feed_summaries_work_without_access_to_full_bodies_or_write_payloads(self):
+        self.capture([node("601", text="large raw body\n" * 10000), node("701", uid="101", parent="601")])
+        @contextmanager
+        def bounded_database(*args, **kwargs):
+            with database(*args, **kwargs) as connection:
+                def authorize(action, table, column, db, trigger):
+                    if action == sqlite3.SQLITE_READ and column in ("text", "media_json", "source_json", "payload_json", "raw_json"):
+                        return sqlite3.SQLITE_DENY
+                    return sqlite3.SQLITE_OK
+                connection.set_authorizer(authorize)
+                yield connection
+        with patch("interaction_history.database", bounded_database):
+            summaries = self.store.summaries("101", ["501", "999"])
+        self.assertEqual(summaries["501"]["my_known_comment_count"], 1)
+        self.assertEqual(summaries["501"]["completed_round_count"], 1)
+        self.assertEqual(summaries["999"]["participation"], "unknown")
 
 
 if __name__ == "__main__":
