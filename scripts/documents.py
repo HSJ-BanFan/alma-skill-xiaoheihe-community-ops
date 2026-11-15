@@ -283,7 +283,9 @@ def comment(raw, post_id, root_id):
     uid = identifier(raw.get("commentid") or raw.get("comment_id") or raw.get("id"))
     if not uid:
         raise XhhConfigError("comment record has no valid ID")
-    assets = raw.get("imgs") or raw.get("images") or []
+    attachment_keys = ("imgs", "images", "comment_images")
+    attachment_key = next((key for key in attachment_keys if raw.get(key) is not None), None)
+    assets = raw[attachment_key] if attachment_key else []
     if not isinstance(assets, list):
         assets = [assets]
     parsed = Markup()
@@ -293,15 +295,20 @@ def comment(raw, post_id, root_id):
                                  if event["type"] == "image") if asset]
     explicit = [asset for asset in (media(item) for item in assets) if asset]
     text = raw.get("text")
+    combined = merge_media(inline, explicit)
+    for asset in combined:
+        asset["origins"] = [origin for origin, group in (("inline", inline), ("attachment", explicit))
+                            if any(item["url"] == asset["url"] for item in group)]
+    media_observed = (["inline"] if isinstance(text, str) else []) + (["attachment"] if attachment_key else [])
     return {"id": uid, "post_id": post_id, "root_id": root_id,
             "reply_to_id": identifier(raw.get("replyid") or raw.get("reply_id") or raw.get("reply_to_id")) if uid != root_id else None,
             "reply_to_uid": identifier(raw.get("replyuserid") or raw.get("reply_userid") or raw.get("reply_to_uid")), "author": author(raw),
             "text": plain(text) if text is not None else None,
             "raw_text": text, "updated_at": integer(raw.get("modify_at") or raw.get("update_at")),
-            "observed_fields": ["media"] if any(key in raw for key in ("imgs", "images")) else [],
+            "observed_fields": ["media"] if len(media_observed) == 2 else [], "media_observed": media_observed,
             "created_at": integer(raw.get("create_at")), "children_count": integer(raw.get("child_num")),
             "has_more": truth(raw.get("has_more")), "statistics": {"up": integer(raw.get("up"))},
-            "media": merge_media(inline, explicit)}
+            "media": combined}
 
 
 def floors(rows, post_id):

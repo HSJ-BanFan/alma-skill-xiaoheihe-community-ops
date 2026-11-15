@@ -179,12 +179,17 @@ def browsing_capture(store, uid, secret):
 
 
 def add_interaction_summaries(store, uid, command, data):
-    if command == "post":
-        data["interaction"] = store.summaries(uid, [data["id"]])[data["id"]]
-    elif command in ("feed", "hot"):
-        summaries = store.summaries(uid, [item["id"] for item in data["items"]])
-        for item in data["items"]:
-            item["interaction"] = summaries[item["id"]]
+    if command not in ("post", "feed", "hot"):
+        return
+    items = [data] if command == "post" else data["items"]
+    try:
+        summaries = store.summaries(uid, [item["id"] for item in items])
+    except (sqlite3.Error, OSError, XhhConfigError, ValueError, TypeError) as error:
+        summaries = {item["id"]: {"account_uid": uid, "participation": "unknown", "history_complete": False,
+            "my_known_comment_count": None, "my_publicly_observed_comment_count": None, "completed_round_count": None,
+            "cache_incomplete": True, "error_type": type(error).__name__} for item in items}
+    for item in items:
+        item["interaction"] = summaries[item["id"]]
 
 
 def main(argv=None, *, client_factory=XhhClient):

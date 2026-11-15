@@ -145,7 +145,11 @@ def synchronize(store, client, scope, args, *, sanitize=lambda value: value):
         stop = "platform_error"
         last_error = {"type": type(error).__name__, "code": getattr(error, "code", None), "status": getattr(error, "status", None)}
     if stop is None:
-        store.establish(scope.account_uid, {"source": "sync_identity_check", "protocol": client.config.protocol_mode})
+        try:
+            store.establish(scope.account_uid, {"source": "sync_identity_check", "protocol": client.config.protocol_mode})
+        except (sqlite3.Error, OSError) as error:
+            stop = "storage_error"
+            last_error = {"type": type(error).__name__, "code": "interaction_cache_incomplete"}
     seen_positions = set()
     while stop is None and state["phase"] != "done" and pages < args.pages:
         position = (state["phase"], state["offset"], state["page"], tuple(state["roots"]), state["cursor"])

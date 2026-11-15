@@ -143,6 +143,20 @@ def bind_context(connection, uid, operation_id, kind, payload, *, identity_verif
 SOURCE_RANK = {"receipt": 0, "inbox": 1, "own_list": 2, "public": 3}
 
 
+def observed_media(previous, incoming, scopes):
+    retained = []
+    for asset in previous:
+        origins = [origin for origin in asset.get("origins", ["unknown"]) if origin not in scopes]
+        if origins:
+            retained.append({**asset, "origins": origins})
+    merged = {}
+    for asset in retained + incoming:
+        old = merged.get(asset["url"])
+        merged[asset["url"]] = {**(old or {}), **asset, "origins": list(dict.fromkeys(
+            (old or {}).get("origins", []) + asset.get("origins", ["unknown"]))) }
+    return list(merged.values())
+
+
 def observe(connection, uid, node, source_kind, evidence):
     cid, post = identifier(node.get("id")), identifier(node.get("post_id"))
     if not cid or not post:
@@ -159,7 +173,11 @@ def observe(connection, uid, node, source_kind, evidence):
     updates = {"root_id": identifier(node.get("root_id")), "author_uid": identifier((node.get("author") or {}).get("uid")),
         "reply_to_id": identifier(node.get("reply_to_id")), "reply_to_uid": identifier(node.get("reply_to_uid")),
         "text": node.get("raw_text", node.get("text")), "platform_created_at": node.get("created_at")}
-    if node.get("media") and isinstance(node["media"], list) or "media" in node.get("observed_fields", []):
+    scopes = node.get("media_observed")
+    if scopes:
+        previous_media = json.loads(values["media_json"]) if values["media_json"] else []
+        updates["media_json"] = dumps(observed_media(previous_media, node.get("media") or [], scopes))
+    elif node.get("media") and isinstance(node["media"], list) or "media" in node.get("observed_fields", []):
         updates["media_json"] = dumps(node.get("media") or [])
     for field, value in updates.items():
         if value is None:
@@ -455,13 +473,29 @@ def receipt_cid(serialized):
     return identifier(value.get("comment_id")) if isinstance(value, dict) else None
 
 
+def consistent_reply(row, by_id):
+    parent = by_id.get(row["reply_to_id"])
+    root = row["root_id"]
+    if parent is None or not root or parent["root_id"] != root:
+        return False
+    current, visited = row, set()
+    while current is not None:
+        if current["comment_id"] in visited or current["root_id"] not in (None, root):
+            return False
+        visited.add(current["comment_id"])
+        if current["comment_id"] == root:
+            return True
+        current = by_id.get(current["reply_to_id"])
+    return True
+
+
 def summarize(scope, comments, operations, events, coverage, recovery):
     uid = scope.account_uid
     by_id = {row["comment_id"]: row for row in comments}
     selected = filter_comments(scope, comments)
     mine = [row for row in selected if row["author_uid"] == uid]
     public = [row for row in mine if public_fields(row, "author_uid")]
-    rounds = {row["reply_to_id"] for row in public if public_fields(row, "reply_to_id") and row["reply_to_id"] in by_id and
+    rounds = {row["reply_to_id"] for row in public if public_fields(row, "reply_to_id") and consistent_reply(row, by_id) and
               by_id[row["reply_to_id"]]["author_uid"] not in (None, uid) and
               (not scope.peer_uid or by_id[row["reply_to_id"]]["author_uid"] == scope.peer_uid) and
               (not scope.root_id or by_id[row["reply_to_id"]]["root_id"] == scope.root_id)}
@@ -482,7 +516,7 @@ def summarize(scope, comments, operations, events, coverage, recovery):
         replies = [row for row in mine if row["reply_to_id"] == cid]
         related = [op for op in scoped_ops if op["reply_to_id"] == cid]
         uncertain = [op for op in related if op["status"] != "returned"]
-        if any(public_fields(row, "author_uid", "reply_to_id") for row in replies):
+        if any(public_fields(row, "author_uid", "reply_to_id") and consistent_reply(row, by_id) for row in replies):
             state = "answered"
         elif uncertain:
             state = "write_uncertain"

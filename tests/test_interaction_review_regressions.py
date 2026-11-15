@@ -14,7 +14,8 @@ sys.path[:0] = [str(ROOT / "scripts"), str(Path(__file__).resolve().parent)]
 
 from interaction_history import InteractionHistory, Scope
 from test_interaction_cli import InteractionFixture
-from test_tools import ToolsTest, Response
+import test_tools
+from test_tools import Response
 
 
 class ReviewFixture(InteractionFixture):
@@ -39,9 +40,9 @@ class ReviewFixture(InteractionFixture):
 
 
 class InteractionReviewRegressionTest(unittest.TestCase):
-    setUp = ToolsTest.setUp
-    tearDown = ToolsTest.tearDown
-    run_cli = ToolsTest.run_cli
+    setUp = test_tools.ToolsTest.setUp
+    tearDown = test_tools.ToolsTest.tearDown
+    run_cli = test_tools.ToolsTest.run_cli
 
     def store(self):
         return InteractionHistory(self.folder / "data")
@@ -65,6 +66,16 @@ class InteractionReviewRegressionTest(unittest.TestCase):
         self.assertEqual(self.run_cli("comments", "501", "--requests", "1")[0], 0)
         self.assertNotIn("https://imgheybox.max-c.com/inline.png", [asset["url"] for asset in self.own()["media"]])
 
+    def test_inline_edit_keeps_attachment_when_that_field_is_not_returned(self):
+        self.fixture = ReviewFixture()
+        self.assertEqual(self.run_cli("my-comments")[0], 0)
+        self.assertEqual(self.run_cli("comments", "501", "--requests", "1")[0], 0)
+        self.fixture.public_text = "inline image removed, attachment not returned"
+        self.assertEqual(self.run_cli("comments", "501", "--requests", "1")[0], 0)
+        urls = {asset["url"] for asset in self.own()["media"]}
+        self.assertNotIn("https://imgheybox.max-c.com/inline.png", urls)
+        self.assertIn("https://imgheybox.max-c.com/own-list.png", urls)
+
     def test_sync_identity_persistence_failure_keeps_prior_status_and_resume(self):
         self.fixture = ReviewFixture()
         code, first = self.run_cli("interaction", "sync", "501", "--requests", "3", "--pages", "2")
@@ -74,7 +85,7 @@ class InteractionReviewRegressionTest(unittest.TestCase):
         with patch.object(InteractionHistory, "establish", side_effect=OSError("fixture identity storage failure")):
             code, failed = self.run_cli("interaction", "sync", "501", "--resume", token)
         self.assertEqual(code, 1)
-        self.assertEqual(failed["coverage"]["stop_reason"], "storage_error")
+        self.assertEqual(failed["coverage"].get("stop_reason"), "storage_error")
         self.assertEqual(failed["coverage"]["resume"], token)
         self.assertEqual(failed["data"]["status"]["my_known_comment_count"], first["data"]["status"]["my_known_comment_count"])
 
