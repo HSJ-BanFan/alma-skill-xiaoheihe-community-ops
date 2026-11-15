@@ -203,7 +203,6 @@ class BrowseMixin:
         """Favorite tabs (/bbs/app/profile/fav/tab_list)."""
         return _result(self.transport.signed_request("/bbs/app/profile/fav/tab_list"))
 
-    # ---------------------------------------------------------- account
     def account_info(self) -> dict:
         """Account overview (/account/info/)."""
         return _result(self.transport.signed_request("/account/info/"))

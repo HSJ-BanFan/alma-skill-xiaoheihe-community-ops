@@ -61,7 +61,7 @@ class XhhAuthError(XhhError):
 
 
 class XhhRateLimitError(XhhError):
-    """The platform throttled this action (发帖频率过快, code 10006)."""
+    """The platform throttled this action."""
 
     code = "rate_limited"
     default_fix = "stop the current task and wait for the platform limit to clear"

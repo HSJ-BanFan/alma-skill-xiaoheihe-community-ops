@@ -5,9 +5,6 @@ Three transports, matching the verified contract:
 * `signed_request` selects App or Web signing from the configured protocol.
 * `web_request` uses Creator signing for Web sessions and cookie-only App uploads.
 * `put_cos` — Tencent COS V5 signed PUT of the raw bytes.
-
-Error mapping is centralized: 发帖频率过快 -> XhhRateLimitError, login
-required -> XhhAuthError, everything else non-ok -> XhhAPIError.
 """
 from __future__ import annotations
 
@@ -17,7 +14,6 @@ import http.client
 import json
 import re
 import socket
-import ssl
 import time
 import urllib.error
 import urllib.parse

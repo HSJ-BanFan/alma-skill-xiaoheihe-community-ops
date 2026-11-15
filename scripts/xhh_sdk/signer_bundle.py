@@ -17,7 +17,7 @@ import tempfile
 import time
 
 from .exceptions import XhhSignerError
-from .signer import _normalize_digest, _reject_links, _store_root, _verify_file
+from .signer import _normalize_digest, _reject_links, _verify_file
 from .signer_resources import inspect_resources
 
 BUNDLE_PREFIX = "bundle:"
