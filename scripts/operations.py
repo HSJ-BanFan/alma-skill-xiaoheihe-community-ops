@@ -12,6 +12,7 @@ from pathlib import Path
 from xhh_sdk.exceptions import XhhConfigError
 from xhh_sdk.interaction import _validate_text
 from xhh_sdk.payload import Post
+from interaction_history import database, bind_context, project_receipts
 
 
 class OperationError(RuntimeError):
@@ -38,24 +39,13 @@ class Journal:
 
     @contextmanager
     def connect(self):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(self.path, timeout=10)
-        connection.row_factory = sqlite3.Row
-        try:
-            connection.execute("""CREATE TABLE IF NOT EXISTS operations (
-                uid TEXT NOT NULL, operation_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
-                kind TEXT NOT NULL, status TEXT NOT NULL, receipt TEXT, updated_at REAL NOT NULL,
-                PRIMARY KEY (uid, operation_id))""")
-            connection.commit()
-            with connection:
-                yield connection
-        finally:
-            connection.close()
+        with database(self.path, write=True) as connection:
+            yield connection
 
     def read(self, uid: str, operation_id: str):
         if not self.path.exists():
             return None
-        with self.connect() as connection:
+        with database(self.path) as connection:
             row = connection.execute("SELECT * FROM operations WHERE uid=? AND operation_id=?",
                                      (uid, operation_id)).fetchone()
         if row is None:
@@ -64,10 +54,11 @@ class Journal:
                 "receipt": json.loads(row["receipt"]) if row["receipt"] else None,
                 "updated_at": row["updated_at"]}
 
-    def execute(self, uid: str, operation_id: str, kind: str, payload: dict, send):
+    def execute(self, uid: str, operation_id: str, kind: str, payload: dict, send, *, identity_verified=False, context=None):
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", operation_id or ""):
             raise XhhConfigError("--operation-id requires 1-128 letters, digits, underscores or hyphens")
         fingerprint = hashlib.sha256(json_text({"kind": kind, "payload": payload}).encode()).hexdigest()
+        replay = None
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute("SELECT * FROM operations WHERE uid=? AND operation_id=?",
@@ -75,12 +66,20 @@ class Journal:
             if row is not None:
                 if row["fingerprint"] != fingerprint:
                     raise OperationError("operation_id_conflict", operation=self.read(uid, operation_id))
+                bind_context(connection, uid, operation_id, kind, {**payload, "request_context": context or {}},
+                             identity_verified=identity_verified)
                 if row["status"] == "returned":
-                    return {"operation_id": operation_id, "replayed": True,
-                            "status": "returned", "receipt": json.loads(row["receipt"])}
-                raise OperationError("operation_pending_or_uncertain", operation=self.read(uid, operation_id))
-            connection.execute("INSERT INTO operations VALUES (?, ?, ?, ?, 'reserved', NULL, ?)",
-                               (uid, operation_id, fingerprint, kind, time.time()))
+                    replay = {"operation_id": operation_id, "replayed": True,
+                              "status": "returned", "receipt": json.loads(row["receipt"])}
+                else:
+                    raise OperationError("operation_pending_or_uncertain", operation=self.read(uid, operation_id))
+            else:
+                connection.execute("INSERT INTO operations VALUES (?, ?, ?, ?, 'reserved', NULL, ?)",
+                                   (uid, operation_id, fingerprint, kind, time.time()))
+                bind_context(connection, uid, operation_id, kind, {**payload, "request_context": context or {}},
+                             identity_verified=identity_verified)
+        if replay is not None:
+            return {**replay, **self.project(uid)}
         try:
             receipt = send()
         except Exception as error:
@@ -95,7 +94,17 @@ class Journal:
         except Exception:
             raise OperationError("receipt_persistence_failed", operation={"operation_id": operation_id,
                                  "status": "reserved"}, receipt=receipt) from None
-        return {"operation_id": operation_id, "replayed": False, "status": "returned", "receipt": receipt}
+        return {"operation_id": operation_id, "replayed": False, "status": "returned", "receipt": receipt,
+                **self.project(uid)}
+
+    def project(self, uid):
+        try:
+            with self.connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                project_receipts(connection, uid)
+            return {"interaction_projection_complete": True}
+        except (sqlite3.Error, OSError, XhhConfigError, ValueError, TypeError) as error:
+            return {"interaction_projection_complete": False, "interaction_projection_error": type(error).__name__}
 
     def settle(self, uid: str, operation_id: str, status: str, receipt):
         with self.connect() as connection:
@@ -146,7 +155,13 @@ def read(client, kind: str, args) -> tuple[object, dict]:
                     query={**query, "userid": client.config.heybox_id})
         return data, coverage
     elif kind == "my-comments":
-        return client.my_comments(offset=args.offset, limit=args.limit), coverage
+        data = client.transport.signed_request("/bbs/app/profile/bbs/comment/list",
+                    query={**query, "userid": str(client.config.heybox_id), "only_cy": "0"})
+        result = data.get("result") if isinstance(data, dict) else None
+        if not isinstance(result, list) or not all(isinstance(row, dict) for row in result):
+            raise OperationError("invalid_my_comments_response")
+        return result, {**coverage, "offset": args.offset, "limit": args.limit,
+                        "next_offset": args.offset + len(result)}
     else:
         raise XhhConfigError("unknown read operation")
     return data, {**coverage, "offset": args.offset, "limit": args.limit}

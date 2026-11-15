@@ -233,7 +233,7 @@ class ToolsTest(unittest.TestCase):
         journal = Journal(self.folder / "failure")
         with patch.object(journal, "settle", side_effect=OSError("fixture disk full")):
             with self.assertRaises(OperationError) as error:
-                journal.execute("101", "send-1", "comment", {}, lambda: {"comment_id": "701"})
+                journal.execute("101", "send-1", "comment", {"link_id": "501", "text": "fixture"}, lambda: {"comment_id": "701"})
         self.assertEqual(error.exception.receipt, {"comment_id": "701"})
         self.assertEqual(journal.read("101", "send-1")["status"], "reserved")
 
