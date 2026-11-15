@@ -9,7 +9,6 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, replace
 from html.parser import HTMLParser
-from pathlib import Path
 from typing import Callable
 
 from documents import author, comment, document, floors, identifier, integer, link_id, media, merge_media, result_object, source, summary, truth, entity_id, enrich_observation
@@ -1291,10 +1290,15 @@ class Browser:
         plan = []
         for protocol in protocols:
             client = self.clients.get(protocol)
-            if client is not None and client.config.protocol_mode == protocol:
+            if (
+                    client is not None
+                    and client.config.protocol_mode == protocol
+                    and not (
+                        getattr(client.config, "extra", None) or {}
+                    ).get("public_reader")):
                 plan.append(
                     specs["native"] if protocol == "app" else specs["website"])
-        if not plan:
+        if not plan and args.protocol:
             selected = args.protocol or "app/web"
             raise XhhConfigError(
                 f"auto reader has no available {selected} session",
@@ -1329,11 +1333,13 @@ class Browser:
         binding = query_key(args)
         plan = plan or self._reader_plan(args)
         reader_offset = 0
+        reader_plan = [spec.reader for spec in plan]
         if args.resume:
             token = decode_resume(
                 args.resume, "post", self.client.config.heybox_id)
             required = {
                 "binding", "protocol", "position", "reader_offset",
+                "reader_plan",
             }
             if (set(token) != required
                     or token.get("binding") != binding
@@ -1341,7 +1347,8 @@ class Browser:
                     or type(token.get("position")) is not int
                     or token["position"] < 1
                     or type(token.get("reader_offset")) is not int
-                    or not 0 <= token["reader_offset"] < len(plan)):
+                    or not 0 <= token["reader_offset"] < len(plan)
+                    or token.get("reader_plan") != reader_plan):
                 raise XhhConfigError(
                     "post continuation does not match this read")
             reader_offset = token["reader_offset"]
@@ -1493,6 +1500,7 @@ class Browser:
                 {
                     "position": args.page,
                     "reader_offset": attempts[-1]["reader_offset"],
+                    "reader_plan": reader_plan,
                 }
                 if stop.kind == StopKind.BUDGET_PAUSE else None
             ),

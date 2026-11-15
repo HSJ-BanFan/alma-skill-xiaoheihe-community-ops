@@ -16,13 +16,21 @@ from xhh_sdk.accounts import AccountStore
 from xhh_sdk.client import XhhClient
 from xhh_sdk.config import XhhConfig
 from xhh_sdk.exceptions import XhhError, XhhConfigError
-from documents import link_id
 from paging import delivery_ok, project_coverage
 import browser
 from corpus_cli import dispatch as dispatch_corpus
 from corpus_cli import register as register_corpus
 
 WRITES = {"comment", "reply", "like", "favourite", "unfavourite", "delete-comment", "delete-post", "upload", "publish"}
+
+
+def public_reader_config(uid="0"):
+    return XhhConfig(
+        pkey="public-reader",
+        heybox_id=uid or "0",
+        protocol_mode="web",
+        extra={"public_reader": True},
+    )
 
 
 def data_root() -> Path:
@@ -109,15 +117,23 @@ def load_config(args):
         if args.protocol:
             raise XhhConfigError(
                 "the html reader is public and cannot use --protocol")
-        return XhhConfig(
-            pkey="public-reader",
-            heybox_id="0",
-            protocol_mode="web",
-            extra={"public_reader": True},
-        )
+        return public_reader_config()
+    public_auto = (
+        args.command == "post"
+        and args.reader == "auto"
+        and args.protocol is None
+    )
+    if public_auto and not (args.account or args.config or args.env):
+        return public_reader_config()
     if args.account:
-        config = AccountStore(args.data_dir).get_config(
-            args.account, protocol=args.protocol)
+        try:
+            config = AccountStore(args.data_dir).get_config(
+                args.account, protocol=args.protocol)
+        except XhhConfigError as error:
+            if public_auto and error.code == "session_missing":
+                account = AccountStore(args.data_dir).get(args.account)
+                return public_reader_config(account.identity)
+            raise
     elif args.config:
         config = XhhConfig.from_file(args.config)
         if args.protocol and config.protocol_mode != args.protocol:
@@ -163,6 +179,10 @@ def load_clients(args, config, client_factory):
                 if protocol in account.sessions
             )
         if not protocols:
+            if (config.extra or {}).get("public_reader"):
+                return {
+                    config.protocol_mode: client_factory(config),
+                }
             raise XhhConfigError(
                 "auto reader has no stored App or Web session",
                 code="session_missing",

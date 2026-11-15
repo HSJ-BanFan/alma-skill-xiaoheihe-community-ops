@@ -2,7 +2,6 @@ import base64
 import contextlib
 import io
 import json
-import os
 import sys
 import tempfile
 import unittest
@@ -217,6 +216,45 @@ class AccountSessionTests(unittest.TestCase):
         store.logout("logout-web")
         self.assertEqual(store.get("logout-web").sessions, {})
 
+    def test_auto_reader_uses_public_html_for_an_unbound_account(self):
+        store = accounts.AccountStore(self.root)
+        store.add("unbound", identity="101")
+        created = []
+
+        class PublicClient:
+            def __init__(self, config):
+                self.config = config
+                self.transport = self
+
+            def signed_request(self, path, query=None):
+                raise AssertionError("signed reader was called")
+
+        def factory(config):
+            created.append(config)
+            return PublicClient(config)
+
+        output = io.StringIO()
+        with patch(
+                "browser.read_http",
+                return_value=b"<article><p>public body</p></article>"), \
+                contextlib.redirect_stdout(output):
+            code = xhh.main(
+                [
+                    "--account", "unbound",
+                    "--data-dir", str(self.root),
+                    "post", "123", "--reader", "auto", "--requests", "1",
+                ],
+                client_factory=factory,
+            )
+        value = json.loads(output.getvalue())
+
+        self.assertEqual(code, 0)
+        self.assertEqual(value["data"]["body"]["text"], "public body")
+        self.assertEqual(value["data"]["source"]["reader"], "html")
+        self.assertEqual(len(created), 1)
+        self.assertTrue(created[0].extra["public_reader"])
+        self.assertEqual(created[0].heybox_id, "101")
+
 
 class ErrorContractTests(unittest.TestCase):
     def test_captcha_has_stable_code_and_stop_instruction(self):
@@ -390,6 +428,38 @@ class ReaderAndBudgetTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertTrue(value["ok"])
         self.assertEqual(value["data"]["body"]["text"], "public body")
+        self.assertEqual(len(created), 1)
+        self.assertTrue(created[0].extra["public_reader"])
+
+    def test_auto_cli_falls_back_to_public_html_without_an_account(self):
+        created = []
+
+        class PublicClient:
+            def __init__(self, config):
+                self.config = config
+                self.transport = self
+
+            def signed_request(self, path, query=None):
+                raise AssertionError("signed reader was called")
+
+        def factory(config):
+            created.append(config)
+            return PublicClient(config)
+
+        output = io.StringIO()
+        with patch(
+                "browser.read_http",
+                return_value=b"<article><p>public body</p></article>"), \
+                contextlib.redirect_stdout(output):
+            code = xhh.main(
+                ["post", "123", "--reader", "auto", "--requests", "1"],
+                client_factory=factory,
+            )
+        value = json.loads(output.getvalue())
+
+        self.assertEqual(code, 0)
+        self.assertEqual(value["data"]["body"]["text"], "public body")
+        self.assertEqual(value["data"]["source"]["reader"], "html")
         self.assertEqual(len(created), 1)
         self.assertTrue(created[0].extra["public_reader"])
 

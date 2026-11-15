@@ -349,6 +349,41 @@ class ReaderEvidenceTests(unittest.TestCase):
         self.assertEqual(second["body"]["text"], "web body")
         self.assertEqual(second_scope["status"], "complete")
 
+    def test_auto_resume_rejects_a_changed_reader_plan(self):
+        app = ClientFixture(
+            "app",
+            lambda path, query, protocol: {
+                "result": {"link": {"id": "123", "text": ""}},
+            },
+        )
+        web = ClientFixture(
+            "web",
+            lambda path, query, protocol: {
+                "result": {"link": {"id": "123", "text": "web body",
+                                    "is_full_text": 1}},
+            },
+        )
+        _, scope = browser.Browser(
+            web, clients={"app": app, "web": web}).execute(
+                xhh.parser().parse_args([
+                    "post", "123", "--reader", "auto", "--requests", "1",
+                ]),
+            )
+
+        web.calls.clear()
+        with patch(
+                "browser.read_http",
+                return_value=b"<article><p>public body</p></article>"):
+            with self.assertRaises(XhhConfigError):
+                browser.Browser(web).execute(
+                    xhh.parser().parse_args([
+                        "post", "123", "--reader", "auto", "--requests", "1",
+                        "--resume", scope["resume"],
+                    ]),
+                )
+
+        self.assertEqual(web.calls, [])
+
     def test_steam_score_and_comment_score_remain_distinct(self):
         value = browser.game({
             "steam_appid": "123",
