@@ -6,7 +6,7 @@
 
 ### 离线验证
 
-- 完整 `unittest` 为 `280/280` 通过。覆盖 App/Web 会话隔离、reader provenance、请求和条目预算、验证码与限流停止、快照恢复、corpus 事务、跨查询去重、同页 remainder、fresh-process replay、旧数据迁移和持久化引用完整性。
+- 完整 `unittest` 为 `282/282` 通过。覆盖 App/Web 会话隔离、reader provenance、请求和条目预算、验证码与限流停止、快照恢复、corpus 事务、跨查询去重、同页 remainder、fresh-process replay、旧数据迁移和持久化引用完整性。
 - `scripts/` 与 `tests/` 的全部 Python 文件通过 `py_compile`，`git diff --check` 无输出。
 - `tests/verify_portable.py` 在无关工作目录和隔离解释器中验证 21 个 SDK 文件摘要，输出 `ok=true`、`offline_state_writes=0`。Web offline doctor 不依赖 Java，夹具测试通过。
 - 当前 vendored SDK 与上游来源提交的差异已在 `THIRD_PARTY.md` 说明。`SNAPSHOT.json` 冻结实际随包哈希，不表示与上游逐字节一致。
@@ -38,9 +38,9 @@
 
 此分支新增 App GET `/game/get_game_detail?appid=<id>` 的单资源适配。`tests/test_discovery_shapes.py` 使用带 `steam_appid`、`about_the_game`、`has_bbs`、`topic_detail.game.app_id`、三组关系和 `menu_v2` 的详情响应形状夹具。账号和图片地址为合成值，所有请求由测试 client 替代，不读取真实凭据。
 
-离线测试验证一次 App fetch、返回身份核对、社区 feed 的正向论坛证据、跨组游戏去重与元数据补充、保留所有 `relations`、空组与未返回组的区别、无效形状和混合记录保留有效项、规范化失败时保留原始响应、纯适配器输入不变，以及发起请求前拒绝页数、resume、无效目标和 Web 协议。预算停止且没有取得详情时不写入空快照。缺少关系键为 `not_returned` 并带缺口，不能据此宣称没有关系。单资源完成不表示取得全量历史或关系图。
+离线测试验证一次 App fetch、返回身份核对、社区 feed 的正向论坛证据、跨组游戏去重与元数据补充、保留所有 `relations`、空组与未返回组的区别、无效形状和混合记录保留有效项、顶层结果形状或嵌套字段规范化失败时保留原始响应、显式空菜单参数对象、纯适配器输入不变，以及发起请求前拒绝页数、resume、无效目标和 Web 协议。预算停止且没有取得详情时不写入空快照。缺少关系键为 `not_returned` 并带缺口，不能据此宣称没有关系。单资源完成不表示取得全量历史或关系图。
 
-定向 `test_discovery_shapes.py` 为 `32/32` 通过，其中新增 15 个游戏详情测试。完整 `unittest` 使用已装 Pillow 的本地 OCR Python 环境，`280/280` 通过。`scripts/` 与 `tests/` 的 53 个 Python 文件通过 `py_compile`，Ruff F 检查和 `git diff --check` 通过。portable verifier 验证 21 个 SDK 文件摘要，输出 `ok=true`、`offline_state_writes=0`、`fixture_tests=passed`，并明确记录 `live_platform=not_tested`。技能校验结果为 `Skill is valid!`。
+定向 `test_discovery_shapes.py` 为 `34/34` 通过，其中新增 17 个游戏详情测试。完整 `unittest` 使用已装 Pillow 的本地 OCR Python 环境，`282/282` 通过。`scripts/` 与 `tests/` 的 53 个 Python 文件通过 `py_compile`，Ruff F 检查和 `git diff --check` 通过。portable verifier 验证 21 个 SDK 文件摘要，输出 `ok=true`、`offline_state_writes=0`、`fixture_tests=passed`，并明确记录 `live_platform=not_tested`。技能校验结果为 `Skill is valid!`。
 
 2026-11-15 又对 Steam app ID `730` 做了只读调用。请求预算为 1 时，平台路线在完成一次 wire request 后仍需同站重定向，结果以 `partial/request_budget` 停止，没有伪造详情。修复后再次以 1 次请求复测，结果保持 `partial`，`data=null`，`used_requests=1`，`coverage.resume=null`，且没有写入空快照。把预算设为 2 时，真实响应返回 CS2、社区 ID `43`、`has_bbs=1`、5 个 `morelike` 游戏、6 个菜单，`similar_games` 与 `publisher_games` 未返回，`used_requests=2`。这证明当次详情解析和游戏到社区的导航数据可用，也证明请求预算必须把重定向计入。两次复测没有出现 `show_captcha` 或限流。
 
