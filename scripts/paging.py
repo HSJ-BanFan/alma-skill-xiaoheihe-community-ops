@@ -12,7 +12,7 @@ from documents import integer, truth
 from xhh_sdk.exceptions import XhhBudgetError, XhhConfigError
 from xhh_sdk.transport import Transport
 from xhh_sdk.signer import Signer
-from network_io import read_http, NetworkDeadline
+from network_io import read_http, NetworkDeadline, NetworkRequestLimit
 
 _BLOCK_CODES = frozenset({"captcha_required", "rate_limited"})
 _CAPTCHA_STATUSES = frozenset(
@@ -75,6 +75,7 @@ class Budget:
             raise ReadLimit("time_budget")
         original = client.config.timeout
         client.config.timeout = min(original, remaining)
+        starting_used = self.used
         self.used += 1
         transport = client.transport
         original_open = (getattr(transport, "_open", None)
@@ -86,8 +87,23 @@ class Budget:
             if remaining <= 0:
                 raise ReadLimit("time_budget")
             client.config.timeout = min(original, remaining)
+            wire_limit = self.request_limit - starting_used
+
+            def record_wire_requests(count):
+                if type(count) is not int or count < 0 or count > wire_limit:
+                    raise NetworkRequestLimit()
+                self.used = starting_used + count
+
             try:
-                data = read_http(request, remaining, http_timeout=client.config.timeout)
+                data = read_http(
+                    request,
+                    remaining,
+                    http_timeout=client.config.timeout,
+                    wire_limit=wire_limit,
+                    wire_counter=record_wire_requests,
+                )
+            except NetworkRequestLimit:
+                raise ReadLimit("request_budget") from None
             except NetworkDeadline:
                 raise ReadLimit("time_budget") from None
             if time.monotonic() >= self.deadline:

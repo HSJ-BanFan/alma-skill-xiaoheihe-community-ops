@@ -165,7 +165,8 @@ class Transport:
                 code="rate_limited",
             )
         raise XhhAPIError(f"platform returned status={status!r} msg={msg!r}",
-                          status=str(status or ""))
+                          status=str(status or ""),
+                          retry_allowed=False)
 
     @classmethod
     def _checked_response(cls, path: str, data: dict) -> dict:

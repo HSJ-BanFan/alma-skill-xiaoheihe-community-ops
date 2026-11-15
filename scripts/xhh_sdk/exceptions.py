@@ -116,6 +116,7 @@ class XhhAPIError(XhhError):
     """The platform answered with a non-ok status."""
 
     code = "platform_error"
+    retry_allowed = False
 
     def __init__(self, message: str, *, status: str = "", path: str = "",
                  code: str | None = None, fix: str | None = None,

@@ -79,7 +79,8 @@ class WireBoundaryTests(unittest.TestCase):
             )
 
     def test_reported_wire_requests_consume_the_remaining_budget(self):
-        config = XhhConfig(pkey="fixture", heybox_id="101")
+        config = XhhConfig(
+            pkey="fixture", heybox_id="101", protocol_mode="web")
         transport = Transport(config)
         client = SimpleNamespace(config=config, transport=transport)
         budget = Budget(requests=2)
