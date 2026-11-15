@@ -323,7 +323,7 @@ class Browser:
                 returned_user = result.get("user")
                 if not isinstance(returned_user, dict):
                     raise XhhConfigError("public author identity not returned")
-                if author(returned_user)["uid"] != args.user_id:
+                if author({"user": returned_user})["uid"] != args.user_id:
                     raise XhhConfigError("returned author identity does not match requested user")
                 if args.view == "posts":
                     records = rows(result, ("links",))
@@ -331,7 +331,7 @@ class Browser:
                     scope = coverage(result, count=len(records), position=args.offset)
                 else:
                     user = returned_user
-                    data = {**author(user), "bio": user.get("signature") or user.get("description"), "source": evidence,
+                    data = {**author({"user": user}), "bio": user.get("signature") or user.get("description"), "source": evidence,
                             "statistics": {"followers": integer(user.get("fan_num")), "following": integer(user.get("follow_num")),
                                            "posts": integer(user.get("post_link_num")), "articles": integer(user.get("post_article_num"))}}
                     scope = {"completion": "unknown", "gaps": [], "full_history": False}
@@ -339,7 +339,8 @@ class Browser:
                 route = "/bbs/app/profile/" + ("follower/list" if args.view == "followers" else "following/list")
                 raw, result, evidence = self.fetch(route, {"userid": args.user_id, "offset": str(args.offset), "limit": str(args.limit)}, budget)
                 records = rows(result, ("followers", "following", "users", "list"))
-                data = {"items": [author(row) for row in records], "user_id": args.user_id, "source": evidence}
+                data = {"items": [author(row if isinstance(row.get("user"), dict) else {"user": row}) for row in records],
+                        "user_id": args.user_id, "source": evidence}
                 scope = coverage(result, count=len(records), position=args.offset)
         elif args.command == "favourites":
             if args.action == "folders":
@@ -413,6 +414,8 @@ class Browser:
 
     def thread(self, args, budget, prior_data=None):
         nodes, root, page, cursor = {}, None, args.page, None
+        target = args.around or args.root_id
+        reply_location = None
         raw_pages = []
         last_scope = {"completion": "unknown", "gaps": []}
         phase = "comments"
@@ -433,6 +436,8 @@ class Browser:
                     raise XhhConfigError("stored thread belongs to a different target")
                 nodes = {node["id"]: node for node in prior_data.get("items", [])}
                 root = nodes.get(args.root_id) if phase == "replies" else None
+                if prior_data.get("target_id") == target and target in nodes:
+                    reply_location = prior_data.get("reply_location")
         for _ in range(args.pages):
             try:
                 if root is None:
@@ -447,6 +452,8 @@ class Browser:
                             nodes[node["id"]] = (enrich_observation(nodes[node["id"]], node)
                                                  if node["id"] in nodes else node)
                             observed.add(node["id"])
+                            if node["id"] == target:
+                                reply_location = {"page": page, "limit": args.limit, "sort": args.sort, "cursor": None}
                     root = nodes.get(args.root_id)
                     last_scope = coverage(result, count=len(result["comments"]), position=page, mode="page")
                     page += 1
@@ -477,6 +484,8 @@ class Browser:
                         nodes[node["id"]] = (enrich_observation(nodes[node["id"]], node)
                                              if node["id"] in nodes else node)
                         observed.add(node["id"])
+                        if node["id"] == target:
+                            reply_location = {"page": root_page, "limit": args.limit, "sort": args.sort, "cursor": cursor}
                     last_scope = coverage(result, count=len(records), position=cursor, mode="cursor")
                     if last_scope["completion"] == "complete" or last_scope["next"] is None:
                         resumable = False
@@ -495,7 +504,6 @@ class Browser:
                 last_scope["stop_reason"] = "platform_error"
                 last_scope["error"] = {"type": type(error).__name__, "status": getattr(error, "status", None)}
                 break
-        target = args.around or args.root_id
         ancestors, missing, visited, unknown_parents = [], [], set(), []
         node = nodes.get(target)
         while node and node["id"] not in visited:
@@ -526,6 +534,7 @@ class Browser:
                  "page": page if phase == "comments" else root_page, "cursor": cursor}) if resumable and last_scope["completion"] != "complete" else None
         data = {"post_id": args.link_id, "root_id": args.root_id, "target_id": target, "target_observed": target in nodes,
                 "target_observed_this_read": target in observed,
+                "reply_location": reply_location,
                 "ancestor_ids": ancestors, "missing_ancestor_ids": missing, "unknown_parent_ids": unknown_parents,
                 "ancestry_complete": bool(ancestors) and ancestors[-1] == args.root_id and not missing and not unknown_parents,
                 "items": list(nodes.values())}

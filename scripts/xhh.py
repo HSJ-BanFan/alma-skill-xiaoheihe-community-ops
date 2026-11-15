@@ -79,7 +79,9 @@ def parser():
         if name == "reply":
             command.add_argument("root_id", type=numeric_id)
             command.add_argument("reply_id", type=numeric_id)
-            command.add_argument("--page", type=positive, default=1)
+            command.add_argument("--page", type=browser.page_index, default=1)
+            command.add_argument("--limit", type=browser.bounded, default=50)
+            command.add_argument("--sort", choices=("hot", "time_aes", "time_desc"), default="hot")
             command.add_argument("--cursor")
         if name == "comment":
             image = command.add_mutually_exclusive_group()

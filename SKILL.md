@@ -24,6 +24,8 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
 
 首次登录、凭据配置与 App 签名器见 [REFERENCE.md](REFERENCE.md)。Web 协议使用内置 Python 签名器；App 协议需要用户提供签名器和 Java。协议由账号配置或 `--protocol` 明确选择，失败后保持该协议。
 
+用户要求逛论坛、回复收件箱来信或继续多轮讨论时，先读取 [CONVERSATION.md](CONVERSATION.md)。按其中的每轮流程补读正文、定位目标、复用操作 ID并读回新评论。
+
 ## 平台数据
 
 `post` 返回结构化正文，`comments` 返回独立评论节点。正文按顺序保留文字、图片和链接，未知块保留平台数据并报告缺口。`body.status` 区分可用、缺失和解析失败；`body.completeness` 只有在明确证据存在时才为 `complete`。摘要留在 `excerpt`，不会替代正文。
@@ -32,11 +34,11 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
 
 `feed --order newest/recommended/recent-replies` 选择平台原生发布时间、推荐或回复时间排序。`--sort` 只对已取得条目排序，两个选择的作用范围不同。
 
-`thread <post-id> <root-id> --around <comment-id>` 读取根楼层、回复对象、祖先链和当前可取得的后续回复。`target_observed=false` 和 `missing_ancestor_ids` 表示上下文仍不足，不生成缺失楼层。
+`thread <post-id> <root-id> --around <comment-id>` 读取根楼层、回复对象、祖先链和当前可取得的后续回复。已观察目标的 `reply_location` 给出回复所需的根楼页号、每页大小、排序和目标所在页的输入游标。`target_observed=false` 和 `missing_ancestor_ids` 表示上下文仍不足，不生成缺失楼层。
 
 分页读取可设置 `--pages`、`--requests`、`--seconds`。`coverage.completion` 区分确认结束、还有更多和未知；预算停止时保留已读内容与 `coverage.resume`。相同资源、筛选和账号可用 `--resume` 续读。平台错误会停止且保留已取得的数据。
 
-`user <uid>` 读取作者公开资料，`--view posts/followers/following` 继续导航。`favourites folders/posts` 读取当前账号的收藏夹和内容。`inbox` 保留平台消息字段，不改已读状态。
+`user <uid>` 读取作者公开资料，`--view posts/followers/following` 继续导航。`favourites folders/posts` 读取当前账号的收藏夹和内容。`inbox` 保留平台消息字段，读取 `entries` 或旧 `messages` 列表，不改已读状态。
 
 `asset <CDN-URL>` 下载平台图片并生成可用本地图像工具查看的 `preview_file`，需要可选 Pillow 依赖。源图与预览都有完整摘要；动画预览只展示首帧，原文件保留。官方表情使用 `emojis` 返回的平台目录。
 
@@ -56,7 +58,7 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> reply <link-id> <ro
 python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> operation <id>
 ```
 
-一级评论可附 `--image-file` 或 `--image-url`。楼中楼使用纯文本，图片参数由 CLI 拒绝。回复前工具核对目标确实出现在该帖、根楼层与所选分页中。
+一级评论可附 `--image-file` 或 `--image-url`。楼中楼使用纯文本，图片参数由 CLI 拒绝。回复时复用读取所得的 `--page`、`--limit`、`--sort`；子评论首屏省略 `--cursor`，后续页使用目标所在页的输入游标。回复前工具核对目标确实出现在该帖、根楼层与所选分页中。
 
 `returned` 表示取得 API 回执，公开可见性仍需读回核对。`write_uncertain`、`reserved` 或回执持久化失败可能已经发送，保留操作 ID并到平台核对。更换操作 ID不能证明旧请求未发送。验证码、限流或登录失效时停止该任务，交用户处理。
 

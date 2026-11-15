@@ -17,6 +17,8 @@
 
 默认数据目录是 `~/.xiaoheihe-tools`。技能不搜索其他应用的数据目录。管理账号使用 Windows DPAPI；Linux 和 macOS 使用用户提供的配置文件或环境变量。
 
+复用旧账号库时，在全局参数中明确提供其所在 `--data-dir`，并在该目录运行 `account list`、`account status <alias> --online`。默认目录中的状态不代表其他目录的登录状态。目录选择和在线核验成功后，后续读取、回复与回执查询使用同一目录和账号。
+
 账号与签名器管理复用随技能提供的 `xhh_sdk`，返回 SDK 自身的 JSON 或 CLI 帮助。安装 Creator 登录所需的可选依赖后，在用户的交互浏览器中登录。
 
 ```console
@@ -61,9 +63,9 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 | `emojis` | 平台官方表情目录；服务器可能返回空组 |
 | `operation ID` | 本地按真实 UID 隔离的发送状态及回执 |
 
-收件箱的 `comment_a_id` 是来信 CID，`comment_b_id` 是被回复的 CID，`root_comment_id` 是根楼层，`linkid` 是帖子 ID。正文分别在 `comment_a_text` 和 `comment_b_text`，工具保持原始内容。
+收件箱使用平台返回的 `entries` 列表，缺少该字段时接受旧 `messages` 列表。平台字段、完整正文和未读数量保持原样；存在但形状错误的列表返回 `invalid_inbox_response`。`comment_a_id` 是来信 CID，`comment_b_id` 是被回复的 CID，`root_comment_id` 是根楼层，`linkid` 是帖子 ID。正文分别在 `comment_a_text` 和 `comment_b_text`。
 
-`replies` 的下一位置在 `coverage.next`，完整绑定账号、命令和查询的续读令牌在 `coverage.resume`；平台原始 `lastval` 只在 `--raw` 的原始页中保留。`coverage.has_more` 缺失时完成状态未知。`inbox.next_offset` 仅提供下一读取位置，不能证明后续为空。板块 ID 由用户或平台查询选择，工具不内置兴趣板块。
+`replies` 的下一位置在 `coverage.next`，完整绑定账号、命令和查询的续读令牌在 `coverage.resume`；平台原始 `lastval` 只在 `--raw` 的原始页中保留。`coverage.has_more` 缺失时完成状态未知。收件箱的 `coverage.next_offset` 按本页实际消息数计算，仅提供下一读取位置，不能证明后续为空。板块 ID 由用户或平台查询选择，工具不内置兴趣板块。
 
 ## 写入
 
@@ -72,7 +74,7 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 | 命令 | 参数 |
 | --- | --- |
 | `comment LINK` | `--text-file FILE`，可选互斥 `--image-file FILE` 或 `--image-url HTTPS_URL` |
-| `reply LINK ROOT REPLY` | `--text-file FILE`，可选 `--page N`、`--cursor CURSOR` 定位深楼 |
+| `reply LINK ROOT REPLY` | `--text-file FILE`，`--page N` 为正的绝对页号；`--limit N` 默认 50，`--sort hot/time_aes/time_desc` 默认 hot；`--cursor CURSOR` 定位后续子评论页 |
 | `like LINK` | 原平台 `like/combo` 接口，可能涉及充电，不保证免费 |
 | `favourite LINK` | 收藏到平台默认收藏夹 |
 | `unfavourite LINK` | 取消收藏 |
@@ -82,6 +84,8 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 | `delete-post LINK` | 先核对帖子归当前账号所有 |
 
 回复使用纯文本。一级评论配图只依据调用方传入的文件或 URL，工具不会搜索本地图库，也不要求写出不配图的理由。上传使用小黑盒自身的 COS 流程。
+
+回复定位使用与读取相同的根楼页号、每页大小和排序。首个子评论页使用空的输入游标，CLI 省略 `--cursor`。显式提供游标时，精确目标必须出现在对应的子评论页；根楼预览中存在目标不能代替所选游标页的核验。
 
 发帖 JSON 使用 SDK 的 `Post` 字段。先单独上传本地图像，再把返回的 HTTPS URL 放入 `images`。下面的文件描述普通动态。
 
@@ -145,6 +149,8 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 | `snapshot list/show/resume/diff` | 查询、继续或比较本地浏览观察 |
 
 信息流统计的 `charges` 来自 `link_award_num`，不把服务器的占位 `up=0` 当成点赞数。缺失的统计值是 `null`。正文摘要与正文分开，`body_not_returned`、`invalid_body_json` 和未知块均有明确缺口。非空正文自身不证明平台已给出全文。
+
+`thread.data.reply_location` 给出该次指定目标的回复位置，字段为 `page`、`limit`、`sort`、`cursor`。`page` 是根楼被观察到的绝对页号；`cursor` 是实际包含目标的子评论页的输入游标，首屏和根楼预览为 `null`。读取更多页后，该位置仍对应目标，独立于最后一页的 `coverage.next`。未观察到目标时位置为 `null`。保存的已观察目标位置可随快照续读保留；旧快照缺少位置时，需重新观察目标。位置仅用于定位，发送前仍核验目标。
 
 分页的 `completion=complete` 需要平台终点或总页数证据。空数组、缺少游标或达到预算只能产生 `unknown` 或停止状态，不能证明全量读取结束。`coverage.resume` 绑定真实账号、协议、资源和筛选；换资源或账号时被拒绝。页内与本次多页之间按 ID 去重。
 
