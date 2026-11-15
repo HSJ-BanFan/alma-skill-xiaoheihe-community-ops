@@ -26,7 +26,7 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
 
 用户要求逛论坛、回复收件箱来信或继续多轮讨论时，先读取 [CONVERSATION.md](CONVERSATION.md)。按其中的每轮流程补读正文、定位目标、复用操作 ID并读回新评论。
 
-准备继续既有讨论、核对来信处置或恢复发送结果时，读取 [互动参考](docs/INTERACTION.md)。`interaction status <post-id>` 和 `interaction history <post-id>` 查询本地事实，`--peer <uid>`、`--root <cid>` 缩小讨论范围；`interaction sync <post-id>` 在预算内核验账号并补录平台读取。工具自动保存目标、回执和可信读取，调用方决定是否回复及回复风格。
+准备继续既有讨论、核对来信处置或恢复发送结果时，读取 [互动参考](docs/INTERACTION.md)。`interaction status <post-id>` 查询参与、轮数和待处理状态，`interaction history <post-id>` 返回评论 ID、作者、回复关系和时间；`--peer <uid>`、`--root <cid>` 缩小讨论范围。互动存储只保存结构化事实，原文和配图按需要用 `post`、`thread` 当前读取取得。`interaction sync <post-id>` 在预算内核验账号并补录事实，调用方决定是否回复及回复风格。
 
 ## 平台数据
 

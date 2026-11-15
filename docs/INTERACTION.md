@@ -1,6 +1,6 @@
 # 互动接口参考
 
-互动输出保存可验证的评论、回复关系、来信与发送证据。调用方决定继续讨论的范围、正文和风格。全部新命令使用现有 `{version, ok, kind, data, coverage, error}` 信封，`version=2`、`kind=interaction`。
+互动记录保存可验证的评论 ID、作者 UID、回复关系、交互类型、时间、来信目标与发送证据。持久化记录不包含帖子正文、评论全文、图片、媒体 URL 或原始通知 JSON。调用方决定继续讨论的范围、正文和风格。全部新命令使用现有 `{version, ok, kind, data, coverage, error}` 信封，`version=2`、`kind=interaction`。
 
 ## 本地查询
 
@@ -12,11 +12,13 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> --data-dir <dir> in
 
 `--peer` 和 `--root` 可省略。POST 接受帖子 ID 或现有 CLI 支持的标准链接。账号选择沿用全局 `--account`、`--config` 或 `--env`。查询使用配置中的 UID 定位本地记录，不构造网络客户端，也不核验当前登录。
 
-`status` 返回该范围的已知计数、`pending`、`unresolved_operations`、`peer_summaries`、祖先缺口和来源覆盖。`history` 的 `data.items` 返回完整原始正文、作者 UID、帖子与根楼、直接回复 CID 和 UID、媒体引用、平台创建时间、本地观察时间、字段证据以及关联操作 ID。缺少平台创建时间时 `created_at=null`，回执时间不会充当创建时间。
+`status` 返回该范围的已知计数、`pending`、`unresolved_operations`、`peer_summaries`、祖先缺口和来源覆盖。`history` 的 `data.items` 返回交互类型、作者 UID、帖子与根楼、评论 CID、直接回复 CID 和 UID、平台创建时间、本地观察时间、字段证据以及关联操作 ID。缺少平台创建时间时 `created_at=null`，回执时间不会充当创建时间。需要原文时，用这些 ID 调用 `post` 或 `thread --around <CID>`，读取当下的内容。
+
+`items.interaction_type` 为 `comment`、`reply` 或关系不足时的 `unknown`。帖子级的 `known_actions` 单独列出 `like`、`favourite` 和 `unfavourite` 的操作 ID、账号、目标、发送状态与时间。它们不增加评论数或讨论轮数，也不代表当前点赞或收藏状态。peer 和 root 查询只返回属于该讨论范围的记录。
 
 历史默认从较新消息开始，优先按平台创建时间排序。没有创建时间时使用回执时间或首次观察时间，`order_time_source` 标明依据；`created_at` 仍保持 null，刷新时间不参与排序。相同排序时间按数值 CID 降序稳定分页。`--limit` 默认 20，范围 1 至 100。续读绑定 UID、帖子、peer、root 和排序，页大小可改变。`has_more_local` 只描述已知本地记录，`coverage.resume` 为 null 表示本地这一页已结束。分页期间新出现的较新记录在下一次首屏查询取得；分页不是平台全量历史证明。
 
-peer 筛选保留自己的开场消息和已知祖先原文。仅为理解上下文而加入的其他用户祖先标记 `context_only=true`，不增加该 peer 的消息数、待处理集合或完成轮数。
+peer 筛选保留自己的开场评论和已知祖先的关系记录。仅为说明回复链而加入的其他用户祖先标记 `context_only=true`，不增加该 peer 的消息数、待处理集合或完成轮数。
 
 本地查询可先恢复已提交回执的派生记录。恢复使用原目标及回执中的精确 CID，不发送 POST。`projection_complete=false` 保留恢复缺口。数据库不存在时查询返回空的已知记录与 `participation=unknown`，不会创建目录或 SQLite 文件。帮助及离线 doctor 同样不创建状态。
 
@@ -65,7 +67,7 @@ peer 筛选保留自己的开场消息和已知祖先原文。仅为理解上下
 
 每个有效读取页先保存事实，再推进网络续读。普通浏览的 `coverage.interaction_capture` 报告保存结果，失败时标记 `interaction_cache_incomplete` 并保留读取内容。旧快照离线展示或未交付输出重放不把旧观察当作新平台事件。快照平台差异计算排除本地参与摘要。
 
-`post.data.interaction` 与 `feed`、`hot` 每个条目的 `interaction` 只包含轻量参与及计数，不展开 peer 正文或待处理集合。信息流使用批量本地查找，不额外发 HTTP。已知零条与 unknown 都不能作为从未评论的依据。
+`post.data.interaction` 与 `feed`、`hot` 每个条目的 `interaction` 只包含轻量参与及计数，不展开 peer 关系记录或待处理集合。信息流使用批量本地查找，不额外发 HTTP。已知零条与 unknown 都不能作为从未评论的依据。
 
 本地参与摘要读取失败时，保留成功取得的帖子或信息流正文。摘要标记 `cache_incomplete=true`、计数为 null，不能据此断言尚未参与。同步的身份保存失败则返回 storage_error，保留原续读位置和此前本地状态。
 
@@ -92,7 +94,7 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> --data-dir <dir> in
 
 达到预算时保留 `request_budget`、`time_budget` 或 `page_budget` 停止原因及令牌。验证码、平台错误、登录失效或畸形后续页产生 `ok=false`、`platform_error`，保留此前已读数据和失败位置的续读令牌。重复游标产生 `cursor_stalled`，已经取得的节点仍保留。
 
-保存失败产生 `storage_error` 和 `interaction_cache_incomplete`，`data.unpersisted_page` 保留尚未落盘的完整页，续读位置保持在该页。当前登录在续读前失效时，同样保留已有本地事实和原查询令牌，当前身份标记为未核验。
+保存失败产生 `storage_error` 和 `interaction_cache_incomplete`，`data.unpersisted_page` 在本次响应中保留未能导入事实的完整页，续读位置保持在该页；该原始页不进入互动数据库。当前登录在续读前失效时，同样保留已有本地事实和原查询令牌，当前身份标记为未核验。
 
 `coverage.scan_finished=true` 表示本次来源遍历已走到可取得的终点，不表示全量历史已覆盖。没有续读位置、空数组和 own-comment 列表的终点证据不足时仍保留 gaps。第一版的 `history_complete` 始终为 false，`completion=unknown`。新一轮检查最新通知从 offset 0 开始，而不是把旧历史游标作为最新消息检查。
 
@@ -100,8 +102,8 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> --data-dir <dir> in
 
 SQLite 位于 `--data-dir/operations.sqlite3`，四张互动表与原 operations 共库。CID、帖子和 UID 使用 TEXT，评论身份为 UID 加 CID，帖子归属不可改写。连接启用 foreign keys、WAL、FULL synchronous 和 10 秒 busy timeout。目录和数据库使用现有本地所有者权限边界。网络不在写事务中执行。
 
-评论 reservation 与完整目标和正文同时提交。局部图片先绑定文件摘要，上传后、评论 POST 前再保存实际图片 URL 和完整提交请求。上下文落盘失败时不会继续评论 POST。回执先由 operations 提交，派生评论及投影标记另在一个事务中更新；派生失败不会把 returned 改成未发送。
+评论 reservation 与帖子、根楼、回复目标和请求指纹同时提交。上传后、评论 POST 前再次按指纹核对保留的目标及正文，并保存提交指纹。正文、图片和完整请求只用于本次发送。目标绑定或提交核对失败时不会继续评论 POST。回执先由 operations 提交，派生评论 ID、关系及投影标记另在一个事务中更新；派生失败不会把 returned 改成未发送。
 
-字段证据区分 public、own_list、inbox 和 receipt。正文和媒体在公开读取与自己的列表之间按平台编辑版本或实际观察时间选择较新值；作者和回复关系的公开证明仍独立保留。来信摘录与旧提交文本不覆盖后来的平台正文。相同来源按平台编辑版本或观察时间合并，稀疏缺失保留已有字段，明确空文本可以更新正文。旧回执不覆盖新平台编辑，也不把旧创建时间改成当前时间。媒体保存引用，缓存文件仍由 asset 功能管理。论坛文本作为平台内容保留，不能当成工具或系统指令。
+字段证据区分 public、own_list、inbox 和 receipt，记录结构化字段的来源和观察时间。相同来源按平台编辑版本或观察时间合并；稀疏缺失保留已有事实。旧回执不覆盖后来的平台关系证明，也不把旧创建时间改成当前时间。来源、同步断点和回执只保存允许的结构化字段。
 
-自己的评论列表中的 comment_images 与公开 imgs/images 都保存为附件引用。媒体标记 inline/attachment 来源；完整正文中的插图删除会更新 inline 引用，未返回的附件字段保留先前观察，不把它当作附件已删除。
+数据库版本为 2。首次使用实验版本 1 的互动库时，工具在事务中保留 ID、关系、时间、发送指纹与状态，移除旧正文、媒体、原始通知和完整请求列。只有原 operations 表的旧库不通过哈希猜测历史目标。缺少数据库的本地查询仍不会创建状态。SQLite 的删除清理与 WAL checkpoint 会在迁移时执行；持有旧快照的并发读取可能延后 WAL 清理。

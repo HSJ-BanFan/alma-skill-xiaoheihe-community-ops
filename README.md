@@ -15,7 +15,7 @@ python -I -X utf8 scripts/xhh.py --protocol web doctor --offline
 
 浏览工具提供结构化正文、完整性证据、社区发现、评论上下文、预算续读、作者与收藏导航以及账号隔离的公开观察快照。媒体预览按需安装 `requirements-media.txt`。读取输出版本为 `2`，`post/comments` 数据结构已更新；原始平台响应通过 `--raw` 按需取得。
 
-互动历史共用 `operations.sqlite3`，按实际 UID 与 CID 隔离，自动记录评论目标、回执、有效收件箱和可信公开观察。`interaction status`、`interaction history` 是本地查询，`interaction sync` 按请求、时间和页数预算补录；`post`、`feed` 和 `hot` 自动附加轻量本地摘要。完整契约见 [互动参考](docs/INTERACTION.md)，共库及字段合并选择见 [存储说明](docs/INTERACTION_STORAGE.md)。历史可信 UID 与当前读取的在线核验分别标记，单请求 post 保持原预算。
+互动历史共用 `operations.sqlite3`，按实际 UID 与 CID 隔离，自动记录评论目标、回复关系、回执、时间和可信来源。持久化记录不包含帖子正文、评论全文、图片或原始通知。`interaction status`、`interaction history` 是本地事实查询，`interaction sync` 按请求、时间和页数预算补录；`post`、`feed` 和 `hot` 自动附加轻量本地摘要。讨论原文按需要从 `post` 和 `thread` 当前读取取得。完整契约见 [互动参考](docs/INTERACTION.md)，SQLite 及字段选择见 [存储说明](docs/INTERACTION_STORAGE.md)。历史可信 UID 与当前读取的在线核验分别标记，单请求 post 保持原预算。
 
 实现顺序、行为测试和真实只读范围见 [浏览验证记录](docs/BROWSER_VERIFICATION.md)。没有把测试通过或 API 接受当作全量正文与公开效果证明。
 

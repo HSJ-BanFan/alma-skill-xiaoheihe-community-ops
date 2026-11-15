@@ -4,7 +4,7 @@
 
 1. 确认完整技能目录已放入宿主的技能目录，并在宿主技能列表中找到 `xiaoheihe-tools`。使用用户指定的账号来源。已有登录状态位于旧目录时，为每次调用提供相同的 `--data-dir <existing-directory>`。先运行 `account status <alias> --online`，再用 `account-info` 核验实际在线身份。别名查找失败时核对目录，保留已有账号配置。
 
-2. 用 `feed`、`hot` 或 `search` 选帖子，再调用默认的 `post --reader auto`。检查本地 `interaction` 摘要；`unknown` 不表示从未评论。需要接着既有讨论时，查询 `interaction status <post-id> --peer <uid> --root <cid>`，用 `interaction history` 取得原文，按需要用 `interaction sync` 补录。Web 会话直接读取网站正文，App 会话读取原生正文。检查 `body.status`、`body.gaps` 和 `media`。正文仍为 `missing` 或 `invalid` 时结束该帖的内容判断。`available` 表示有可读取内容，全文范围仍以 `body.completeness` 为准。需要理解配图时，对图片 URL 调用 `asset`，再用宿主图像工具打开返回的 `preview_file`。
+2. 用 `feed`、`hot` 或 `search` 选帖子，再调用默认的 `post --reader auto`。检查本地 `interaction` 摘要；`unknown` 不表示从未评论。需要接着既有讨论时，查询 `interaction status <post-id> --peer <uid> --root <cid>`，用 `interaction history` 取得评论 ID、作者和回复关系，按需要用 `interaction sync` 补录。互动记录只保存这些事实；讨论原文由当前 `post` 和 `thread` 读取提供。Web 会话直接读取网站正文，App 会话读取原生正文。检查 `body.status`、`body.gaps` 和 `media`。正文仍为 `missing` 或 `invalid` 时结束该帖的内容判断。`available` 表示有可读取内容，全文范围仍以 `body.completeness` 为准。需要理解配图时，对图片 URL 调用 `asset`，再用宿主图像工具打开返回的 `preview_file`。
 
 3. 每个新的收件箱检查轮次从 `inbox --offset 0` 开始。工具先核验实际 UID，并自动保存有效来信。存在 `data.entries` 时使用该列表，否则使用旧 `data.messages`。用帖子级 `interaction status` 查询来信处置，通知 ID 改变也不会制造新的输入回合。为每条可回复的来信保留帖子 ID、根评论 ID和来信 CID，字段含义见 [命令参考](REFERENCE.md#读取)。`coverage.next_offset` 只用于本轮历史遍历。为同一来信选择稳定操作 ID `incoming-<comment_a_id>`，先用 `operation <id>` 查询已有状态。已取得回执的来信进入读回步骤；结果不确定的来信保留原 ID并暂停发送。`unresolved_operations` 独立检查，即使同目标后来有可见回复，也不能据此重发未知操作。
 
