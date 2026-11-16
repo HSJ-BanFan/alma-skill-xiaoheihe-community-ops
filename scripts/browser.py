@@ -39,6 +39,14 @@ PUBLIC_TITLE_FALLBACKS = {
     "小黑盒",
     "小黑盒 - 玩家的游戏社区",
 }
+HTML_VOID_ELEMENTS = frozenset({
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "keygen",
+    "link", "meta", "param", "source", "track", "wbr",
+})
+HTML_BLOCK_SEPARATORS = frozenset({
+    "p", "div", "li", "blockquote", "pre", "h1", "h2", "h3", "h4", "h5",
+    "h6", "tr",
+})
 
 
 @dataclass(frozen=True)
@@ -148,8 +156,8 @@ def _fit_items(data, args, scope, *, matched):
 class PublicPageParser(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.depth = 0
-        self.article_depth = 0
+        self.stack = []
+        self.article_root = None
         self.in_title = False
         self.title = []
         self.meta = {}
@@ -161,10 +169,17 @@ class PublicPageParser(HTMLParser):
         self._script = None
 
     def handle_starttag(self, tag, attributes):
-        values = dict(attributes)
-        self.depth += 1
-        if tag == "article" or (tag == "main" and not self.article_depth):
-            self.article_depth = self.depth
+        self._start_tag(tag, dict(attributes), self_closing=False)
+
+    def handle_startendtag(self, tag, attributes):
+        self._start_tag(tag, dict(attributes), self_closing=True)
+
+    def _start_tag(self, tag, values, *, self_closing):
+        if tag not in HTML_VOID_ELEMENTS and not self_closing:
+            self.stack.append(tag)
+        if tag in {"article", "main"} and not self_closing:
+            if tag == "article" or self.article_root is None:
+                self.article_root = len(self.stack)
         if tag == "title":
             self.in_title = True
         if tag == "meta":
@@ -172,16 +187,15 @@ class PublicPageParser(HTMLParser):
             content = values.get("content")
             if key and content:
                 self.meta[str(key).casefold()] = content
-        if tag == "h1" and self.article_depth:
-            self.heading_depth = self.depth
+        if tag == "h1" and self.article_root is not None:
+            self.heading_depth = len(self.stack)
             self._heading = []
-        if tag == "script":
+        if tag == "script" and not self_closing:
             kind = str(values.get("type") or "").casefold()
             if kind == "application/ld+json":
                 self._script = []
-        if self.article_depth and tag in {
-                "p", "div", "li", "blockquote", "pre", "h1", "h2", "h3",
-                "h4", "h5", "h6", "tr", "br"}:
+        if (self.article_root is not None
+                and tag in HTML_BLOCK_SEPARATORS | {"br"}):
             self.parts.append("\n")
 
     def handle_endtag(self, tag):
@@ -196,13 +210,20 @@ class PublicPageParser(HTMLParser):
                 self.headings.append(text)
             self.heading_depth = 0
             self._heading = []
-        if self.article_depth and tag in {
-                "p", "div", "li", "blockquote", "pre", "h1", "h2", "h3",
-                "h4", "h5", "h6", "tr"}:
+        if (self.article_root is not None
+                and tag in HTML_BLOCK_SEPARATORS):
             self.parts.append("\n")
-        if self.article_depth == self.depth:
-            self.article_depth = 0
-        self.depth = max(0, self.depth - 1)
+        try:
+            index = len(self.stack) - 1 - self.stack[::-1].index(tag)
+        except ValueError:
+            return
+        closes_article = (
+            self.article_root is not None
+            and index + 1 == self.article_root
+        )
+        del self.stack[index:]
+        if closes_article:
+            self.article_root = None
 
     def handle_data(self, data):
         if self._script is not None:
@@ -211,7 +232,8 @@ class PublicPageParser(HTMLParser):
             self.title.append(data)
         if self.heading_depth:
             self._heading.append(data)
-        if self.article_depth:
+        if (self.article_root is not None
+                and len(self.stack) >= self.article_root):
             self.parts.append(data)
 
 
@@ -1522,23 +1544,32 @@ class Browser:
                 stop = StopState.budget_pause(error.reason)
                 break
             except XhhError as error:
+                reader_stop = StopState.from_error(error)
                 attempt.update({
                     "status": "error",
-                    "error": error.public(),
+                    "error": reader_stop.error,
                 })
                 errors.append(error)
-                if not error.retry_allowed:
-                    stop = StopState(
-                        StopKind.BLOCKED,
-                        reason="platform_error",
-                        error=error.public(),
-                    )
+                if reader_stop.kind == StopKind.BLOCKED:
+                    stop = reader_stop
                     break
                 continue
             if value["body"]["completeness"] == "complete":
                 stop = StopState.complete()
                 break
         if not documents:
+            if stop is not None and stop.kind == StopKind.BLOCKED and errors:
+                public = stop.error or {}
+                terminal = errors[-1]
+                if (terminal.code == public.get("code")
+                        and terminal.retry_allowed is False):
+                    raise terminal
+                raise XhhError(
+                    str(public.get("message") or "reader stopped"),
+                    code=str(public.get("code") or "platform_error"),
+                    fix=public.get("fix"),
+                    retry_allowed=False,
+                )
             terminal = next(
                 (error for error in reversed(errors)
                  if not error.retry_allowed),

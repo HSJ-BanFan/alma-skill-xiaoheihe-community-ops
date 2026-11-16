@@ -117,7 +117,11 @@ def load_config(args):
         if args.protocol:
             raise XhhConfigError(
                 "the html reader is public and cannot use --protocol")
-        return public_reader_config()
+        identity = (
+            AccountStore(args.data_dir).get(args.account).identity
+            if args.account else "0"
+        )
+        return public_reader_config(identity)
     public_auto = (
         args.command == "post"
         and args.reader == "auto"
@@ -237,7 +241,10 @@ def coverage_error(scope, protocol):
 
 
 def project_delivery(coverage, error=None):
-    projected = project_coverage(coverage)
+    value = dict(coverage) if isinstance(coverage, dict) else {}
+    if isinstance(error, dict):
+        value["error"] = dict(error)
+    projected = project_coverage(value)
     if delivery_ok(projected):
         return projected, None, True
     projected_error = coverage_error(projected, None)

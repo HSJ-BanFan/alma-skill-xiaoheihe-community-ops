@@ -25,6 +25,7 @@ from xhh_sdk.exceptions import (
     XhhAPIError,
     XhhCaptchaError,
     XhhConfigError,
+    XhhError,
     XhhTransportError,
 )
 from xhh_sdk.transport import Transport
@@ -316,6 +317,41 @@ class ReaderEvidenceTests(unittest.TestCase):
                 self.assertEqual(scope["error"]["code"], expected)
                 self.assertIsNone(scope["resume"])
                 self.assertEqual(calls, ["native", "website"])
+
+    def test_reader_block_without_a_document_keeps_the_stable_code(self):
+        calls = []
+
+        def blocked(args, budget):
+            calls.append("native")
+            raise XhhAPIError(
+                "HTTP 429", status="HTTP_429", retry_allowed=True)
+
+        plan = [
+            browser.ReaderSpec(
+                "native", "app", "/bbs/app/link/tree",
+                blocked),
+            browser.ReaderSpec(
+                "website", "web", "/bbs/app/link/tree",
+                lambda args, budget: calls.append("website")),
+        ]
+        value = browser.Browser(
+            ClientFixture("app", lambda *args: self.fail("unused")),
+            clients={
+                "app": ClientFixture("app", lambda *args: self.fail("unused")),
+                "web": ClientFixture("web", lambda *args: self.fail("unused")),
+            },
+        )
+
+        with self.assertRaises(XhhError) as caught:
+            value.post(
+                xhh.parser().parse_args(["post", "123", "--reader", "auto"]),
+                Budget(requests=2),
+                plan=plan,
+            )
+
+        self.assertEqual(caught.exception.code, "rate_limited")
+        self.assertFalse(caught.exception.retry_allowed)
+        self.assertEqual(calls, ["native"])
 
     def test_later_terminal_reader_error_outranks_earlier_transport_failure(self):
         app = ClientFixture("app", lambda *args: self.fail("signed request"))

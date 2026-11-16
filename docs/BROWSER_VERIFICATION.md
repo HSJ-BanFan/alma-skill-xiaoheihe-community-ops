@@ -2,6 +2,32 @@
 
 本文把离线行为、真实平台观察和尚未验证的能力分开记录。测试通过只证明本地合同，真实请求成功只证明当次平台响应，二者都不能证明正文完整、历史已穷尽或公开可见。
 
+## 2026-11-16 reader follow-up
+
+### 离线验证
+
+- 完整 `unittest` 为 `289/289` 通过。新增回归覆盖自动 reader 在验证码或 HTTP 429 后停止、无正文文档时仍保留稳定阻断码、旧 pending 状态中的阻断错误优先于 `partial`、公开 HTML 在 void 元素后结束文章边界、显式 HTML 账号别名先于网络校验，以及旧 App-only 配置上的显式 website 读取返回 `web_session_missing`。
+- `scripts/` 与 `tests/` 通过 `compileall`，Ruff F 检查和 `git diff --check` 无错误。
+- `tests/verify_portable.py` 验证 21 个 SDK 文件摘要，输出 `ok=true`、`offline_state_writes=0`、`fixture_tests=passed` 和 `live_platform=not_tested`。
+- Skill 官方验证器返回 `Skill is valid!`。
+
+### 真实只读观察
+
+本轮继续使用已保存的 App 会话，没有发送短信、重新登录或执行任何写操作。每个命令都设置了明确的请求、页面和条目上限。
+
+- `feed 549999 --pages 1 --limit 5`、`hashtags links 23455 --name 存钱 --pages 1 --limit 5` 和 `stories --pages 1 --limit 5` 均返回 5 条，退出码为 0，coverage 为 `partial`，停止原因为条目预算。
+- `post 196926795 --reader html --requests 1` 在没有账号和签名器时只执行一次公开 HTTPS GET。该帖公开页面没有文章正文，因此返回 `body_missing` 和明确的 HTML 元数据缺口。
+- `post 196926795 --reader website --protocol web` 在只有 App 会话时返回 `web_session_missing`，没有借用 App 会话，也没有发出替代请求。
+- `post 196926795 --reader native --raw` 返回 `body.completeness=partial`、`unsupported_body_block` 缺口和成功 reader 的 `raw_responses`。
+- `post 196926795 --reader auto --requests 2` 依次尝试 App 和公开 HTML，最终选择 `native`，保留两次 reader attempt，正文仍为 `partial`。没有把公开 HTML 的正文缺失覆盖到 App 正文证据上。
+- 本轮真实请求没有出现 `show_captcha` 或限流响应。
+
+### 仍未验证
+
+- 当前账号仍没有 Web 会话，因此真实 website 正文读取尚未验证。
+- 所测公开 HTML 页面没有文章正文，因此没有证明该 reader 能恢复任意公开长文。
+- 本地回归证明验证码、限流和旧 pending 阻断状态会清除 resume，但本轮没有主动制造这些平台状态。
+
 ## 2026-11-15 集成版
 
 ### 离线验证

@@ -53,7 +53,7 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
 
 `asset <CDN-URL>` 下载平台图片并生成可用本地图像工具查看的 `preview_file`，需要可选 Pillow 依赖。源图与预览都有完整摘要；动画预览只展示首帧，原文件保留。官方表情使用 `emojis` 返回的平台目录。
 
-`post --reader native/website/html/auto` 选择正文读取方式。`native` 要求 App，`website` 要求 Web，`html` 读取无凭据的公开页面。`html` 不接受 `--protocol`，不需要账号或签名器；显式入口不会切换协议，`auto` 只跳过缺失的会话并记录每次尝试。正文和身份证据按实际读取器记录，公开 HTML 不会继承 App 或 Web 的核验结果。除只读元数据外，所需正文为空会以 `body_missing` 失败。标题或作者没有公开证据时保留缺口，不从帖子 ID 或通用站点标题推断。`--section` 和 `--body-format` 可减少不需要的输出，`--raw` 包含成功 reader 的原始响应，仅用于检查。
+`post --reader native/website/html/auto` 选择正文读取方式。`native` 要求 App，`website` 要求 Web，`html` 读取无凭据的公开页面。`html` 不接受 `--protocol`，不需要账号或签名器；如果同时传入 `--account`，工具先验证别名，只把账号 UID 用作快照命名空间。显式入口不会切换协议，`auto` 只跳过缺失的会话并记录每次尝试。正文和身份证据按实际读取器记录，公开 HTML 不会继承 App 或 Web 的核验结果。除只读元数据外，所需正文为空会以 `body_missing` 失败。标题或作者没有公开证据时保留缺口，不从帖子 ID 或通用站点标题推断。`--section` 和 `--body-format` 可减少不需要的输出，`--raw` 包含成功 reader 的原始响应，仅用于检查。
 
 普通浏览的 `source.configured_uid` 是配置中的数据命名空间，`source.identity_verified=false` 只表示本次没有核验在线会话身份。需要持续浏览时用 `--snapshot <name>` 保存公开观察与断点，`--since <name>` 查看同一查询的新增、变化和未再次观察到的条目。保存、`--since` 和网络续读会先核验在线 UID。未交付的 pending 响应可以在唯一名称下先离线重放；名称跨多个账号时仍需显式选择账号。其他离线快照操作按配置 UID 隔离，不表示身份已核验。缺失条目不推断为删除。
 

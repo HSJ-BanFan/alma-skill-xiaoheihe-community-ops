@@ -168,7 +168,7 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 
 信息流统计的 `charges` 来自 `link_award_num`，不把服务器的占位 `up=0` 当成点赞数。缺失的统计值是 `null`。正文摘要与正文分开，`body_not_returned`、`invalid_body_json` 和未知块均有明确缺口。非空正文自身不证明平台已给出全文。
 
-正文读取的 `reader_attempts` 和 `provenance` 分别记录每次读取及最终元数据、正文来源。`identity_verified` 属于实际完成会话核对的读取器；公开 HTML 不发送凭据，也不会继承 App/Web 的核验结果。公开 HTML 只从结构化元数据、文章标题或非通用页面标题提取标题，只从结构化作者或作者元数据提取作者；缺失时分别报告 `html_title_not_found` 和 `html_author_not_found`。公开 HTTP 401/403 返回 `http_access_denied`，超过 4 MiB 返回 `public_response_too_large`。除 `--section metadata` 外，所需正文为空会以 `body_missing` 失败，不会返回 `complete`。
+正文读取的 `reader_attempts` 和 `provenance` 分别记录每次读取及最终元数据、正文来源。`identity_verified` 属于实际完成会话核对的读取器；公开 HTML 不发送凭据，也不会继承 App/Web 的核验结果。显式 `--reader html` 如果同时传入 `--account`，工具会先验证该别名，只把账号的 UID 用作快照命名空间；GET 仍不携带账号凭据或签名器。公开 HTML 只从结构化元数据、文章标题或非通用页面标题提取标题，只从结构化作者或作者元数据提取作者；缺失时分别报告 `html_title_not_found` 和 `html_author_not_found`。公开 HTTP 401/403 返回 `http_access_denied`，超过 4 MiB 返回 `public_response_too_large`。除 `--section metadata` 外，所需正文为空会以 `body_missing` 失败，不会返回 `complete`。
 
 `thread.data.reply_location` 给出该次指定目标的回复位置，字段为 `page`、`limit`、`sort`、`cursor`。`page` 是根楼被观察到的绝对页号；`cursor` 是实际包含目标的子评论页的输入游标，首屏和根楼预览为 `null`。读取更多页后，该位置仍对应目标，独立于最后一页的 `coverage.next`。未观察到目标时位置为 `null`。保存的已观察目标位置可随快照续读保留；旧快照缺少位置时，需重新观察目标。位置仅用于定位，发送前仍核验目标。
 
