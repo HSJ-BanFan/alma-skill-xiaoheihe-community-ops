@@ -838,34 +838,6 @@ def post_filter_reason(args, item):
     return None
 
 
-def relation(raw, user_id, current_user_id):
-    if not isinstance(raw, dict):
-        raise XhhConfigError("relation summary must be an object")
-    first = lambda *keys: next((raw[key] for key in keys if key in raw), None)
-    following = raw.get("is_follow") if "is_follow" in raw else raw.get("following")
-    followed_by = raw.get("is_fans") if "is_fans" in raw else raw.get("followed_by")
-    following = following if following in (True, False, 0, 1) else None
-    followed_by = followed_by if followed_by in (True, False, 0, 1) else None
-    following = bool(following) if following is not None else None
-    followed_by = bool(followed_by) if followed_by is not None else None
-    return {
-        "user_id": user_id,
-        "current_user_id": current_user_id,
-        "following": following,
-        "followed_by_target": followed_by,
-        "mutual": (following and followed_by
-                   if following is not None and followed_by is not None else None),
-        "friend": first("is_friend", "friend"),
-        "blocked": first("is_block", "blocked"),
-        "following_since": first("follow_time", "following_since"),
-        "categories": first("categories", "relation_types"),
-        "statistics": {
-            "followers": integer(first("fan_num", "fans_num")),
-            "following": integer(first("follow_num", "following_num")),
-        },
-    }
-
-
 def communities(value):
     found = {}
     def visit(node, path):
@@ -931,7 +903,12 @@ class Browser:
         selected = client or self.client
         raw = budget.call(selected, lambda: selected.transport.signed_request(route, query=query))
         try:
-            if route == "/bbs/app/profile/user/link/list" and isinstance(raw.get("post_links"), list):
+            if not isinstance(raw, dict):
+                raise XhhConfigError("platform response must be an object")
+            if (route in ("/bbs/app/profile/follower/list", "/bbs/app/profile/following/list")
+                    and "follow_list" in raw):
+                result = raw
+            elif route == "/bbs/app/profile/user/link/list" and isinstance(raw.get("post_links"), list):
                 result = {"links": raw["post_links"], "user": raw.get("user"), "has_more": raw.get("has_more")}
             else:
                 result = result_object(raw)
@@ -966,7 +943,7 @@ class Browser:
                                   "recommended-users")
                  or args.command == "search" and not (
                      args.hot_words or args.suggest)
-                 or args.command == "user" and args.view != "profile"
+                 or args.command == "user" and args.view in ("posts", "followers", "following")
                  or args.command == "hashtags" and args.action == "links"
                  or args.command == "games" and args.action != "info"
                  or args.command == "favourites" and args.action == "posts")
@@ -1181,6 +1158,14 @@ class Browser:
             if "excluded" in scope or excluded_total:
                 scope["excluded"] = excluded_total
             scope["gaps"] = sorted(normalization_gaps)
+        elif (data is not None and args.command == "user"
+              and args.view == "relations"):
+            truncated = _fit_items(data, args, scope, matched=len(data["items"]))
+            if truncated or data["count"] > len(data["items"]):
+                scope["completion"] = "partial"
+                scope["gaps"].append("relation_collection_partial")
+                scope["missing_count"] = max(0, data["count"] - len(data["items"]))
+                stop = StopState(StopKind.DATA_GAP, reason="relation_collection_partial")
         elif (data is not None and isinstance(data.get("items"), list)
               and hasattr(args, "limit")):
             if _fit_items(data, args, scope, matched=len(data["items"])):
@@ -1713,24 +1698,44 @@ class Browser:
                 raw, result, evidence = self.fetch(
                     "/bbs/app/profile/relations",
                     {"userid": args.user_id}, budget)
-                returned_id = identifier(
-                    result.get("userid") or result.get("user_id"))
-                if returned_id is not None and returned_id != args.user_id:
-                    raise XhhConfigError(
-                        "relation summary belongs to a different user")
+                records = rows(result, ("users",))
+                if any(not isinstance(row, dict) for row in records):
+                    raise XhhConfigError("user records must be objects")
+                count = result.get("count")
+                if type(count) is not int or count < 0:
+                    raise XhhConfigError("relation count must be a nonnegative integer")
                 data = {
-                    "relation": relation(
-                        result, args.user_id, self.client.config.heybox_id),
+                    "items": [author(row if isinstance(row.get("user"), dict) else {"user": row}) for row in records],
+                    "count": count,
+                    "user_id": args.user_id,
                     "source": evidence,
                 }
-                scope = {"completion": "unknown", "gaps": [],
-                         "full_history": False}
+                scope = {"completion": "complete", "gaps": [], "next": None,
+                         "returned": len(records), "full_history": False}
             else:
                 route = "/bbs/app/profile/" + ("follower/list" if args.view == "followers" else "following/list")
                 raw, result, evidence = self.fetch(route, {"userid": args.user_id, "offset": str(args.offset), "limit": str(args.limit)}, budget)
-                records = rows(result, ("followers", "following", "users", "list"))
+                records = (rows(result, ("follow_list",)) if "follow_list" in result
+                           else rows(result, ("followers", "following", "users", "list")))
+                if any(not isinstance(row, dict) for row in records):
+                    raise XhhConfigError("user records must be objects")
                 data = {"items": [author(row if isinstance(row.get("user"), dict) else {"user": row}) for row in records],
                         "user_id": args.user_id, "source": evidence}
+                if "follow_cnt" in result:
+                    counts = result["follow_cnt"]
+                    if not isinstance(counts, dict):
+                        raise XhhConfigError("follow counts must be an object")
+                    follow_counts = {}
+                    for key in ("fan_num", "follow_num", "inter_follow_num"):
+                        value = counts.get(key)
+                        if value is not None and (type(value) not in (int, str) or integer(value) is None):
+                            raise XhhConfigError("follow count must be a nonnegative integer")
+                        follow_counts[key] = integer(value)
+                    data["follow_cnt"] = follow_counts
+                    total = follow_counts["fan_num" if args.view == "followers" else "follow_num"]
+                    if total is not None:
+                        data["count"] = total
+                        result = {**result, "has_more": args.offset + len(records) < total}
                 scope = coverage(result, count=len(records), position=args.offset)
         elif args.command == "favourites":
             if args.action == "folders":

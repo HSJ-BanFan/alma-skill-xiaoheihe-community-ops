@@ -29,6 +29,10 @@ class DiscussionFixture(test_tools.PlatformFixture):
         self.show_created = True
         self.sub_pages = None
         self.root_page = None
+        self.follow_users = [{
+            "userid": "404",
+            "username": "fixture relation",
+        }]
 
     def __call__(self, request, timeout=None):
         data = json.loads(super().__call__(request, timeout).read())
@@ -93,14 +97,11 @@ class DiscussionFixture(test_tools.PlatformFixture):
             data.pop("result", None)
             data.update({
                 "follow_cnt": {
-                    "fan_num": 1,
-                    "follow_num": 1,
-                    "inter_follow_num": 1,
+                    "fan_num": len(self.follow_users),
+                    "follow_num": len(self.follow_users),
+                    "inter_follow_num": len(self.follow_users),
                 },
-                "follow_list": [{
-                    "userid": "404",
-                    "username": "fixture relation",
-                }],
+                "follow_list": [dict(row) for row in self.follow_users],
                 "summary_url": "https://www.xiaoheihe.cn/fixture/relations",
             })
         elif path == "/bbs/app/profile/relations":
@@ -234,6 +235,23 @@ class DiscussionRegressionTests(unittest.TestCase):
         )
         self.assertEqual(value["data"]["count"], 1)
         self.assertEqual(value["data"]["items"][0]["uid"], "505")
+
+    def test_following_item_budget_keeps_same_page_resume(self):
+        self.fixture.follow_users = [
+            {"userid": "601", "username": "first"},
+            {"userid": "602", "username": "second"},
+            {"userid": "603", "username": "third"},
+        ]
+        value = self.assert_success(
+            self.run_cli(
+                "user", "303", "--view", "following",
+                "--pages", "1", "--limit", "1",
+            )
+        )
+        self.assertEqual([item["uid"] for item in value["data"]["items"]], ["601"])
+        self.assertEqual(value["coverage"]["status"], "partial")
+        self.assertEqual(value["coverage"]["stop_reason"], "item_budget")
+        self.assertIsNotNone(value["coverage"]["resume"])
 
     def test_inline_reply_location_matches_the_observed_root_page(self):
         self.fixture.root_page = 3
