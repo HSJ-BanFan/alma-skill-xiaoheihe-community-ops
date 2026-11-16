@@ -494,6 +494,24 @@ class DiscoveryShapeTests(CommandTests):
         self.assertIsNone(value["coverage"]["resume"])
         self.assertIsNone(value["error"])
 
+    def test_topic_limit_is_a_safe_partial(self):
+        code, value, _ = self.run_cli(
+            ["topics", "fixture", "--limit", "1", "--requests", "1"],
+            lambda *args: {
+                "result": {"topics": [
+                    {"topic_id": "601", "name": "first"},
+                    {"topic_id": "602", "name": "second"},
+                ]},
+            },
+        )
+        self.assertEqual(code, 0, value)
+        self.assertEqual(len(value["data"]["items"]), 1)
+        self.assertEqual(value["coverage"]["status"], "partial")
+        self.assertEqual(value["coverage"]["stop_reason"], "item_budget")
+        self.assertIn("single_response_truncated", value["coverage"]["gaps"])
+        self.assertIsNone(value["coverage"]["resume"])
+        self.assertIsNone(value["error"])
+
     def test_banner_all_communities_is_navigation_not_a_fake_topic(self):
         code, value, _ = self.run_cli(["banners"], lambda *args: {
             "result": {"topic_banner": {

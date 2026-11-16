@@ -33,6 +33,8 @@ class DiscussionFixture(test_tools.PlatformFixture):
             "userid": "404",
             "username": "fixture relation",
         }]
+        self.follow_total = None
+        self.follow_has_more = None
 
     def __call__(self, request, timeout=None):
         data = json.loads(super().__call__(request, timeout).read())
@@ -95,15 +97,18 @@ class DiscussionFixture(test_tools.PlatformFixture):
             })
         elif path in ("/bbs/app/profile/follower/list", "/bbs/app/profile/following/list"):
             data.pop("result", None)
+            total = len(self.follow_users) if self.follow_total is None else self.follow_total
             data.update({
                 "follow_cnt": {
-                    "fan_num": len(self.follow_users),
-                    "follow_num": len(self.follow_users),
+                    "fan_num": total,
+                    "follow_num": total,
                     "inter_follow_num": len(self.follow_users),
                 },
                 "follow_list": [dict(row) for row in self.follow_users],
                 "summary_url": "https://www.xiaoheihe.cn/fixture/relations",
             })
+            if self.follow_has_more is not None:
+                data["has_more"] = self.follow_has_more
         elif path == "/bbs/app/profile/relations":
             data["result"] = {
                 "count": 1,
@@ -252,6 +257,34 @@ class DiscussionRegressionTests(unittest.TestCase):
         self.assertEqual(value["coverage"]["status"], "partial")
         self.assertEqual(value["coverage"]["stop_reason"], "item_budget")
         self.assertIsNotNone(value["coverage"]["resume"])
+
+    def test_followers_preserve_explicit_has_more_evidence(self):
+        self.fixture.follow_users = [
+            {"userid": "601", "username": "first"},
+            {"userid": "602", "username": "second"},
+        ]
+        self.fixture.follow_has_more = True
+        value = self.assert_success(
+            self.run_cli(
+                "user", "303", "--view", "followers",
+                "--pages", "1", "--limit", "10",
+            )
+        )
+        self.assertEqual(value["coverage"]["status"], "partial")
+        self.assertEqual(value["coverage"]["stop_reason"], "page_budget")
+        self.assertIsNotNone(value["coverage"]["resume"])
+
+        self.fixture.follow_users = [{"userid": "601", "username": "first"}]
+        self.fixture.follow_total = 3
+        self.fixture.follow_has_more = False
+        value = self.assert_success(
+            self.run_cli(
+                "user", "303", "--view", "followers",
+                "--pages", "1", "--limit", "10",
+            )
+        )
+        self.assertEqual(value["coverage"]["status"], "complete")
+        self.assertIsNone(value["coverage"]["resume"])
 
     def test_inline_reply_location_matches_the_observed_root_page(self):
         self.fixture.root_page = 3
