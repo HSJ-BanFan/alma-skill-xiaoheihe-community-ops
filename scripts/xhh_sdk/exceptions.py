@@ -1,6 +1,8 @@
 """Exception hierarchy for xhh_sdk.
 
-Web post diagnostics carry closed enum values and project fixed public fields.
+Every error carries a public, printable message. Credentials, cookies and raw
+upstream bodies never appear in exception text. Web post diagnostics carry
+closed enum values and project fixed public fields.
 """
 from __future__ import annotations
 
