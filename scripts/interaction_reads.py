@@ -273,8 +273,13 @@ def synchronize(store, client, scope, args, *, sanitize=lambda value: value):
         phase = state["phase"]
         if phase == "known_replies":
             root = state["known_roots"][0]
-            if (scope.root_id and root != scope.root_id) or not store.root_reference_valid(scope, root):
-                raise XhhConfigError("sync known reply root is not established on the selected post")
+            try:
+                if (scope.root_id and root != scope.root_id) or not store.root_reference_valid(scope, root):
+                    raise XhhConfigError("sync known reply root is not established on the selected post")
+            except (sqlite3.Error, OSError) as error:
+                stop = "storage_error"
+                last_error = {"type": type(error).__name__, "code": "interaction_cache_incomplete"}
+                break
         next_state = {**state, "roots": list(state["roots"]), "known_roots": list(state["known_roots"]),
                       "known_done": list(state["known_done"])}
         read_page = None

@@ -350,7 +350,8 @@ def is_platform_block(error):
             XhhCaptchaError,
             XhhRateLimitError,
         ))
-        or error.code == "http_access_denied"
+        or error.code in ("http_access_denied", "platform_response_invalid")
+        or hasattr(error, "raw_response")
     )
 
 

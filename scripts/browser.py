@@ -1407,7 +1407,7 @@ class Browser:
         result["media"] = merge_media(
             result.get("media") or [], supplemental)
         result["content_sha256"] = hashlib.sha256(json.dumps(
-            {key: result[key] for key in ("id", "title", "body", "media")},
+            {key: result.get(key) for key in ("id", "title", "body", "media")},
             sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         return result, metadata_source
 
@@ -1426,7 +1426,10 @@ class Browser:
         raw, result, evidence = self.native(
             query, budget, client=self._reader_client("app"))
         if not isinstance(result.get("link"), dict):
-            raise XhhConfigError("post missing from platform result")
+            raise XhhConfigError(
+                "post missing from platform result",
+                code="platform_response_invalid",
+            )
         return document(result["link"], evidence, self.catalog), raw
 
     def _read_website_post(self, args, budget):
@@ -1435,7 +1438,10 @@ class Browser:
         raw, result, evidence = self.website(
             query, budget, client=self._reader_client("web"))
         if not isinstance(result.get("link"), dict):
-            raise XhhConfigError("post missing from platform result")
+            raise XhhConfigError(
+                "post missing from platform result",
+                code="platform_response_invalid",
+            )
         return document(result["link"], evidence, self.catalog), raw
 
     def _read_html_post(self, args, budget):
