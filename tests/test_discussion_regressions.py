@@ -93,7 +93,11 @@ class DiscussionFixture(test_tools.PlatformFixture):
             data.update({
                 "post_links": [],
                 "total_page": 1,
-                "user": {"userid": "303", "username": "fixture author"},
+                "user": {
+                    "userid": "303",
+                    "username": "fixture author",
+                    "follow_status": 1,
+                },
             })
         elif path in ("/bbs/app/profile/follower/list", "/bbs/app/profile/following/list"):
             data.pop("result", None)
@@ -227,6 +231,13 @@ class DiscussionRegressionTests(unittest.TestCase):
     def test_public_user_profile_accepts_its_user_id_field(self):
         value = self.assert_success(self.run_cli("user", "303"))
         self.assertEqual((value["data"]["uid"], value["data"]["name"]), ("303", "fixture author"))
+        self.assertEqual(value["data"]["relationship"], {
+            "current_user_follows_target": True,
+            "follow_status_raw": 1,
+            "target_follows_current": None,
+            "mutual": None,
+            "evidence": "profile.user.follow_status",
+        })
 
     def test_public_user_relations_accept_their_user_id_fields(self):
         for view in ("followers", "following"):

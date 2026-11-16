@@ -22,7 +22,11 @@ from xhh_sdk.exceptions import (
     XhhAPIError,
     XhhCaptchaError,
     XhhConfigError,
+    XhhIdentityUnboundError,
     XhhRateLimitError,
+    XhhRiskTokenError,
+    XhhSessionExpiredError,
+    XhhSessionMissingError,
     XhhSignerError,
     XhhTransportError,
 )
@@ -268,8 +272,11 @@ class ErrorContractTests(unittest.TestCase):
         with self.assertRaises(XhhCaptchaError) as raised:
             Transport._check_status({"status": "show_captcha"})
         error = raised.exception
-        self.assertEqual(error.code, "captcha_required")
-        self.assertFalse(error.retry_allowed)
+        public = error.public()
+        self.assertEqual(public["code"], "captcha_required")
+        self.assertFalse(public["retry_allowed"])
+        self.assertTrue(public["cooldown_required"])
+        self.assertIsNone(public["retry_after_seconds"])
         self.assertIn("stop", error.fix.lower())
 
     def test_signer_error_carries_a_public_code(self):
@@ -303,11 +310,39 @@ class ErrorContractTests(unittest.TestCase):
         with patch.object(
                 urllib.request, "urlopen",
                 side_effect=urllib.error.HTTPError(
-                    request.full_url, 429, "Too Many Requests", {}, None)):
+                    request.full_url, 429, "Too Many Requests",
+                    {"Retry-After": "17"}, None)):
             with self.assertRaises(XhhRateLimitError) as raised:
                 Transport(client.config)._open(request)
-        self.assertEqual(raised.exception.code, "rate_limited")
-        self.assertFalse(raised.exception.retry_allowed)
+        public = raised.exception.public()
+        self.assertEqual(public["code"], "rate_limited")
+        self.assertFalse(public["retry_allowed"])
+        self.assertTrue(public["cooldown_required"])
+        self.assertEqual(public["retry_after_seconds"], 17)
+
+    def test_platform_429_uses_the_same_cooldown_contract(self):
+        with self.assertRaises(XhhRateLimitError) as raised:
+            Transport._check_status({"status": "HTTP_429"})
+        public = raised.exception.public()
+        self.assertEqual(public["code"], "rate_limited")
+        self.assertTrue(public["cooldown_required"])
+        self.assertIsNone(public["retry_after_seconds"])
+
+    def test_prerequisite_failures_keep_distinct_public_codes(self):
+        cases = (
+            (XhhSignerError("missing", code="signer_missing"), "signer_missing"),
+            (XhhRiskTokenError("missing"), "risk_token_missing"),
+            (XhhIdentityUnboundError("missing"), "account_identity_unbound"),
+            (XhhSessionMissingError("missing"), "session_missing"),
+            (XhhSessionExpiredError("expired"), "app_session_expired"),
+        )
+        for error, expected in cases:
+            with self.subTest(expected=expected):
+                public = xhh.public_error(
+                    error,
+                    "app" if expected == "app_session_expired" else None,
+                )
+                self.assertEqual(public["code"], expected)
 
 
 class ReaderAndBudgetTests(unittest.TestCase):
@@ -333,6 +368,44 @@ class ReaderAndBudgetTests(unittest.TestCase):
         self.assertIn("provenance", data)
         self.assertEqual(data["provenance"]["body"]["reader"], "website")
         self.assertEqual(data["provenance"]["metadata"]["reader"], "native")
+        self.assertEqual(
+            [
+                {
+                    "reader": candidate["reader"],
+                    "protocol": candidate["protocol"],
+                    "body_status": candidate["body_status"],
+                    "completeness": candidate["completeness"],
+                }
+                for candidate in data["body_candidates"]
+            ],
+            [
+                {
+                    "reader": "native",
+                    "protocol": "app",
+                    "body_status": "missing",
+                    "completeness": "unknown",
+                },
+                {
+                    "reader": "website",
+                    "protocol": "web",
+                    "body_status": "available",
+                    "completeness": "complete",
+                },
+            ],
+        )
+        self.assertEqual(
+            data["body_candidates"][1]["text_characters"],
+            len("full web body"),
+        )
+        self.assertEqual(
+            data["body_candidates"][1]["block_types"],
+            ["html"],
+        )
+        self.assertRegex(
+            data["body_candidates"][1]["body_sha256"],
+            r"^[0-9a-f]{64}$",
+        )
+        self.assertNotIn("body", data["body_candidates"][1])
         for attempt in data["reader_attempts"]:
             self.assertIn("route", attempt)
             self.assertIn("session_revision", attempt)
