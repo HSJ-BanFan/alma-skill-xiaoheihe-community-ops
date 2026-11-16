@@ -108,6 +108,168 @@ class AccountSessionTests(unittest.TestCase):
         self.assertIn("web", store.get("same").sessions)
         self.assertEqual(store.get_config("same", protocol="web").pkey, "web-session")
 
+    def test_snapshot_resume_restores_managed_account_context(self):
+        store = accounts.AccountStore(self.root)
+        store.add("dual", identity="101")
+        current = store.get("dual")
+        store.save_login(
+            "dual", pkey="app-session", identity="101",
+            expected_revision=current.revision, protocol_mode="app",
+        )
+        current = store.get("dual")
+        store.save_login(
+            "dual", pkey="web-session", identity="101",
+            expected_revision=current.revision, protocol_mode="web",
+        )
+        created = {}
+
+        class IdentityClient(ClientFixture):
+            def account_info(self):
+                self.calls.append(("/account/info", {}))
+                return {"userid": "101"}
+
+        def handler(path, query, protocol):
+            if protocol == "app":
+                return {
+                    "result": {
+                        "link": {
+                            "id": "123",
+                            "text": "saved app body",
+                            "is_summary": 1,
+                        },
+                        "comments": [],
+                    },
+                }
+            return {
+                "result": {
+                    "link": {
+                        "id": "123",
+                        "text": "resumed web body",
+                        "is_full_text": 1,
+                    },
+                    "comments": [],
+                },
+            }
+
+        def factory(config):
+            client = IdentityClient(config.protocol_mode, handler)
+            client.config = config
+            created[config.protocol_mode] = client
+            return client
+
+        first_output = io.StringIO()
+        with contextlib.redirect_stdout(first_output):
+            first_code = xhh.main([
+                "--data-dir", str(self.root),
+                "--account", "dual",
+                "post", "123", "--reader", "auto",
+                "--requests", "2", "--snapshot", "dual-read",
+            ], client_factory=factory)
+        first = json.loads(first_output.getvalue())
+        saved = Store(self.root).get("101", "dual-read")
+
+        self.assertEqual(first_code, 0, first)
+        self.assertEqual(first["data"]["body"]["text"], "saved app body")
+        self.assertIsNotNone(saved["coverage"]["resume"])
+
+        second_output = io.StringIO()
+        with contextlib.redirect_stdout(second_output):
+            second_code = xhh.main([
+                "--data-dir", str(self.root),
+                "--account", "dual",
+                "snapshot", "resume", "dual-read",
+            ], client_factory=factory)
+        second = json.loads(second_output.getvalue())
+        resumed = Store(self.root).get("101", "dual-read")
+
+        self.assertEqual(second_code, 0, second)
+        self.assertEqual(second["data"]["body"]["text"], "resumed web body")
+        self.assertEqual(resumed["data"]["body"]["text"], "resumed web body")
+        self.assertEqual(created["web"].config.pkey, "web-session")
+        self.assertEqual(len(created["web"].calls), 1)
+        self.assertIsNone(resumed["coverage"]["resume"])
+
+    def test_snapshot_resume_keeps_prior_body_when_budget_pauses_html(self):
+        store = accounts.AccountStore(self.root)
+        store.add("dual", identity="101")
+        current = store.get("dual")
+        store.save_login(
+            "dual", pkey="app-session", identity="101",
+            expected_revision=current.revision, protocol_mode="app",
+        )
+        current = store.get("dual")
+        store.save_login(
+            "dual", pkey="web-session", identity="101",
+            expected_revision=current.revision, protocol_mode="web",
+        )
+
+        class IdentityClient(ClientFixture):
+            def account_info(self):
+                self.calls.append(("/account/info", {}))
+                return {"userid": "101"}
+
+        def handler(path, query, protocol):
+            text = "saved app body" if protocol == "app" else ""
+            return {
+                "result": {
+                    "link": {"id": "123", "text": text, "is_summary": 1},
+                    "comments": [],
+                },
+            }
+
+        def factory(config):
+            client = IdentityClient(config.protocol_mode, handler)
+            client.config = config
+            return client
+
+        first_output = io.StringIO()
+        with contextlib.redirect_stdout(first_output):
+            first_code = xhh.main([
+                "--data-dir", str(self.root),
+                "--account", "dual",
+                "post", "123", "--reader", "auto",
+                "--requests", "2", "--snapshot", "retained",
+            ], client_factory=factory)
+        first = json.loads(first_output.getvalue())
+        first_saved = Store(self.root).get("101", "retained")
+
+        self.assertEqual(first_code, 0, first)
+        self.assertEqual(first["data"]["body"]["text"], "saved app body")
+        self.assertIsNotNone(first_saved["coverage"]["resume"])
+
+        second_output = io.StringIO()
+        with contextlib.redirect_stdout(second_output):
+            second_code = xhh.main([
+                "--data-dir", str(self.root),
+                "--account", "dual",
+                "snapshot", "resume", "retained",
+            ], client_factory=factory)
+        second = json.loads(second_output.getvalue())
+        resumed = Store(self.root).get("101", "retained")
+
+        self.assertEqual(second_code, 0, second)
+        self.assertEqual(second["data"]["body"]["text"], "saved app body")
+        self.assertEqual(resumed["data"]["body"]["text"], "saved app body")
+        self.assertEqual(
+            resumed["data"]["provenance"]["body"]["reader"],
+            "native",
+        )
+        self.assertEqual(resumed["coverage"]["status"], "partial")
+        self.assertIn(
+            "reader_body_missing_after_resume",
+            resumed["coverage"]["gaps"],
+        )
+        self.assertIsNotNone(resumed["coverage"]["resume"])
+        self.assertEqual(
+            [attempt["reader"] for attempt in resumed["data"]["reader_attempts"]],
+            ["website", "html"],
+        )
+        self.assertEqual(
+            resumed["data"]["reader_attempts"][-1]["status"],
+            "budget_stop",
+        )
+        self.assertIsNone(resumed["pending_response"])
+
     def test_bound_account_with_empty_identity_keeps_specific_error_code(self):
         store = accounts.AccountStore(self.root)
         store.add("broken")
@@ -488,6 +650,37 @@ class ErrorContractTests(unittest.TestCase):
 
 
 class ReaderAndBudgetTests(unittest.TestCase):
+    def test_platform_filters_round_trip_through_snapshot_arguments(self):
+        default = xhh.parser().parse_args(["feed", "7214"])
+        default_request = xhh.browser.request_arguments(default)
+        default_round_trip = xhh.parser().parse_args(default_request)
+        self.assertNotIn("--platform-filter", default_request)
+        self.assertEqual(default_round_trip.platform_filters, [])
+
+        filtered = xhh.parser().parse_args([
+            "search", "fixture",
+            "--platform-filter", "filter_value=27",
+            "--platform-filter", "scope=all",
+            "--platform-filter", "token=a=b",
+        ])
+        filtered_request = xhh.browser.request_arguments(filtered)
+        filtered_round_trip = xhh.parser().parse_args(filtered_request)
+        self.assertEqual(
+            filtered_request.count("--platform-filter"),
+            3,
+        )
+        self.assertIn("filter_value=27", filtered_request)
+        self.assertIn("scope=all", filtered_request)
+        self.assertIn("token=a=b", filtered_request)
+        self.assertEqual(
+            filtered_round_trip.platform_filters,
+            [
+                ("filter_value", "27"),
+                ("scope", "all"),
+                ("token", "a=b"),
+            ],
+        )
+
     def test_auto_reader_tries_app_then_web_and_reports_provenance(self):
         def app_handler(path, query, protocol):
             return {"result": {"link": {"id": "123", "text": ""}, "comments": []}}
@@ -813,6 +1006,63 @@ class ReaderAndBudgetTests(unittest.TestCase):
         self.assertEqual(data["source"]["reader"], "website")
         self.assertEqual(data["body"]["text"], "web body")
         self.assertEqual(scope["status"], "complete")
+
+    def test_post_resume_never_replaces_a_prior_body_with_an_empty_reader(self):
+        app = ClientFixture(
+            "app",
+            lambda path, query, protocol: {
+                "result": {
+                    "link": {
+                        "id": "123",
+                        "text": "saved app body",
+                        "is_summary": 1,
+                    },
+                    "comments": [],
+                },
+            },
+        )
+        web = ClientFixture(
+            "web",
+            lambda path, query, protocol: {
+                "result": {
+                    "link": {"id": "123", "text": ""},
+                    "comments": [],
+                },
+            },
+        )
+        browser = Browser(app, clients={"app": app, "web": web})
+        first, first_scope = browser.execute(
+            xhh.parser().parse_args([
+                "post", "123", "--reader", "auto", "--requests", "1",
+            ])
+        )
+
+        with patch(
+                "browser.read_http",
+                return_value=b"<html><body></body></html>"):
+            legacy = dict(first)
+            legacy.pop("provenance")
+            resumed, resumed_scope = browser.execute(
+                xhh.parser().parse_args([
+                    "post", "123", "--reader", "auto", "--requests", "2",
+                    "--resume", first_scope["resume"],
+                ]),
+                prior_data=legacy,
+            )
+
+        self.assertEqual(first["body"]["text"], "saved app body")
+        self.assertIsNotNone(first_scope["resume"])
+        self.assertEqual(resumed["body"]["text"], "saved app body")
+        self.assertEqual(
+            resumed["provenance"]["body"]["reader"],
+            "native",
+        )
+        self.assertEqual(resumed_scope["status"], "partial")
+        self.assertIn(
+            "reader_body_missing_after_resume",
+            resumed_scope["gaps"],
+        )
+        self.assertIsNone(resumed_scope["resume"])
 
     def test_reader_fallback_uses_request_budget_without_consuming_pages(self):
         app = ClientFixture(
