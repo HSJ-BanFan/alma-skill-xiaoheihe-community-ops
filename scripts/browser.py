@@ -1670,7 +1670,7 @@ class Browser:
             raw, result, evidence = self.fetch("/bbs/app/api/post_editor/topic_selection/search",
                          {"q": args.query, "only_hashtag": "1"}, budget)
             data = {"items": rows(result, ("search_result", "hashtags", "topics")), "source": evidence}
-            scope = {"completion": "unknown", "full_history": False}
+            scope = {"completion": "unknown", "gaps": [], "full_history": False}
         elif args.command == "user":
             if args.view in ("profile", "posts"):
                 raw, result, evidence = self.fetch("/bbs/app/profile/user/link/list", {"userid": args.user_id,
@@ -1731,7 +1731,8 @@ class Browser:
                     total = follow_counts["fan_num" if args.view == "followers" else "follow_num"]
                     if total is not None:
                         data["count"] = total
-                        result = {**result, "has_more": args.offset + len(records) < total}
+                        if "has_more_floors" not in result and "has_more" not in result:
+                            result = {**result, "has_more": args.offset + len(records) < total}
                 scope = coverage(result, count=len(records), position=args.offset)
         elif args.command == "favourites":
             if args.action == "folders":
