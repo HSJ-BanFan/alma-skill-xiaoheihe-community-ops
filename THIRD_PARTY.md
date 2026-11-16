@@ -8,7 +8,7 @@ SDK 已有的平台认证、签名、上传、发帖和账号工具在技能目�
 
 复制内容不包括账号、Cookie、JAR、APK、原生库或浏览器数据。除下列下游修复外，SDK 源码保持原样，保留原始来源提交与许可。`SNAPSHOT.json` 同时记录本地文件摘要和下游补丁说明。本技能的平台命令与发送去重位于 `scripts/xhh.py` 和 `scripts/operations.py`。
 
-- `client.py` 拒绝缺少目录对象的表情接口响应。Web 发帖接受顶层或 `result` 中的有效 `link_id`，拒绝无效或冲突的 ID；App 继续只使用嵌套回执。
+- `client.py` 拒绝缺少目录对象的表情接口响应。Web 发帖接受顶层或 `result` 中的有效 `link_id`，空值表示该位置没有 ID，拒绝其他无效或冲突的 ID；App 继续只使用嵌套回执。
 - `transport.py` 仅在规范化的 `/bbs/app/api/link/post` Web POST 上发送现有签名结果的 `_rnd`，并将该请求的精确 `failed / 缺失参数` 和 `failed / 发布功能暂不可用` 映射为闭合诊断枚举。请求正文、Web GET、其他 Web 请求及 App 请求保持现有契约。
 - `exceptions.py` 为 `XhhAPIError` 增加可选的 `SDKDiagnostic` 枚举。诊断只投影固定的代码、路径、状态和消息，不携带上游文本。
 - `payload.py` 保留 `data-emoji` 标签的短码用于摘要与字数，并支持非空的纯图片正文。

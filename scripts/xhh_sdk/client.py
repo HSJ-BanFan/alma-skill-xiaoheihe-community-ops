@@ -216,7 +216,7 @@ class XhhClient(GroupMixin, InteractionMixin, BrowseMixin):
         identifiers = [result.get("link_id") if isinstance(result, dict) else None]
         if self.config.protocol_mode == "web":
             identifiers = [container["link_id"] for container in (response, result)
-                           if isinstance(container, dict) and "link_id" in container]
+                           if isinstance(container, dict) and container.get("link_id") is not None]
         if (not identifiers or any(type(identifier) not in (int, str)
                 or not re.fullmatch(r"[1-9][0-9]{0,29}", str(identifier))
                 for identifier in identifiers)):
