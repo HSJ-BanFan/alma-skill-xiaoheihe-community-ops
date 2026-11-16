@@ -42,6 +42,7 @@ class PlatformFixture:
         self.fail_send = False
         self.identity = "101"
         self.status = "ok"
+        self.link_owner = "202"
 
     def __call__(self, request, timeout=None):
         path = urlsplit(request.full_url).path
@@ -56,7 +57,7 @@ class PlatformFixture:
         if path == "/account/restore_login":
             result = {"userid": self.identity, "pkey": "fixture-secret-only"}
         elif path == "/bbs/app/link/tree":
-            result = {"link": {"id": "501", "userid": "202", "text": "正文" * 500},
+            result = {"link": {"id": "501", "userid": self.link_owner, "text": "正文" * 500},
                       "comments": [{"comment": [{"commentid": "601", "userid": "202"},
                                                    {"commentid": "602", "userid": "303"}]}]}
         elif path == "/bbs/app/comment/sub/comments":
@@ -105,6 +106,7 @@ class ToolsTest(unittest.TestCase):
         return code, json.loads(output.getvalue())
 
     def comment(self, identity="comment-1", **kwargs):
+        self.fixture.link_owner = "101"
         arguments = ["comment", "501", "--text-file", str(self.text), "--operation-id", identity, "--confirm"]
         if kwargs.get("url"):
             arguments.extend(["--image-url", kwargs["url"]])
@@ -160,6 +162,7 @@ class ToolsTest(unittest.TestCase):
                 self.assertEqual(len(self.sends()), before)
 
     def test_precise_reply_and_deep_cursor(self):
+        self.fixture.link_owner = "101"
         base = ["reply", "501", "601", "602", "--text-file", str(self.text), "--operation-id", "reply-1", "--confirm"]
         self.assertEqual(self.run_cli(*base)[0], 0)
         payload = self.sends()[-1][2]
@@ -171,6 +174,7 @@ class ToolsTest(unittest.TestCase):
         self.assertEqual(self.sends()[-1][2]["reply_id"], ["603"])
 
     def test_wrong_root_or_target_blocks_before_send(self):
+        self.fixture.link_owner = "101"
         for root, target in (("999", "602"), ("601", "999")):
             code, value = self.run_cli("reply", "501", root, target, "--text-file", str(self.text),
                                        "--operation-id", "invalid-" + root + target, "--confirm")
@@ -265,6 +269,43 @@ class ToolsTest(unittest.TestCase):
         self.assertEqual(receipt["url"], "https://imgheybox.max-c.com/fixture.png")
         self.assertEqual(len([call for call in self.fixture.calls if call[1] == "PUT"]), 1)
         self.assertEqual(len(self.sends()), 3)
+
+    def test_comment_ownership_guard_denies_a_foreign_post(self):
+        self.fixture.link_owner = "202"
+        code, value = self.run_cli("comment", "501", "--text-file", str(self.text),
+                                   "--operation-id", "foreign-comment", "--confirm")
+        self.assertEqual(code, 1)
+        self.assertIn("configured account's own posts", value["error"]["message"])
+        self.assertFalse(any(call[0] == "/bbs/app/comment/create"
+                             for call in self.fixture.calls))
+
+    def test_upload_rejects_webp_and_bmp_before_allocation(self):
+        for name, data in (
+                ("fixture.webp", b"RIFF\x04\x00\x00\x00WEBP"),
+                ("fixture.bmp", b"BM" + b"\x00" * 52),
+        ):
+            with self.subTest(name=name):
+                image = self.folder / name
+                image.write_bytes(data)
+                code, value = self.run_cli(
+                    "upload", str(image), "--operation-id", "reject-" + image.suffix[1:],
+                    "--confirm")
+                self.assertEqual(code, 1)
+                self.assertIn("use PNG, JPEG or GIF", value["error"]["message"])
+        self.assertFalse(any(call[0].endswith("/upload/info/v2")
+                             for call in self.fixture.calls))
+
+    def test_upload_mime_type_comes_from_png_magic_not_the_extension(self):
+        image = self.folder / "fixture.bin"
+        image.write_bytes(base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7xkAAAAASUVORK5CYII="))
+        code, value = self.run_cli("upload", str(image), "--operation-id",
+                                   "magic-png", "--confirm")
+        self.assertEqual(code, 0, value)
+        allocation = next(call for call in self.fixture.calls
+                          if call[0].endswith("/upload/info/v2"))
+        file_infos = json.loads(allocation[2]["file_infos"][0])
+        self.assertEqual(file_infos[0]["mimetype"], "image/png")
 
     def test_public_post_and_delete_ownership(self):
         spec = self.folder / "public.json"

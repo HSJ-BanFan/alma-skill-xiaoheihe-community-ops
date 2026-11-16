@@ -4,31 +4,47 @@
   "source_path": "cli/xhh_sdk",
   "files": {
     "__init__.py": "d90da8874f09ccd1afb2226e686b364148ff9728d57ea382c306b1cd049373cc",
-    "accounts.py": "c7b0af92cc2a4087bc98110ae059b31856da73ba50f2e615f83000d3db3db2c9",
+    "accounts.py": "d771ceb99c5ecc9e21f19e8d9409ce0db4e86b5d779d3dacdbe6b58d387f9187",
     "api_catalog.json": "601c6ebc1cb3f4ebd74851a6258ea2db941cc001e7671eb706524745e885c72f",
     "browse.py": "8d924b38f29fa9ba695fc47bbb47b3fcc359e2796ac17a8d09a893b5024d9ede",
     "catalog.py": "be1b48f8793a8629fe3a700e5e684741484a5536c254a53bcdcb3cbeb2f43a12",
-    "cli.py": "a32b114755686b239194654f6c981b5002abd0a711706a320d8da0e74e209480",
-    "client.py": "0c1a373108265a07985cbd5ca48eee4f82bb7976cb4cf8800ea28177798b746e",
-    "config.py": "7a2a4edd3cf252a15b241b79910a7206f1b30a05dc54dc2d01c9df0194280d82",
+    "cli.py": "c3a44e91f4976168ab6978d9eec5ffe1c114bb9a57c568de90c6ab321678aa5a",
+    "client.py": "492d3425419e9d6395671b1837c5276fb8a89444505e5c41c4dc88bf0003fcb4",
+    "config.py": "4fba07335c3e557868780c865fe4222527b4c7f3bf498020f65b17ef3ab13a97",
     "exceptions.py": "2b8149fbe2ca780586932f2d20564f1311ddeaf0ec0e8053bfef418372772b08",
     "groups.py": "7f96d995622909d99bd128f996037fa8ab5ef24ec0e8d4e104c82049765e8f5d",
     "interaction.py": "5afad9aac800b7c3e5cf432e7eee0666542e8b50be55194975db524b5360ab57",
     "LICENSE": "6ad220b8dbff857ab6579903d8d4d5912bab9f99e0e03f63d317c04fbe6544c5",
     "login.py": "2a5519483d5802872145e0a0b5ea49c05d4e95514757602f728ef85fbd791ff3",
-    "payload.py": "e5f58f8d80b3a1e9b30596d9afa7db44693b39fccbe92644cce3f7b8eb314615",
+    "payload.py": "c4d81caeacaabcf0d51aad2b3eeaed041605eb418c9a22fe94d35f6a552bfefd",
     "routes.py": "2388c0bac8df4979e4b72f19ddcda685449105cc9a6e007a84aded175175b024",
     "secure_phone.py": "ca0e8d142a42e3103e7fb7fdf948489035bfdde6f291d93bf841d53208fc5aac",
     "signer.py": "584ac2e79207fc29b11b17720d344e64ba290073cbad257e7901b4b1f1b17c90",
     "signer_bundle.py": "29dca5149792a44f89379fcab5aa1cd31518d86a69a420e3125dc354c198b6fd",
     "signer_resources.py": "2c13da12b28dc71f14214c692725d531f305b2e528ef18bc5aab42ad7a5f7599",
-    "transport.py": "ea41c1999b7c67538b83a3df1767fa94e16857bdef640ea3c78af42af3564178",
+    "transport.py": "91cf51a26053680d48e72af053a6168a02d8a6b8360396fc3369937492e3cabd",
     "web_signer.py": "684793405b16818a0866305afcf27e43c455a5d4e1643b6b35dc9dd9028a24e7"
   },
   "downstream_patches": {
-    "client.py": "Reject a missing or non-object emoji catalog result; accept valid top-level or nested Web post IDs, ignore null alternate slots, and reject malformed or conflicting non-null IDs while preserving App nested-only receipts.",
-    "payload.py": "Count native data-emoji spans and accept nonempty image-only body blocks.",
-    "transport.py": "Include the existing signer quadruple _rnd only on normalized /bbs/app/api/link/post Web POST. Classify only exact failed / 缺失参数 and failed / 发布功能暂不可用 into closed SDKDiagnostic values. Preserve request payload bytes, protected overrides, Web GET, other Web requests and App transport.",
-    "exceptions.py": "Add optional SDKDiagnostic to XhhAPIError with two closed Web post failure codes and a fixed public projection; retain no upstream message in the diagnostic."
+    "client.py": "Reject a missing or non-object emoji catalog result; accept valid top-level or nested Web post IDs, ignore null alternate slots, and reject malformed or conflicting non-null IDs while preserving App nested-only receipts. Accept PNG, JPEG, and GIF by file magic with matching MIME; carry real upload dimensions; use the 10 MiB skill limit; select the configured post wire protocol.",
+    "payload.py": "Use separate current Creator Web and legacy App form builders. Preserve native data-emoji spans, image-only bodies, real image metadata, covers, declarations, and the independent content and plan axes.",
+    "config.py": "Preserve Web-only user session cookie names, carry the optional selected-account device cookie only on Web, and validate its header-safe characters.",
+    "transport.py": "Use the observed Creator RFC3986 form encoder and UTF-8 content type on Web POST. Include the existing signer quadruple _rnd only on normalized Web post, classify exact recognized failures into closed diagnostics, and protect bound device and session cookies from override.",
+    "accounts.py": "Carry the selected managed account device token into runtime configuration without changing the encrypted account record or session-selection contract.",
+    "cli.py": "Redact both session and bound device credentials from CLI output and error text.",
+    "exceptions.py": "Add optional SDKDiagnostic values with fixed public Web post diagnostics and no upstream message."
+  },
+  "web_contract_observation": {
+    "date": "2026-11-16",
+    "profile": "creator_web",
+    "editor_bundle": {
+      "url": "https://static.max-c.com/static/heybox/webapp/@heybox-spa/creator/app/index-Dnuc1Jlq.js",
+      "sha256": "12f11584916f82147463249cdaba6f4ec6013109411d355e3f14a9e3343d645f"
+    },
+    "transport_bundle": {
+      "url": "https://static.max-c.com/static/heybox/webapp/@heybox-spa/creator/app/index-BIeKgP-u.js",
+      "sha256": "b1eb89a07fc086cf93e218ea6dc9366ee7a7625dd94dbff829fb1f15ef91a265"
+    },
+    "evidence_scope": "public source and local encoder comparison; live draft acceptance unverified"
   }
 }

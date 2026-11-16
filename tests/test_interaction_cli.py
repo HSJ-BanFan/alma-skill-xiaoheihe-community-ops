@@ -27,6 +27,7 @@ from test_tools import PlatformFixture, Response
 class InteractionFixture(PlatformFixture):
     def __init__(self):
         super().__init__()
+        self.link_owner = "101"
         self.public_own = False
         self.malformed_own = False
         self.wrong_own = False

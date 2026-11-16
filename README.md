@@ -1,12 +1,15 @@
 # 小黑盒独立工具技能
 
-把本目录命名为 `xiaoheihe-tools` 并放入支持 `SKILL.md` 的 agent 技能目录，或直接通过 Python CLI 调用。Python 3.10 或更高版本即可运行核心工具，无需安装 Python 包。登录浏览器的可选依赖见 [命令参考](REFERENCE.md)。
+把本目录命名为 `xiaoheihe-tools` 并放入支持 `SKILL.md` 的 agent 技能目录，或直接通过 Python CLI 调用。Python 3.10 或更高版本即可运行核心工具，无需安装 Python 包。文章投稿的 Markdown 转换需要 `requirements-formatting.txt` 中的固定依赖；登录浏览器和媒体预览的可选依赖见 [命令参考](REFERENCE.md)。
 
 ```console
 python -I -X utf8 scripts/xhh.py --help
 python -I -X utf8 scripts/xhh.py --protocol web doctor --offline
 python -I -X utf8 scripts/xhh.py describe
+python -I -X utf8 scripts/xhh.py preview-post post.json
 ```
+
+`preview-post` 不需要账号和网络。它输出规范 spec、真实发布 payload 和从 payload 读回的媒体摘要，便于在提交前核对格式、封面和图片。预览默认 Web，可用全局 `--protocol app` 选择旧 App 表单；发送使用账号配置的协议。Web 发帖 spec 首选 `post_format`，`image_text` 发字面文本和尾部图片，`article` 接受 HTML/Markdown 和就地图片，两种都支持独立封面。评论限制、文章/图文/热点计划和投稿格式分别见 [规则参考](references/platform-rules.md) 与 [格式参考](references/formatting.md)。
 
 技能只接收明确的账号、目标和内容，并提供小黑盒读取与写入操作。说明入口为 [SKILL.md](SKILL.md)，命令与认证参考为 [REFERENCE.md](REFERENCE.md)。
 
@@ -28,12 +31,12 @@ python -I -X utf8 scripts/xhh.py describe
 
 旧宿主账号库与发送台账不会自动导入。配置原来账号时显式指定其所在 `--data-dir`，或使用用户提供的配置文件。本工具已有的 `operations.sqlite3` 使用原子版本迁移，保留原 operations 表、状态和回执；未知历史目标不会根据哈希猜测。工具与旧宿主台账不共享发送锁。切换前结束旧宿主的在途写入任务，并对未知发送结果先在平台核对。
 
-SDK 的 Python 源码和平台数据目录随技能提供，许可与来源见 [THIRD_PARTY.md](THIRD_PARTY.md)。Web 使用内置 Python 签名器。App 签名器与 Java 是平台协议依赖，由用户显式配置。
+SDK 的 Python 源码和平台数据目录随技能提供，源码带有 `SNAPSHOT.json` 记录的下游补丁，许可与来源见 [THIRD_PARTY.md](THIRD_PARTY.md)。Web 使用内置 Python 签名器。App 签名器与 Java 是平台协议依赖，由用户显式配置。
 
 验证命令使用隔离测试数据，不登录真实账号，也不向平台写入。
 
 ```console
-python -m pip install -r requirements-test.txt
+python -m pip install -r requirements-test.txt -r requirements-formatting.txt
 python -m unittest discover -s tests -v
 python tests/verify_portable.py
 ```

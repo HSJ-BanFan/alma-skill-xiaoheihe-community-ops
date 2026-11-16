@@ -1,6 +1,6 @@
 ---
 name: xiaoheihe-tools
-description: 独立的小黑盒社区与内容工具，提供社区发现、信息流、搜索、正文、评论、账号、写入、互动历史，以及有预算和 checkpoint 的多查询 corpus；还提供官方原生表情、图片贴纸、内容准备和读回核对。用户需要浏览或操作小黑盒时使用。
+description: 独立的小黑盒社区与内容工具，提供社区发现、信息流、搜索、正文、评论、账号、写入、互动历史、预算与 checkpoint corpus，以及官方原生表情、图片贴纸、Markdown 转换、投稿预览和读回核对；用户需要浏览或操作小黑盒，或了解评论限制、文章/图文/热点计划、图片封面和投稿格式时使用。
 ---
 
 # 小黑盒工具
@@ -22,6 +22,7 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> --protocol app game
 python -I -X utf8 "<skill>/scripts/xhh.py" corpus plan <manifest.json>
 python -I -X utf8 "<skill>/scripts/xhh.py" corpus run <run-id>
 python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
+python -I -X utf8 "<skill>/scripts/xhh.py" preview-post <spec.json>
 ```
 
 账号显式使用 `--account <alias>`、`--config <file>` 或 `--env` 之一。全局参数放在子命令前。状态目录使用 `--data-dir <directory>` 或 `XHH_DATA_DIR`，默认 `~/.xiaoheihe-tools`。
@@ -86,9 +87,15 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
 
 `post.data.interaction` 和 `feed`、`hot` 各条目的 `interaction` 是本地轻量摘要，不增加 HTTP 请求。`unknown` 和已知零条都不能证明从未参与。`identity_established` 表示该 UID 曾在本地历史中被核验；`source.identity_verified_this_read` 表示本次读取核验。普通公开读取可以为已有可信 UID 补充公开事实，仍保留本次未核验的标签。仅配置 UID 且没有可信历史时，公开读取不会建立个人历史。`inbox` 和 `my-comments` 每次先核验实际 UID，验证请求计入 `--requests` 和 `--seconds`。
 
+## 投稿规则与格式
+
+回答评论限制、文章/图文/热点计划的用途与申请门槛、奖励机会或计划元数据时，先读 [评论与投稿规则](references/platform-rules.md)。该文件区分工具强制、官方指引日期、按日期观察和平台决定，不把选项存在、普通发帖权限或旧账号拒绝当成资格结论。
+
+编写或发布正文、本地预览、上传图片、封面和贴纸时，读 [投稿格式与媒体](references/formatting.md)。发帖 spec 首选 `post_format`。Web 的 `image_text` 发送字面纯文本和尾部图片，`article` 接受 HTML/Markdown 和就地图片；两种都支持独立封面。App 保留旧 SDK 协议。`preview-post` 默认 Web，向 App 账号发送前用全局 `--protocol app` 预览相同协议。CLI spec 的 `content_format` 默认 `text`；转换 Markdown 时显式写 `"post_format": "article", "content_format": "markdown"`，并按 `requirements-formatting.txt` 安装可选依赖。预览检查规范 spec、真实 payload 和媒体摘要，不读账号、不联网、不写状态。预览或 API 回执都不证明公开可见或计划审核通过。规则表和格式说明只保留在这两份 reference 中。
+
 ## 写操作
 
-调用方先确认实际账号与精确目标，读取相关帖子和楼层，再提交已经确定的正文或图片。每个写操作提供 `--confirm` 和唯一 `--operation-id`。同一次用户操作的后续查询或重试沿用该 ID。
+调用方先确认实际账号与精确目标，读取相关帖子和楼层，再提交已经确定的正文或图片。评论和回复只写当前账号自己的帖子；工具在发送前读取作者并拒绝其他账号的帖子。每个写操作提供 `--confirm` 和唯一 `--operation-id`。同一次用户操作的后续查询或重试沿用该 ID。
 
 ```console
 python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> comment <link-id> --text-file <utf8-file> --operation-id <id> --confirm
@@ -96,7 +103,7 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> reply <link-id> <ro
 python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> operation <id>
 ```
 
-一级评论可附 `--image-file` 或 `--image-url`。楼中楼使用纯文本，图片参数由 CLI 拒绝。回复时复用读取所得的 `--page`、`--limit`、`--sort`；子评论首屏省略 `--cursor`，后续页使用目标所在页的输入游标。回复前工具核对目标确实出现在该帖、根楼层与所选分页中。
+本工具的一级评论可附 `--image-file` 或 `--image-url`。本工具的楼中楼接受文字和原生表情短码，图片参数由 CLI 拒绝；平台客户端是否允许楼中楼图片尚未验证。需要稳定配图时将图片放在该帖的一级评论。回复时复用读取所得的 `--page`、`--limit`、`--sort`；子评论首屏省略 `--cursor`，后续页使用目标所在页的输入游标。回复前工具核对目标确实出现在该帖、根楼层与所选分页中。
 
 `returned` 表示取得 API 回执，公开可见性仍需读回核对。`write_uncertain`、`reserved` 或回执持久化失败可能已经发送，保留操作 ID并到平台核对。更换操作 ID不能证明旧请求未发送。验证码、限流或登录失效时停止该任务，交用户处理。
 

@@ -18,6 +18,7 @@ from messages import compose, MessageError
 from operations import Journal
 from test_tools import PlatformFixture, Response
 from xhh_sdk.payload import Post
+from xhh_sdk.transport import Transport
 from sticker_store import register as register_sticker
 from emoji_catalog import BUNDLED, save_catalog
 
@@ -40,6 +41,8 @@ class MessagePlatform(PlatformFixture):
             return super().__call__(request, timeout)
         payload = parse_qs(request.data.decode(), keep_blank_values=True) if request.data else {}
         query = parse_qs(urlsplit(request.full_url).query)
+        if path == "/account/info":
+            return Response({"status": "ok", "result": {"userid": "101"}})
         if path == "/bbs/app/api/link/post":
             self.calls.append((path, request.get_method(), payload, query))
             if self.fail_send:
@@ -47,7 +50,8 @@ class MessagePlatform(PlatformFixture):
             identifier = str(self.next_post)
             self.next_post += 1
             self.posts[identifier] = {"id": identifier, "userid": "101", "title": payload["title"][0],
-                                      "text": payload["text"][0], "is_full_text": 1}
+                                      "link_tag": payload["link_tag"][0], "text": payload["text"][0],
+                                      "is_full_text": 1}
             return Response({"status": "ok", "result": {"link_id": identifier}})
         if path == "/bbs/app/comment/create":
             self.calls.append((path, request.get_method(), payload, query))
@@ -99,6 +103,8 @@ class AgentMessageTests(unittest.TestCase):
         self.config = self.folder / "fixture.json"
         self.config.write_text(json.dumps({"pkey": "fixture-secret-only", "heybox_id": "101", "protocol_mode": "web"}), encoding="utf-8")
         self.platform = MessagePlatform()
+        self.platform.posts["501"] = {"id": "501", "userid": "101",
+                                      "text": "fixture root", "is_full_text": 1}
 
     def tearDown(self):
         self.temporary.cleanup()
@@ -117,6 +123,26 @@ class AgentMessageTests(unittest.TestCase):
 
     def send(self, prepared, operation="fixture-message", *extra):
         return self.cli("send", "--prepared-json", json.dumps(prepared, ensure_ascii=False), "--operation-id", operation, "--confirm", *extra)
+
+    def use_app_config(self):
+        self.config.write_text(json.dumps({"pkey": "fixture-secret-only", "heybox_id": "101",
+                                           "protocol_mode": "app"}), encoding="utf-8")
+
+    def signed_send(self, prepared, records, operation="fixture-message"):
+        def signed(transport, route, *, query=None, payload=None, extra_cookies=None):
+            records.append((route, payload))
+            if route == "/account/info":
+                return {"status": "ok", "result": {"userid": "101"}}
+            return {"status": "ok", "result": {"link_id": "801"}}
+        output = io.StringIO()
+        with patch.object(Transport, "signed_request", signed), \
+             contextlib.redirect_stdout(output), \
+             patch("urllib.request.urlopen", self.platform), \
+             patch("paging.read_http", side_effect=lambda request, timeout, **kwargs: self.platform(request, timeout).read()):
+            code = xhh.main(["--config", str(self.config), "--data-dir", str(self.data),
+                             "send", "--prepared-json", json.dumps(prepared, ensure_ascii=False),
+                             "--operation-id", operation, "--confirm"])
+        return code, json.loads(output.getvalue())
 
     def test_offline_compose_and_native_span_reading_preserve_identity_and_position(self):
         prepared = self.prepare(content=[{"type": "text", "text": "before "}, {"type": "native_emoji", "id": "cube:32"}, {"type": "text", "text": " after"}])
@@ -164,6 +190,16 @@ class AgentMessageTests(unittest.TestCase):
         self.assertFalse(self.platform.calls)
         self.assertFalse(self.data.exists())
 
+    def test_comment_and_reply_refuse_a_post_owned_by_another_account(self):
+        self.platform.posts["501"]["userid"] = "202"
+        for kind in ("comment", "reply"):
+            with self.subTest(kind=kind):
+                code, value = self.send(self.prepare(kind), "foreign-" + kind)
+                self.assertEqual(code, 1)
+                self.assertIn("configured account's own posts", value["error"]["message"])
+        self.assertFalse(any(call[0] == "/bbs/app/comment/create"
+                             for call in self.platform.calls))
+
     def test_uncertain_delivery_retains_context_and_never_resends(self):
         self.platform.fail_send = True
         prepared = self.prepare()
@@ -208,10 +244,12 @@ class AgentMessageTests(unittest.TestCase):
 
     def test_sdk_native_span_count_and_image_only_payload(self):
         span = '<span data-emoji="cube_笑cry" class="hb-emoji hb-emoji-cube hb-emoji-cube_32"></span>'
-        payload = Post(content=span, original=False).build()
+        payload = Post(content=span, content_format="html", post_format="article", original=False).build()
         self.assertEqual(payload["desc"], "[cube_笑cry]")
-        picture = Post(content="", images=["https://cdn.max-c.com/fixture.png"], original=False).build()
-        self.assertEqual(json.loads(picture["text"]), [{"type": "img", "url": "https://cdn.max-c.com/fixture.png"}])
+        picture = Post(content="", content_format="text", images=["https://cdn.max-c.com/fixture.png"],
+                       original=False).build(protocol="web")
+        self.assertEqual(json.loads(picture["text"]), [{"type": "text", "text": ""},
+                                                       {"type": "img", "url": "https://cdn.max-c.com/fixture.png"}])
         self.assertEqual(picture["words_count"], "0")
 
     def test_public_post_uses_the_explicit_mode_and_community(self):
@@ -237,7 +275,7 @@ class AgentMessageTests(unittest.TestCase):
         with Image.new("RGB", (20, 10), "blue") as image:
             image.save(image_file)
         sticker = register_sticker(image_file, self.data, caption="synthetic")
-        prepared = self.prepare(content=[{"type": "text", "text": "before "}, {"type": "native_emoji", "id": "cube:32"},
+        prepared = self.prepare(post_format="article", content=[{"type": "text", "text": "before "}, {"type": "native_emoji", "id": "cube:32"},
                                          {"type": "image_sticker", "id": sticker["id"]}, {"type": "text", "text": "after"}])
         code, value = self.send(prepared)
         self.assertEqual(code, 0, value)
@@ -246,9 +284,10 @@ class AgentMessageTests(unittest.TestCase):
         self.assertTrue(checked["data"]["checks"]["content_order"])
         self.assertEqual(self.send(prepared)[0], 0)
         self.assertEqual(sum(call[1] == "PUT" for call in self.platform.calls), 1)
-        stored = next(iter(self.platform.posts.values()))
+        stored = self.platform.posts["801"]
         blocks = json.loads(stored["text"])
-        stored["text"] = json.dumps([blocks[1], blocks[0], blocks[2]])
+        blocks.insert(0, blocks.pop(1))
+        stored["text"] = json.dumps(blocks)
         checked = self.cli("verify", "fixture-message")[1]["data"]
         self.assertEqual(checked["status"], "mismatch")
         self.assertFalse(checked["checks"]["content_order"])
@@ -322,9 +361,51 @@ class AgentMessageTests(unittest.TestCase):
         finally:
             connection.close()
 
+    def test_app_composed_post_sends_the_previewed_native_spans(self):
+        self.use_app_config()
+        prepared = compose({"kind": "post", "post_format": "image_text",
+                            "content": [{"type": "text", "text": "before "},
+                                        {"type": "native_emoji", "id": "cube:32"}]},
+                           self.data, protocol="app")
+        records = []
+        code, result = self.signed_send(prepared, records)
+        self.assertEqual(code, 0, result)
+        route, wire = next((route, payload) for route, payload in records if route == "/bbs/app/api/link/post")
+        blocks = json.loads(wire["text"])
+        self.assertEqual(blocks, prepared["preview"]["blocks"])
+        self.assertEqual(blocks[0]["type"], "html")
+        self.assertIn('data-emoji="cube_笑cry"', blocks[0]["text"])
+        self.assertEqual((wire["link_tag"], wire["post_type"]), ("1", "1"))
+        for absent in ("edit", "schedule_ts", "view_limit"):
+            self.assertNotIn(absent, wire)
+        self.assertIn("/account/info", [route for route, _ in records])
+
+    def test_app_article_visibility_cover_and_declaration_reach_the_legacy_wire(self):
+        self.use_app_config()
+        cover = "https://imgheybox.max-c.com/cover.png"
+        prepared = compose({"kind": "post", "post_format": "article", "visibility": "0",
+                            "cover_url": cover, "original": False,
+                            "content": [{"type": "text", "text": "body"}]}, self.data, protocol="app")
+        records = []
+        code, result = self.signed_send(prepared, records)
+        self.assertEqual(code, 0, result)
+        wire = next(payload for route, payload in records if route == "/bbs/app/api/link/post")
+        self.assertEqual((wire["link_tag"], wire["post_type"], wire["view_limit"], wire["thumb"]),
+                         ("1", "3", "0", cover))
+        self.assertNotIn("original", wire)
+        self.assertNotIn("declaration", wire)
+
+    def test_app_compose_refuses_creator_only_fields_and_dynamic_visibility(self):
+        for values in ({"authorship": "original"}, {"declaration": 1, "authorship": "repost"},
+                       {"source": "https://example.com/source"}, {"visibility": "1"}):
+            with self.subTest(values=values), self.assertRaises(MessageError):
+                compose({"kind": "post", "content": [{"type": "text", "text": "x"}], **values},
+                        self.data, protocol="app")
+
+
     def test_post_readback_matches_the_expected_author_as_well_as_body(self):
         self.assertEqual(self.send(self.prepare())[0], 0)
-        post = next(iter(self.platform.posts.values()))
+        post = self.platform.posts["801"]
         post["userid"] = "999"
         checked = self.cli("verify", "fixture-message")[1]["data"]
         self.assertEqual(checked["status"], "mismatch")

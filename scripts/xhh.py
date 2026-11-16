@@ -109,6 +109,9 @@ def parser():
             action.add_argument("--requests", type=positive, default=10)
             action.add_argument("--seconds", type=positive, default=30)
             action.add_argument("--sort", choices=("hot", "time_aes", "time_desc"), default="time_aes")
+    command = commands.add_parser("preview-post", help="compile a post spec to its exact link/post payload offline")
+    command.add_argument("spec_file", type=Path)
+    command.add_argument("--public", action="store_true", help="compile the public draft value; no account or send")
     browser.register(commands)
     register_corpus(commands)
     agent_commands.register(commands)
@@ -296,7 +299,9 @@ def redact(value, secret=""):
     if isinstance(value, (list, tuple)):
         return [redact(item, secret) for item in value]
     if isinstance(value, str) and secret:
-        return value.replace(secret, "[REDACTED]")
+        for candidate in (secret,) if isinstance(secret, str) else secret:
+            if candidate:
+                value = value.replace(candidate, "[REDACTED]")
     return value
 
 
@@ -335,6 +340,20 @@ def replay_pending_delivery(store, uid, name, saved, kind, *, secret=""):
     acknowledge_delivery(
         store, uid, name, saved["revision"], coverage=projected)
     return 0 if ok else 1
+
+
+def preview_command(args) -> int:
+    from postspec import preview_post, renderer_version
+    spec = json.loads(args.spec_file.read_text(encoding="utf-8-sig"))
+    protocol = args.protocol or "web"
+    data = preview_post(spec, public=args.public, protocol=protocol)
+    coverage = {"offline": True, "network": "not_used", "account_checked": False,
+                "operation_id_reserved": False, "payload_stage": "prepared",
+                "public_visibility": "not_checked", "protocol": protocol}
+    if spec.get("content_format") == "markdown":
+        coverage["markdown_renderer"] = {"name": "markdown-it-py", "version": renderer_version()}
+    emit(True, args.command, data, coverage=coverage)
+    return 0
 
 
 def merge_resumed_coverage(snapshot, coverage, delta):
@@ -470,7 +489,7 @@ def main(argv=None, *, client_factory=XhhClient):
             client = None
             if args.command in agent_commands.AUTH_ROOTS:
                 config = load_config(args)
-                secret = config.pkey
+                secret = (config.pkey, config.risk_token)
                 client = client_factory(config)
             data, coverage = agent_commands.execute(args, client=client)
             emit(True, args.command, data, coverage=coverage, secret=secret)
@@ -488,8 +507,10 @@ def main(argv=None, *, client_factory=XhhClient):
             uid, pending_snapshot = store.pending_by_name(args.name)
             return replay_pending_delivery(
                 store, uid, args.name, pending_snapshot, args.command)
+        if args.command == "preview-post":
+            return preview_command(args)
         config = load_config(args)
-        secret = config.pkey
+        secret = (config.pkey, config.risk_token)
         interactions = InteractionHistory(args.data_dir)
         if args.command == "interaction":
             scope = Scope(str(config.heybox_id), args.link_id, args.peer, args.root)

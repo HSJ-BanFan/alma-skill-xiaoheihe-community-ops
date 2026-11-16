@@ -103,7 +103,7 @@ def _offline_doctor(args) -> int:
     return 0 if report["signer_ready"] and report["java_present"] else 1
 
 
-def _redact(data, secret: str | None = None):
+def _redact(data, secret: str | tuple[str | None, ...] | None = None):
     if isinstance(data, dict):
         return {key: "[REDACTED]" if isinstance(value, (str, int)) and not isinstance(value, bool)
                 and any(word in str(key).lower()
@@ -112,11 +112,13 @@ def _redact(data, secret: str | None = None):
     if isinstance(data, (tuple, list)):
         return [_redact(value, secret) for value in data]
     if isinstance(data, str) and secret:
-        return data.replace(secret, "[REDACTED]")
+        for candidate in (secret,) if isinstance(secret, str) else secret:
+            if candidate:
+                data = data.replace(candidate, "[REDACTED]")
     return data
 
 
-def _print(data, *, secret: str | None = None) -> None:
+def _print(data, *, secret: str | tuple[str | None, ...] | None = None) -> None:
     print(json.dumps(_redact(data, secret), ensure_ascii=False, indent=2))
 
 
@@ -658,7 +660,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         client = XhhClient(config)
         def emit(data):
-            _print(data, secret=config.pkey)
+            _print(data, secret=(config.pkey, config.risk_token))
         if args.command == "group":
             cookies = None
             if args.account:
@@ -860,7 +862,7 @@ def main(argv: list[str] | None = None) -> int:
             emit(data.get("result") or {})
             return 0
     except XhhError as exc:
-        print(f"error: {_redact(str(exc), config.pkey)}", file=sys.stderr)
+        print(f"error: {_redact(str(exc), (config.pkey, config.risk_token))}", file=sys.stderr)
         return 1
     return 0
 

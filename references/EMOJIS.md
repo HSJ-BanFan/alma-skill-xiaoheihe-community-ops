@@ -15,7 +15,7 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --data-dir "<data>" emojis get cube:4
 
 返回项有官方名称、短码、用法、含义说明、注意事项和来源。`annotation_status=suggested` 表示用法说明仍是建议；`unannotated` 表示只有官方名称。需要确认图意时查看实际预览。`rank_score` 不表示选择正确的概率。`--offset` 和 `next_offset` 用于继续目录查询。
 
-原生表情使用工具返回的 ID。使用位置为帖子正文、一级评论或楼中楼，工具分别生成官方标签或短码。目录不创建新的官方原生表情。
+原生表情使用工具返回的 ID。Web 文章正文和旧 App 帖子使用官方 HTML 标签，Web 图文、一级评论和本工具支持的楼中楼使用完整短码。`compose` 的本地 HTML 预览与最终 wire 表示可以不同；短码读回匹配不能证明图标已显示，查看 `verify` 的渲染证据状态。目录不创建新的官方原生表情。
 
 ## 构建帖子
 
@@ -40,6 +40,8 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --data-dir "<data>" compose spec.json
 
 `compose` 没有平台写入。它输出准备结果和文字、结构预览。HTML 预览把官方贴图嵌入文件，首次获取贴图需要网络和 Pillow，生成后可离线查看。只有原生表情的帖子也有有效内容。`--protocol app` 可明确准备 App 协议内容；发送时使用相同协议。
 
+准备结果绑定编码版本。Web 投稿编码变化后，旧准备结果会拒绝发送；从保留的原始 spec 重新 `compose`。原稿不会被自动修改，旧 App、评论和回复的编码版本保持原值。
+
 ## 登记自制图片贴纸
 
 当前 agent 使用宿主绘图工具创建图片，再登记明确的文件。
@@ -51,7 +53,7 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --data-dir "<data>" stickers search �
 
 登记返回 `sticker:<摘要>` ID、原图和首帧预览、文件摘要与调用方提供的说明。图像格式为 PNG、JPEG 或 GIF，最多 10 MiB。说明的来源是调用方，不自动成为视觉核验。
 
-在内容中使用 `{"type":"image_sticker","id":"<登记返回的ID>"}`。帖子支持图文混排。一级评论有一个图片附件，放在文字和原生表情之后。楼中楼只使用文字和原生表情。图片贴纸的上传在发送阶段完成，登记不上传平台。
+在内容中使用 `{"type":"image_sticker","id":"<登记返回的ID>"}`。需要在图片前后穿插正文时明确选择 `post_format="article"`；`image_text` 的图片统一跟在文本之后。格式、封面与声明见 [投稿格式与媒体](formatting.md)。本工具的一级评论有一个图片附件，放在文字和原生表情之后。本工具的楼中楼只使用文字和原生表情。图片贴纸的上传在发送阶段完成，登记不上传平台。
 
 ## 构建评论或回复
 

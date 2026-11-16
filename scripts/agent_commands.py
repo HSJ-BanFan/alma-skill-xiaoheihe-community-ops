@@ -15,8 +15,9 @@ import sticker_store
 from xhh_sdk.exceptions import XhhConfigError
 
 ROOTS = {"describe", "emojis", "stickers", "compose", "send", "verify"}
+OFFLINE_COMMANDS = {"preview-post"}
 AUTH_ROOTS = {"send", "verify"}
-READ_COMMANDS = {"post", "comments", "thread", "feed", "inbox", "interaction"}
+READ_COMMANDS = {"post", "comments", "thread", "feed", "inbox", "interaction", "creator-options"}
 CREATOR_URL = "https://creator.xiaoheihe.cn/creator"
 
 
@@ -285,7 +286,7 @@ def command_definitions():
         if subparsers:
             help_by_name = {choice.dest: choice.help for choice in subparsers._choices_actions}
             for name, child in subparsers.choices.items():
-                if path or name in ROOTS | READ_COMMANDS:
+                if path or name in ROOTS | READ_COMMANDS | OFFLINE_COMMANDS:
                     visit(child, (*path, name), help_by_name.get(name))
             return
         auth = path[0] in AUTH_ROOTS | READ_COMMANDS

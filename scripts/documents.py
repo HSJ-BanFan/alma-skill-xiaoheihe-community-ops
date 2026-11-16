@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import re
 import time
+from collections import Counter
 from html.parser import HTMLParser
 from functools import lru_cache
 from urllib.parse import urlsplit, parse_qs
@@ -158,10 +160,11 @@ class Markup(HTMLParser):
             self.links.append(attributes["href"])
             self.flush()
             self.events.append({"type": "link", "url": attributes["href"]})
-        if tag == "img" and attributes.get("src"):
-            self.images.append({"url": attributes["src"], "alt": attributes.get("alt", "")})
+        image_url = attributes.get("data-original") or attributes.get("src")
+        if tag == "img" and image_url:
+            self.images.append({"url": image_url, "alt": attributes.get("alt", "")})
             self.flush()
-            self.events.append({"type": "image", "url": attributes["src"], "alt": attributes.get("alt", "")})
+            self.events.append({"type": "image", "url": image_url, "alt": attributes.get("alt", "")})
             self.parts.append("\n")
         if tag not in {"a", "b", "i", "u", "em", "strong", "p", "div", "span", "img", "font", "color", "size",
                        "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote", "code", "pre",
@@ -255,7 +258,10 @@ def summary(raw, catalog=None):
                     "name": topic.get("name") or topic.get("topic_name")}
                    for topic in topics if isinstance(topic, dict)] if isinstance(topics, list) else None
     article = truth(row.get("is_article"))
-    kind = "article" if article is True or str(row.get("post_type")) == "3" else "dynamic" if article is False or str(row.get("link_tag")) == "27" else None
+    tag = str(row.get("link_tag"))
+    kind = {"11": "article", "21": "article", "27": "dynamic", "28": "dynamic"}.get(tag)
+    if kind is None:
+        kind = "article" if article is True or str(row.get("post_type")) == "3" else "dynamic" if article is False else None
     raw_images = row.get("imgs") if isinstance(row.get("imgs"), list) else []
     images = [asset for asset in (media(item) for item in raw_images) if asset]
     title, excerpt, hashtags = row.get("title"), row.get("description"), row.get("hashtags")
@@ -274,6 +280,7 @@ def document(link, evidence, catalog=None):
     post = summary(link, catalog)
     value = link.get("text")
     blocks, gaps = [], []
+    inline_images = {}
     status = "available"
     if isinstance(value, str) and (re.match(r"^\s*\[\s*\{", value) or value.strip() == "[]"):
         original = value
@@ -289,6 +296,11 @@ def document(link, evidence, catalog=None):
     if isinstance(value, str) and value:
         value = [{"type": "html", "text": value}]
     if isinstance(value, list):
+        metadata_tail = False
+        tail_shape = (str(link.get("link_tag")) in ("11", "21")
+                      and bool(value and isinstance(value[0], dict) and value[0].get("type") == "html"
+                               and all(isinstance(node, dict) and node.get("type") == "img"
+                                       for node in value[1:])))
         for position, node in enumerate(value):
             if not isinstance(node, dict):
                 gaps.append("invalid_body_block")
@@ -297,6 +309,9 @@ def document(link, evidence, catalog=None):
             if kind in ("img", "image"):
                 asset = media(node, position)
                 if asset:
+                    if metadata_tail and inline_images.get(asset["url"], 0):
+                        inline_images[asset["url"]] -= 1
+                        continue
                     blocks.append({"type": "image", **asset})
                 else:
                     gaps.append("image_url_missing")
@@ -324,7 +339,7 @@ def document(link, evidence, catalog=None):
             elif kind in ("text", "html", None):
                 markup = str(node.get("text") or "")
                 parsed = Markup(catalog)
-                parsed.feed(markup)
+                parsed.feed(html.escape(markup) if kind == "text" else markup)
                 parsed.flush()
                 gaps.extend(parsed.gaps)
                 for event in parsed.events:
@@ -332,10 +347,13 @@ def document(link, evidence, catalog=None):
                         asset = media(event, position)
                         if asset:
                             blocks.append({"type": "image", **asset})
+                            inline_images[asset["url"]] = inline_images.get(asset["url"], 0) + 1
                         else:
                             gaps.append("image_url_missing")
                     else:
                         blocks.append({**event, "position": position})
+                if position == 0 and tail_shape:
+                    metadata_tail = Counter(item.get("url") for item in value[1:]) == Counter(inline_images)
             else:
                 blocks.append({"type": "unknown", "platform_type": kind, "position": position, "data": node})
                 gaps.append("unsupported_body_block")

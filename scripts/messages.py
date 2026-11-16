@@ -28,13 +28,19 @@ def _type_schema(annotation):
         return {"anyOf": [_type_schema(value) for value in get_args(annotation)]}
     if origin is list:
         return {"type": "array", "items": _type_schema(get_args(annotation)[0])}
-    return {"type": {str: "string", int: "integer", bool: "boolean", type(None): "null"}[annotation]}
+    return {"type": {str: "string", int: "integer", bool: "boolean", dict: "object", type(None): "null"}[annotation]}
 
 
 def draft_schema():
     properties = {key: _type_schema(annotation) for key, annotation in get_type_hints(Post).items() if key in POST_FIELDS}
     properties["post_type"]["enum"] = ["1", "3"]
     properties["visibility"] = {"type": ["string", "null"], "enum": [None, "0", "1", "2", "3"]}
+    properties["post_format"] = {"type": ["string", "null"], "enum": [None, "image_text", "article"]}
+    properties["authorship"] = {"type": ["string", "null"], "enum": [None, "original", "repost"]}
+    properties["declaration"] = {"type": ["integer", "null"], "enum": [None, 0, 1, 2]}
+    properties["image_info"] = {"type": "array", "items": {"type": "object", "properties": {
+        "url": {"type": "string", "format": "uri"}, "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1}}, "required": ["url", "width", "height"], "additionalProperties": False}}
     properties["extra_declaration"] = {"type": ["integer", "null"], "enum": [None, 1, 2, 3]}
     properties["original"]["default"] = False
     properties.update(schema_version={"type": "integer", "const": 1, "default": 1},
@@ -268,7 +274,12 @@ def compose(spec, data_dir, *, protocol="web", catalog=None):
             raise MessageError("unsupported_sticker_count", "a top-level comment supports one image sticker")
     options = _post_options(spec) if kind == "post" else {}
     if kind == "post":
-        Post(content=text, content_format="text", images=["https://example.invalid/preflight" for _ in assets], **options).build()
+        try:
+            Post(content=text, content_format="text", **options).build(
+                blocks=_html_blocks(content, catalog, {asset["id"]: "https://example.invalid/preflight" for asset in assets}),
+                protocol=protocol)
+        except XhhConfigError as error:
+            raise MessageError("invalid_message_spec", str(error)) from None
     target = _target(spec, kind)
     canonical = {"schema_version": 1, "kind": kind, "content": content, **options}
     if target is not None:
@@ -281,8 +292,9 @@ def compose(spec, data_dir, *, protocol="web", catalog=None):
         native_materials.append({key: item[key] for key in material_keys})
     catalog_fingerprint = _hash({"source": {key: info["source"][key] for key in ("js_sha256", "css_sha256")},
                                  "materials": native_materials})
+    renderer = RENDERER_VERSION + ":creator-post-v1" if kind == "post" and protocol == "web" else RENDERER_VERSION
     identity = {"spec": canonical, "protocol": protocol, "catalog_version": info["catalog_version"],
-                "catalog_fingerprint": catalog_fingerprint, "renderer_version": RENDERER_VERSION, "image_hashes": image_hashes}
+                "catalog_fingerprint": catalog_fingerprint, "renderer_version": renderer, "image_hashes": image_hashes}
     local_images = {asset["id"]: Path(asset["file"]).resolve().as_uri() for asset in assets}
     preview = {"text": text, "blocks": _html_blocks(content, catalog, local_images) if kind == "post" else content,
                "native_emoji_ids": emoji_ids, "image_stickers": assets, "warnings": warnings}
@@ -306,16 +318,19 @@ def validate_prepared(prepared, data_dir, *, protocol=None, catalog=None):
 
 
 class _ComposedPost(Post):
-    def __init__(self, prepared, blocks, *, public):
+    def __init__(self, prepared, blocks, *, public, protocol, image_info=None):
         options = {key: value for key, value in prepared["spec"].items() if key in POST_FIELDS}
+        options["image_info"] = [*options.get("image_info", []), *(image_info or [])]
         images = [block["url"] for block in blocks if block["type"] == "img"]
         super().__init__(content=prepared["preview"]["text"], content_format="text", images=images, draft=not public, **options)
         self._blocks = blocks
+        self._protocol = protocol
 
-    def build(self):
-        payload = super().build()
-        payload["text"] = json.dumps(self._blocks, ensure_ascii=False)
-        return payload
+    def build(self, *, protocol=None, blocks=None):
+        protocol = self._protocol if protocol is None else protocol
+        if protocol != self._protocol:
+            raise MessageError("prepared_protocol_mismatch", "prepared message must publish with its composed protocol")
+        return super().build(protocol=self._protocol, blocks=self._blocks)
 
 
 def send(client, prepared, data_dir, operation_id, *, confirm=False, public=False):
@@ -332,7 +347,7 @@ def send(client, prepared, data_dir, operation_id, *, confirm=False, public=Fals
     uid = str(client.config.heybox_id)
     context = {"prepared_fingerprint": current["fingerprint"], "kind": kind, "target": current["spec"].get("target"),
                "expected": current["expected"], "catalog_version": current["catalog_version"],
-               "renderer_version": RENDERER_VERSION, "public_requested": public, "author_uid": uid}
+               "renderer_version": current["renderer_version"], "public_requested": public, "author_uid": uid}
     context.update(protocol=client.config.protocol_mode, **(current["spec"].get("target") or {}))
     identity = {"prepared_fingerprint": current["fingerprint"], "public": public}
     journal = Journal(Path(data_dir))
@@ -345,18 +360,24 @@ def send(client, prepared, data_dir, operation_id, *, confirm=False, public=Fals
 
         def execute():
             images = {}
+            image_info = []
             for asset in current["preview"]["image_stickers"]:
                 file = Path(asset["file"])
                 if hashlib.sha256(file.read_bytes()).hexdigest() != asset["source_sha256"]:
                     raise MessageError("sticker_changed", "image sticker changed after preparation")
-                url = client.upload(file)["url"]
+                uploaded = client.upload(file)
+                url = uploaded["url"]
                 if not isinstance(url, str) or not url.startswith("https://"):
                     raise MessageError("invalid_upload_receipt", "image upload returned no HTTPS URL")
                 images[asset["id"]] = url
+                if type(uploaded.get("width")) is int and type(uploaded.get("height")) is int:
+                    image_info.append({key: uploaded[key] for key in ("url", "width", "height")})
             blocks = _html_blocks(current["spec"]["content"], catalog, images)
-            result = client.publish(_ComposedPost(current, blocks, public=public), confirm=True, upload_local=False)
+            result = client.publish(_ComposedPost(current, blocks, public=public, protocol=current["protocol"],
+                                                  image_info=image_info), confirm=True, upload_local=False)
             from documents import document
-            expected_blocks = document({"id": result["link_id"], "text": blocks}, {}, catalog)["body"]["blocks"]
+            expected_blocks = document({"id": result["link_id"], "link_tag": result["payload"]["link_tag"],
+                                        "text": result["payload"]["text"]}, {}, catalog)["body"]["blocks"]
             return {"link_id": result["link_id"], "url": result["url"], "draft": result["draft"],
                     "kind": kind, "expected": {**current["expected"],
                                               "image_urls_sha256": _hash([block["url"] for block in blocks if block["type"] == "img"]),
