@@ -22,7 +22,7 @@
     "signer.py": "4a57bbdbe14d379bf373b36aab23a49701019bc4187033b66e0321d9c235a3e2",
     "signer_bundle.py": "88b5311f9caf4cc6e6a8b2a8f3e9172f2a175c0bea23aab7f5a275d571b43c03",
     "signer_resources.py": "2c13da12b28dc71f14214c692725d531f305b2e528ef18bc5aab42ad7a5f7599",
-    "transport.py": "633d49cc9a8667cdbd5f1ac69a27e5d4c50fe7b5f3b250b2d6ffaef6679c51db",
+    "transport.py": "01a2c440cdb924d98c8957bccaf8054a3422853ba4772a834a6db89afd4e6004",
     "web_signer.py": "684793405b16818a0866305afcf27e43c455a5d4e1643b6b35dc9dd9028a24e7"
   },
   "downstream_patches": {

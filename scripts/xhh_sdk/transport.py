@@ -292,7 +292,7 @@ class Transport:
                 "发布功能暂不可用": SDKDiagnostic.WEB_POST_PUBLISHING_UNAVAILABLE,
             }.get(parsed["msg"])
             if diagnostic is not None:
-                raise XhhAPIError("Web post failed", diagnostic=diagnostic)
+                raise XhhAPIError("Web post failed", status="failed", diagnostic=diagnostic)
         return self._checked_response(path, parsed)
 
     # -- COS ---------------------------------------------------------------
