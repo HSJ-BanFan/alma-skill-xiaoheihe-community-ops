@@ -43,7 +43,7 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
 
 `thread <post-id> <root-id> --around <comment-id>` 读取根楼层、回复对象、祖先链和当前可取得的后续回复。已观察目标的 `reply_location` 给出回复所需的根楼页号、每页大小、排序和目标所在页的输入游标。`target_observed=false` 和 `missing_ancestor_ids` 表示上下文仍不足，不生成缺失楼层。
 
-分页读取可设置 `--pages`、`--requests`、`--seconds` 和条目上限 `--limit`。这些是硬上限；同一次读取中的重定向也计入请求数。`coverage.completion` 区分确认结束、还有更多和未知。预算停止时保留已读内容与 `coverage.resume`。相同资源、筛选和账号可用 `--resume` 续读。单资源一次返回的集合被 `--limit` 截断时返回 `partial/item_budget`，报告 `single_response_truncated` 和 `omitted`，且不生成 resume；需要时提高上限后重读。`complete`、`partial`、`blocked`、`retryable_failure`、`failed` 和 `cursor_stalled` 是不同状态。验证码、限流、会话失效和未知非成功状态会停止且不返回 resume。
+分页读取可设置 `--pages`、`--requests`、`--seconds` 和条目上限 `--limit`。这些是硬上限；同一次读取中的重定向也计入请求数。`coverage.completion` 区分确认结束、还有更多和未知。预算停止时保留已读内容与 `coverage.resume`。相同资源、筛选和账号可用 `--resume` 续读。单资源一次返回的集合被 `--limit` 截断时返回 `partial/item_budget`，报告 `single_response_truncated` 和 `omitted`，且不生成 resume；需要时提高上限后重读。例外是 `user --view relations`，它返回 `partial/relation_collection_partial` 和 `missing_count`，不报告 `omitted`。`complete`、`partial`、`blocked`、`retryable_failure`、`failed` 和 `cursor_stalled` 是不同状态。验证码、限流、会话失效和未知非成功状态会停止且不返回 resume。
 
 需要按多个社区、查询或话题批量收集公开条目时使用 `corpus`。v1 支持 `feed`、`search --type link` 和 `hashtags links`。Manifest 固定账号、协议、查询、过滤和配额，一个 run 的所有身份核对、页面请求和 reader fallback 共享全局预算。每次持久化 request attempt 最多派发一次 HTTP 请求；进程在请求后退出时，这次 reservation 仍计入配额。每一页会先持久化，再交付条目、去重实体、查询成员关系和未消费的同页余量。相同帖子出现在多个查询中只保存一份内容，并保留多条 membership。完整 Manifest 字段、query 类型和输出见 [REFERENCE.md](REFERENCE.md#有界-corpus)。
 
