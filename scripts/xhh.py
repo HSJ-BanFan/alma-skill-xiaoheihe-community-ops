@@ -316,7 +316,7 @@ def merge_resumed_coverage(snapshot, coverage, delta):
 
 
 def is_platform_block(error):
-    return (
+    return error.retry_allowed is False and (
         isinstance(error, (
             XhhAPIError,
             XhhAuthError,

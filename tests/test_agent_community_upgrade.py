@@ -1321,6 +1321,53 @@ class StopAndSnapshotProjectionTests(unittest.TestCase):
         self.assertEqual(second_value["error"]["code"], "captcha_required")
         self.assertEqual(saved_after, saved_before)
 
+    def test_retryable_platform_error_does_not_rewrite_existing_snapshot(self):
+        class RetryableBeforePage(ClientFixture):
+            def signed_request(self, path, query=None):
+                self.calls.append((path, query))
+                raise XhhAPIError(
+                    "HTTP 503",
+                    status="HTTP_503",
+                    retry_allowed=True,
+                )
+
+            def account_info(self):
+                self.calls.append(("/account/info", {}))
+                return {"userid": self.config.heybox_id}
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            first = self.StopFixture(
+                lambda: self.fail("the first page must not fail")
+            )
+            first_code, first_value = self.run_cli(
+                root,
+                ["comments", "123", "--pages", "1",
+                 "--snapshot", "retryable-error"],
+                factory=lambda config: first,
+            )
+            saved_before = Store(root).get("101", "retryable-error")
+            second_code, second_value = self.run_cli(
+                root,
+                [
+                    "comments", "123", "--pages", "3",
+                    "--snapshot", "retryable-error",
+                    "--resume", saved_before["coverage"]["resume"],
+                ],
+                factory=lambda config: RetryableBeforePage(
+                    "web",
+                    lambda *args: self.fail(
+                        "a failed first page must not parse a response"
+                    ),
+                ),
+            )
+            saved_after = Store(root).get("101", "retryable-error")
+
+        self.assertEqual(first_code, 0, first_value)
+        self.assertEqual(second_code, 1, second_value)
+        self.assertTrue(second_value["error"]["retry_allowed"])
+        self.assertEqual(saved_after, saved_before)
+
     def test_local_request_error_does_not_rewrite_existing_snapshot(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
