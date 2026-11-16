@@ -6,7 +6,8 @@
 
 ### 离线验证
 
-- 完整 `unittest` 为 `465/465` 通过。新增回归覆盖 HTTP-date `Retry-After`、bounded worker 的等待时间传递、短信登录验证码与平台 HTTP 429、结构化账号错误、未绑定身份、正文候选摘要、App 资料的单向关注状态、发送与不确定状态双写失败，以及已有快照在首轮续读被不可重试错误阻断后保留数据、清除 resume 与 pending、递增 revision。可重试平台错误与属于另一查询的同名快照都保持不变。
+- 完整 `unittest` 为 `488/488` 通过。最终合并树保留旧正文、安全 resume、重复筛选值往返和 managed 账号上下文修复，并把 `known_replies` 旧关系恢复接入统一停止语义。新增回归覆盖 HTTP-date `Retry-After`、bounded worker 的等待时间传递、短信登录验证码与平台 HTTP 429、结构化账号错误、未绑定身份、正文候选摘要、App 资料的单向关注状态、发送与不确定状态双写失败，以及已有快照在首轮续读被不可重试错误阻断后保留数据、清除 resume 与 pending、递增 revision。可重试的 `known_replies` 失败保留安全 resume；可重试平台错误与属于另一查询的同名快照都保持不变。
+- 独立错误路径审查后新增两条回归并收紧既有正文续读回归。平台在续读时缺少 post 数据会把既有 snapshot 原子写为 `blocked`，清除旧 resume，保留原数据；`--section body` 快照没有 `title` 时仍可保留旧正文且不再抛出 `KeyError`；`known_replies` 的持久化根校验遇到临时 SQLite 锁时返回 `storage_error`、同一 `known_replies` continuation 和安全 resume。
 - 合并主分支的最新消息与互动能力后，回归覆盖原生表情目录、搜索和预览，预发送组合、发送去重和读回核对，图片贴纸，结构化 `describe`，以及 `interaction status/history/sync`；`post`、`feed` 和 `hot` 的互动摘要与原生表情归一化不增加 HTTP 请求。
 - `scripts/` 与 `tests/` 通过 `compileall`。Ruff F 检查和 `git diff --check` 无错误。更新的 `SNAPSHOT.json` 通过 portable verifier，验证随包 SDK 摘要和隔离目录下的夹具测试。Skill 官方验证器返回 `Skill is valid!`。
 - 回归把 `body_candidates` 限制为每个成功 reader 的摘要，不复制正文。`reader_attempts` 仍记录失败、预算停止、协议和 session revision。
