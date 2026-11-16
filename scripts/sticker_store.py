@@ -41,6 +41,15 @@ def _tags(values):
     return list(dict.fromkeys(value.strip() for value in values))
 
 
+def _metadata(digest, value):
+    record = json.loads(value)
+    if (not isinstance(record, dict) or record.get("id") != "sticker:" + digest
+            or record.get("source_sha256") != digest):
+        raise XhhConfigError("sticker cache metadata identity mismatch; re-import the source image")
+    _identifier(record["id"])
+    return record
+
+
 def _read(record, root):
     for key in ("file", "preview_file"):
         path = owned(root, record[key])
@@ -62,7 +71,7 @@ def get(sticker_id, data_dir):
         row = connection.execute("SELECT metadata FROM stickers WHERE digest=?", (digest,)).fetchone()
     if row is None:
         raise XhhConfigError("sticker was not imported in this data directory")
-    return _read(json.loads(row[0]), Path(data_dir))
+    return _read(_metadata(digest, row[0]), Path(data_dir))
 
 
 def register(file, data_dir, *, caption=None, meaning=None, tags=()):
@@ -145,7 +154,7 @@ def search(data_dir, query="", *, limit=20, offset=0):
     if not database.is_file():
         return {"items": [], "total": 0, "retrieval": "keyword", "offset": offset, "limit": limit}
     with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)) as connection:
-        records = [json.loads(row[0]) for row in connection.execute("SELECT metadata FROM stickers ORDER BY digest")]
+        records = [_metadata(row[0], row[1]) for row in connection.execute("SELECT digest,metadata FROM stickers ORDER BY digest")]
     words = re.findall(r"[A-Za-z0-9]+|[\u3400-\u9fff]{2,}", query.casefold())
     candidates = []
     for record in records:

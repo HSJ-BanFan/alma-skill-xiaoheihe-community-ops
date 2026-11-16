@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import sticker_store
+from messages import compose
 from xhh_sdk.exceptions import XhhConfigError
 
 try:
@@ -90,6 +91,32 @@ class StickerStoreTests(unittest.TestCase):
                 connection.execute("UPDATE stickers SET metadata=?", (json.dumps(record),))
         with self.assertRaisesRegex(XhhConfigError, "escapes"):
             sticker_store.get(record["id"], self.data)
+
+    def test_registry_identity_cannot_select_another_valid_imported_image(self):
+        red = sticker_store.register(self.source, self.data, caption="red")
+        blue_source = self.folder / "blue.png"
+        with Image.new("RGB", (30, 20), "blue") as image:
+            image.save(blue_source)
+        blue = sticker_store.register(blue_source, self.data, caption="blue")
+        self.assertNotEqual(red["source_sha256"], blue["source_sha256"])
+        self.assertEqual(sticker_store.get(red["id"], self.data)["source_sha256"], red["source_sha256"])
+        spec = {"kind": "post", "content": [{"type": "image_sticker", "id": red["id"]}]}
+        for metadata in (blue, {**blue, "id": red["id"]}):
+            with self.subTest(metadata_id=metadata["id"]):
+                with closing(sqlite3.connect(self.data / "stickers/index.sqlite3")) as connection:
+                    with connection:
+                        connection.execute("UPDATE stickers SET metadata=? WHERE digest=?",
+                                           (json.dumps(metadata), red["source_sha256"]))
+                for inspect in (lambda: sticker_store.get(red["id"], self.data),
+                                lambda: sticker_store.search(self.data),
+                                lambda: compose(spec, self.data)):
+                    with self.assertRaisesRegex(XhhConfigError, "identity mismatch"):
+                        inspect()
+                self.assertEqual(sticker_store.get(blue["id"], self.data)["source_sha256"], blue["source_sha256"])
+        repaired = sticker_store.register(self.source, self.data, caption="red")
+        self.assertEqual(sticker_store.get(red["id"], self.data)["source_sha256"], red["source_sha256"])
+        self.assertEqual(compose(spec, self.data)["image_hashes"][red["id"]], red["source_sha256"])
+        self.assertTrue(repaired["existing"])
 
     def test_concurrent_imports_share_one_valid_image_identity(self):
         with ThreadPoolExecutor(max_workers=4) as pool:
