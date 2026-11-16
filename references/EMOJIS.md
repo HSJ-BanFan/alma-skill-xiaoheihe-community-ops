@@ -91,3 +91,7 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --data-dir "<data>" --account <alias>
 `returned` 只表示回执已保存。`verify.status=matched` 表示目标、作者和本次读取范围中的内容一致，`native_render.status=unknown` 表示还没有客户端图标显示证据，`public_visibility=not_checked` 表示未核验公开可见。目标或作者未观察到、正文有缺口时返回 `unverified`。
 
 `uncertain`、`write_uncertain` 或回执保存失败时，先读取同一操作 ID 和已记录的目标。API 可能已经发送。恢复同一次操作继续使用原 ID；不同的新用户操作才使用新 ID。
+
+Web 发帖的 `write_uncertain` 可在 `error.diagnostic` 中附带安全诊断。`web_post_missing_parameter` 对应精确的 `failed / 缺失参数`，`web_post_publishing_unavailable` 对应精确的 `failed / 发布功能暂不可用`。诊断的代码、路径、状态和消息均为固定字段；未知失败不附带诊断，也不输出其上游消息。
+
+这两种诊断都是失败证据。它们不证明成功回执、公开可见、原生图标显示或图片贴纸送达。操作仍为 `uncertain`，回执仍为空，`retry_allowed=false`。诊断不写入数据库，后续 `operation` 查询不返回诊断。继续核对同一操作 ID；不要为绕过不确定状态创建新 ID 重发。

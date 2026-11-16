@@ -55,9 +55,12 @@ class WebPostContractTests(unittest.TestCase):
         self.config = XhhConfig(pkey="synthetic-session", heybox_id="101", protocol_mode="web")
         self.requests = []
         self.response = {"status": "ok", "result": {"link_id": "801"}}
-        self.addCleanup(patch.stopall)
-        self.open = patch("urllib.request.urlopen", side_effect=self.respond).start()
-        self.sign = patch("xhh_sdk.transport.sign_web_request", return_value=QUAD).start()
+        open_patch = patch("urllib.request.urlopen", side_effect=self.respond)
+        self.addCleanup(open_patch.stop)
+        open_patch.start()
+        sign_patch = patch("xhh_sdk.transport.sign_web_request", return_value=QUAD)
+        self.addCleanup(sign_patch.stop)
+        self.sign = sign_patch.start()
 
     def respond(self, request, timeout=None):
         self.requests.append(request)
@@ -184,12 +187,20 @@ class WebPostContractTests(unittest.TestCase):
     def test_web_get_and_other_posts_keep_existing_wire_and_diagnostic_behavior(self):
         transport = Transport(self.config)
         for path, payload in [("/bbs/app/profile/post/limits", None), (POST_ROUTE, None),
-                              (POST_ROUTE + "/", None), ("/bbs/app/api/qcloud/cos/upload", {"files": "[]"}),
+                              (POST_ROUTE + "/", None),
+                              ("/bbs/app/api/qcloud/cos/upload/info/v2", {"files": "[]"}),
+                              ("/bbs/app/api/qcloud/cos/upload/token/v2", {"key": "synthetic"}),
+                              ("/bbs/app/api/qcloud/cos/upload/callback/v2", {"key": "synthetic"}),
                               ("/bbs/app/comment/create", {"text": BODY, "imgs": ""})]:
             with self.subTest(path=path, payload=payload):
                 method = "GET" if payload is None else "POST"
-                transport.signed_request(path, query={"h_src": ""}, payload=payload)
-                self.assert_wire(self.requests[-1], path, method, {**WEB_QUERY, "h_src": ""}, payload)
+                upload = "/qcloud/cos/upload/" in path
+                if upload:
+                    transport.web_request(path, payload)
+                else:
+                    transport.signed_request(path, query={"h_src": ""}, payload=payload)
+                query = WEB_QUERY if upload else {**WEB_QUERY, "h_src": ""}
+                self.assert_wire(self.requests[-1], path, method, query, payload)
                 self.response = {"status": "failed", "msg": "缺失参数"}
                 with self.assertRaises(XhhAPIError) as caught:
                     transport.signed_request(path, payload=payload)
@@ -216,6 +227,14 @@ class WebPostContractTests(unittest.TestCase):
         with self.assertRaises(XhhAPIError) as caught:
             transport.signed_request(POST_ROUTE, payload=payload)
         self.assertIsNone(getattr(caught.exception, "diagnostic", None))
+        self.response = {"status": "ok", "result": {}}
+        upload_path = "/bbs/app/api/qcloud/cos/upload/info/v2"
+        transport.web_request(upload_path, payload)
+        request = self.requests[-1]
+        self.assertEqual(request.full_url, config.api_base + upload_path)
+        self.assertEqual(request.get_method(), "POST")
+        self.assertEqual(request.data, urlencode(payload).encode("utf-8"))
+        self.assertEqual(request.get_header("Cookie"), config.cookie_web)
         client = XhhClient(config)
         client.transport = transport
         self.response = {"status": "ok", "link_id": False, "result": {"link_id": "801"}}
