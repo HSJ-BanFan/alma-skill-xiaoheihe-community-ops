@@ -16,6 +16,7 @@ from xhh_sdk.accounts import AccountStore
 from xhh_sdk.client import XhhClient
 from xhh_sdk.config import XhhConfig
 from xhh_sdk.exceptions import (
+    SDKDiagnostic,
     XhhAPIError,
     XhhAuthError,
     XhhCaptchaError,
@@ -702,8 +703,11 @@ def main(argv=None, *, client_factory=XhhClient):
     except BrokenPipeError:
         return 1
     except OperationError as error:
+        failure = {"code": error.code, "retry_allowed": False}
+        if error.code == "write_uncertain" and isinstance(error.diagnostic, SDKDiagnostic):
+            failure["diagnostic"] = error.diagnostic.public_fields()
         emit(False, args.command, {"operation": error.operation, "receipt": error.receipt},
-             error={"code": error.code, "retry_allowed": False}, secret=secret)
+             error=failure, secret=secret)
         return 1
     except (EmojiError, MessageError) as error:
         emit(False, args.command, error={"code": error.code, "message": str(error), "retry_allowed": False}, secret=secret)

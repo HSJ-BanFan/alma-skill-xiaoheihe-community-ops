@@ -24,6 +24,7 @@ from email.utils import parsedate_to_datetime
 
 from .config import XhhConfig
 from .exceptions import (
+    SDKDiagnostic,
     XhhAPIError,
     XhhAuthError,
     XhhCaptchaError,
@@ -301,6 +302,7 @@ class Transport:
                 raise XhhConfigError("invalid extra cookie value")
             cookie += f" {name}={value};"
         quad = sign_web_request(path)
+        is_web_post = path.rstrip("/") == "/bbs/app/api/link/post" and req_method == "POST"
         params = {
             "os_type": "web",
             "app": "heybox",
@@ -312,6 +314,8 @@ class Transport:
             **{key: value for key, value in quad.items() if key != "_rnd"},
             **(query or {}),
         }
+        if is_web_post:
+            params["_rnd"] = quad["_rnd"]
         origin = self.config.web_origin
         url = self.config.api_base.rstrip("/") + path + "?" + urllib.parse.urlencode(params)
         headers = {
@@ -326,6 +330,13 @@ class Transport:
             headers["Content-Type"] = "application/x-www-form-urlencoded"
         body = self._open(urllib.request.Request(url, data=data, headers=headers, method=req_method))
         parsed = self._decode(body)
+        if is_web_post and parsed.get("status") == "failed" and type(parsed.get("msg")) is str:
+            diagnostic = {
+                "缺失参数": SDKDiagnostic.WEB_POST_MISSING_PARAMETER,
+                "发布功能暂不可用": SDKDiagnostic.WEB_POST_PUBLISHING_UNAVAILABLE,
+            }.get(parsed["msg"])
+            if diagnostic is not None:
+                raise XhhAPIError("Web post failed", status="failed", diagnostic=diagnostic)
         return self._checked_response(path, parsed)
 
     # -- COS ---------------------------------------------------------------

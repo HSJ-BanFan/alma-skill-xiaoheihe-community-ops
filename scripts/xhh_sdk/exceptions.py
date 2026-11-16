@@ -1,9 +1,26 @@
 """Exception hierarchy for xhh_sdk.
 
-Every error carries a public, printable message. Credentials, cookies and raw
-upstream bodies never appear in exception text.
+Web post diagnostics carry closed enum values and project fixed public fields.
 """
 from __future__ import annotations
+
+from enum import Enum
+
+
+class SDKDiagnostic(Enum):
+    WEB_POST_MISSING_PARAMETER = "web_post_missing_parameter"
+    WEB_POST_PUBLISHING_UNAVAILABLE = "web_post_publishing_unavailable"
+
+    def public_fields(self) -> dict[str, str]:
+        return {
+            "code": self.value,
+            "path": "/bbs/app/api/link/post",
+            "status": "failed",
+            "message": {
+                SDKDiagnostic.WEB_POST_MISSING_PARAMETER: "缺失参数",
+                SDKDiagnostic.WEB_POST_PUBLISHING_UNAVAILABLE: "发布功能暂不可用",
+            }[self],
+        }
 
 
 class XhhError(Exception):
@@ -133,10 +150,12 @@ class XhhAPIError(XhhError):
 
     def __init__(self, message: str, *, status: str = "", path: str = "",
                  code: str | None = None, fix: str | None = None,
-                 retry_allowed: bool | None = None):
+                 retry_allowed: bool | None = None,
+                 diagnostic: SDKDiagnostic | None = None):
         super().__init__(message, code=code, fix=fix, retry_allowed=retry_allowed)
         self.status = status
         self.path = path
+        self.diagnostic = diagnostic
 
     def public(self) -> dict:
         value = super().public()

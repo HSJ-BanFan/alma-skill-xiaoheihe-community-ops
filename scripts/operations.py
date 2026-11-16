@@ -8,7 +8,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from xhh_sdk.exceptions import XhhConfigError
+from xhh_sdk.exceptions import SDKDiagnostic, XhhAPIError, XhhConfigError
 from xhh_sdk.interaction import _validate_text
 from xhh_sdk.payload import Post
 from interaction_history import (database, bind_context, fingerprint, project_receipts, receipt_metadata,
@@ -16,10 +16,11 @@ from interaction_history import (database, bind_context, fingerprint, project_re
 
 
 class OperationError(RuntimeError):
-    def __init__(self, code: str, *, operation=None, receipt=None):
+    def __init__(self, code: str, *, operation=None, receipt=None, diagnostic: SDKDiagnostic | None = None):
         self.code = code
         self.operation = operation
         self.receipt = receipt
+        self.diagnostic = diagnostic
         super().__init__(code)
 
 
@@ -105,7 +106,14 @@ class Journal:
                 )
             else:
                 operation["uncertainty_persisted"] = True
-            raise OperationError("write_uncertain", operation=operation) from None
+            diagnostic = error.diagnostic if isinstance(error, XhhAPIError) else None
+            if not isinstance(diagnostic, SDKDiagnostic):
+                diagnostic = None
+            raise OperationError(
+                "write_uncertain",
+                operation=operation,
+                diagnostic=diagnostic,
+            ) from None
         try:
             self.settle(uid, operation_id, "returned", receipt)
         except Exception:
