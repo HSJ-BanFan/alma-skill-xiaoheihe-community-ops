@@ -159,7 +159,7 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 | `replies ROOT --cursor VALUE` | 读取根楼层的游标页；未提供或未核实帖子 ID 时节点的帖子归属未知 |
 | `thread LINK ROOT --around CID` | 围绕精确 CID 读取祖先与后续节点，`--pages` 控制根楼层定位和深楼读取总页数 |
 | `user UID` | 返回作者公开资料，过滤草稿箱和编辑器字段 |
-| `user UID --view posts/followers/following` | 沿作者帖子和公开关系继续浏览 |
+| `user UID --view posts/followers/following/relations` | 沿作者帖子继续浏览；`followers/following` 返回关系列表和总数，`relations` 返回平台 `count/users` 集合 |
 | `favourites folders` | 当前账号的收藏夹 |
 | `favourites posts FOLDER` | 收藏夹条目，默认收藏夹 ID 可为 `0` |
 | `games info STEAM_APP_ID` | App 单资源游戏详情、社区、关系分组和菜单；请求 `appid` 为 Steam app ID |
@@ -167,6 +167,12 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 | `snapshot list/show/resume/diff` | 查询、继续或比较本地浏览观察 |
 
 信息流统计的 `charges` 来自 `link_award_num`，不把服务器的占位 `up=0` 当成点赞数。缺失的统计值是 `null`。正文摘要与正文分开，`body_not_returned`、`invalid_body_json` 和未知块均有明确缺口。非空正文自身不证明平台已给出全文。
+
+`user --view followers/following` 接受 App 顶层 `follow_list` 响应。`data.count` 是该视图的平台总数，`data.follow_cnt` 保留 `fan_num`、`follow_num` 和 `inter_follow_num`。平台可能忽略请求的 `limit` 并返回更多记录；`--limit` 仍由本地条目预算截断，并在同一页生成安全 `coverage.resume`。每次续读先消费已观察到的同页记录位置。
+
+`user --view relations` 返回平台 `/bbs/app/profile/relations` 的 `result.users`、`result.count` 和规范化 `items`。该集合的业务含义尚未确认。空集合不表示当前账号与目标用户没有关注关系，用户列表也不证明共同关注、粉丝或互关。`count` 大于本次输出且平台没有 continuation 时，结果为 `partial/relation_collection_partial`，包含 `missing_count`，不生成 resume。
+
+分页命令用页级 continuation 续读。单资源命令一次返回的完整列表超过 `--limit` 时使用 `partial/item_budget`，在 `coverage.gaps` 中报告 `single_response_truncated`，在 `coverage.omitted` 中给出省略条数；这类结果没有平台 continuation，因此 `coverage.resume` 为 `null`。
 
 正文读取的 `reader_attempts` 和 `provenance` 分别记录每次读取及最终元数据、正文来源。`identity_verified` 属于实际完成会话核对的读取器；公开 HTML 不发送凭据，也不会继承 App/Web 的核验结果。显式 `--reader html` 如果同时传入 `--account`，工具会先验证该别名，只把账号的 UID 用作快照命名空间；GET 仍不携带账号凭据或签名器。公开 HTML 只从结构化元数据、文章标题或非通用页面标题提取标题，只从结构化作者或作者元数据提取作者；缺失时分别报告 `html_title_not_found` 和 `html_author_not_found`。公开 HTTP 401/403 返回 `http_access_denied`，超过 4 MiB 返回 `public_response_too_large`。除 `--section metadata` 外，所需正文为空会以 `body_missing` 失败，不会返回 `complete`。
 
