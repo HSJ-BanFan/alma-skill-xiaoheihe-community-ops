@@ -6,8 +6,8 @@
 
 ### 离线验证
 
-- 完整 `unittest` 为 `291/291` 通过。新增回归覆盖自动 reader 在验证码或 HTTP 429 后停止、无正文文档时仍保留稳定阻断码、旧 pending 状态中的阻断错误优先于 `partial`、公开 HTML 在 void 元素后结束文章边界、显式 HTML 账号别名先于网络校验，以及旧 App-only 配置上的显式 website 读取返回 `web_session_missing`。
-- 旧 pending 的独立非预算错误现在按 `retry_allowed` 重新投影。不可重试错误转为 `blocked` 并清除 resume；可重试错误转为 `retryable_failure` 并保留已有安全 resume。
+- 完整 `unittest` 为 `293/293` 通过。新增回归覆盖自动 reader 在验证码或 HTTP 429 后停止、无正文文档时仍保留稳定阻断码、旧 pending 状态中的阻断错误优先于 `partial`、公开 HTML 在 void 元素后结束文章边界、显式 HTML 账号别名先于网络校验，以及旧 App-only 配置上的显式 website 读取返回 `web_session_missing`。
+- 旧 pending 的独立非预算错误现在按 `retry_allowed` 重新投影。不可重试错误转为 `blocked` 并清除 resume；可重试错误转为 `retryable_failure` 并保留已有安全 resume。回放在同一事务中写入投影后的 coverage、清除 pending 并递增 revision，后续账号范围续读不会重新取得旧危险令牌。
 - `scripts/` 与 `tests/` 通过 `compileall`，Ruff F 检查和 `git diff --check` 无错误。
 - `tests/verify_portable.py` 验证 21 个 SDK 文件摘要，输出 `ok=true`、`offline_state_writes=0`、`fixture_tests=passed` 和 `live_platform=not_tested`。
 - Skill 官方验证器返回 `Skill is valid!`。
@@ -21,6 +21,7 @@
 - `post 196926795 --reader website --protocol web` 在只有 App 会话时返回 `web_session_missing`，没有借用 App 会话，也没有发出替代请求。
 - `post 196926795 --reader native --raw` 返回 `body.completeness=partial`、`unsupported_body_block` 缺口和成功 reader 的 `raw_responses`。
 - `post 196926795 --reader auto --requests 2` 依次尝试 App 和公开 HTML，最终选择 `native`，保留两次 reader attempt，正文仍为 `partial`。没有把公开 HTML 的正文缺失覆盖到 App 正文证据上。
+- 一个两查询 corpus 使用 3 次请求完成身份核对、帖子搜索 `存钱` 和 hashtag `存钱` 的单页读取，run 状态为 `complete`，请求上限为 `4`。搜索页返回 2 个 provider 位置，保留 1 条有效记录，并对另 1 条记录报告 `invalid_link_records`；hashtag 页返回 30 个位置，接纳 2 条新记录并保留 28 条同页余量。两个 query 都因声明的新记录配额以 `quota_reached` 结束。
 - 本轮真实请求没有出现 `show_captcha` 或限流响应。
 
 ### 仍未验证

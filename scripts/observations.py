@@ -161,9 +161,40 @@ class Store:
         uid = rows[0]["uid"]
         return uid, self.get(uid, name)
 
-    def delivered(self, uid, name, revision):
+    def delivered(self, uid, name, revision, *, coverage=None):
+        if coverage is not None and not isinstance(coverage, dict):
+            raise XhhConfigError("snapshot coverage must be an object")
         with self.connect() as connection:
-            connection.execute("UPDATE snapshots SET pending_response=NULL WHERE uid=? AND name=? AND revision=?", (uid, name, revision))
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT revision FROM snapshots WHERE uid=? AND name=?",
+                (uid, name),
+            ).fetchone()
+            if row is None or row["revision"] != revision:
+                return 0
+            next_revision = revision + 1
+            if coverage is None:
+                cursor = connection.execute(
+                    "UPDATE snapshots SET pending_response=NULL, revision=?, "
+                    "updated_at=? "
+                    "WHERE uid=? AND name=? AND revision=?",
+                    (next_revision, time.time(), uid, name, revision),
+                )
+            else:
+                cursor = connection.execute(
+                    "UPDATE snapshots SET coverage=?, pending_response=NULL, "
+                    "revision=?, updated_at=? "
+                    "WHERE uid=? AND name=? AND revision=?",
+                    (
+                        json.dumps(coverage, ensure_ascii=False),
+                        next_revision,
+                        time.time(),
+                        uid,
+                        name,
+                        revision,
+                    ),
+                )
+            return next_revision if cursor.rowcount == 1 else 0
 
     def list(self, uid):
         if not self.path.exists():

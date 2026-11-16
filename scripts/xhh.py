@@ -276,11 +276,30 @@ def emit(ok, kind, data=None, *, coverage=None, error=None, secret=""):
                      "coverage": coverage or {}, "error": error}, secret), ensure_ascii=False), flush=True)
 
 
-def acknowledge_delivery(store, uid, name, revision):
+def acknowledge_delivery(store, uid, name, revision, *, coverage=None):
     try:
-        store.delivered(uid, name, revision)
+        return bool(store.delivered(uid, name, revision, coverage=coverage))
     except (sqlite3.Error, OSError, XhhConfigError):
-        pass
+        return False
+
+
+def replay_pending_delivery(store, uid, name, saved, kind, *, secret=""):
+    pending = saved["pending_response"]
+    projected, pending_error, ok = project_delivery(
+        pending.get("coverage") or {},
+        pending.get("error"),
+    )
+    emit(
+        ok,
+        kind,
+        pending["data"],
+        coverage={**projected, "replayed_delivery": True},
+        error=pending_error,
+        secret=secret,
+    )
+    acknowledge_delivery(
+        store, uid, name, saved["revision"], coverage=projected)
+    return 0 if ok else 1
 
 
 def merge_resumed_coverage(snapshot, coverage, delta):
@@ -325,21 +344,8 @@ def main(argv=None, *, client_factory=XhhClient):
             from observations import Store
             store = Store(args.data_dir)
             uid, pending_snapshot = store.pending_by_name(args.name)
-            pending = pending_snapshot["pending_response"]
-            projected, pending_error, ok = project_delivery(
-                pending.get("coverage") or {},
-                pending.get("error"),
-            )
-            emit(
-                ok,
-                args.command,
-                pending["data"],
-                coverage={**projected, "replayed_delivery": True},
-                error=pending_error,
-            )
-            acknowledge_delivery(
-                store, uid, args.name, pending_snapshot["revision"])
-            return 0 if ok else 1
+            return replay_pending_delivery(
+                store, uid, args.name, pending_snapshot, args.command)
         config = load_config(args)
         secret = config.pkey
         if args.command == "snapshot":
@@ -359,16 +365,9 @@ def main(argv=None, *, client_factory=XhhClient):
                 emit(True, args.command, difference(saved["data"], other["data"]), secret=secret)
                 return 0
             if saved["pending_response"] is not None:
-                pending = saved["pending_response"]
-                projected, pending_error, ok = project_delivery(
-                    pending.get("coverage") or {},
-                    pending.get("error"),
-                )
-                emit(ok, args.command, pending["data"],
-                     coverage={**projected, "replayed_delivery": True},
-                     error=pending_error, secret=secret)
-                acknowledge_delivery(store, config.heybox_id, args.name, saved["revision"])
-                return 0 if ok else 1
+                return replay_pending_delivery(
+                    store, config.heybox_id, args.name, saved,
+                    args.command, secret=secret)
             token = saved["coverage"].get("resume")
             if not token:
                 raise XhhConfigError("snapshot has no resumable continuation")
@@ -420,16 +419,9 @@ def main(argv=None, *, client_factory=XhhClient):
             if existing is not None and existing["pending_response"] is not None:
                 if existing["query_key"] != key:
                     raise XhhConfigError("snapshot has undelivered data; replay it with snapshot resume before replacing it")
-                pending = existing["pending_response"]
-                projected, pending_error, ok = project_delivery(
-                    pending.get("coverage") or {},
-                    pending.get("error"),
-                )
-                emit(ok, args.command, pending["data"],
-                     coverage={**projected, "replayed_delivery": True},
-                     error=pending_error, secret=secret)
-                acknowledge_delivery(store, config.heybox_id, args.snapshot, existing["revision"])
-                return 0 if ok else 1
+                return replay_pending_delivery(
+                    store, config.heybox_id, args.snapshot, existing,
+                    args.command, secret=secret)
             if args.resume and existing is not None and existing["query_key"] != key:
                 raise XhhConfigError("resumed snapshot belongs to a different query")
             data, coverage = browser.Browser(client, clients=clients).execute(
