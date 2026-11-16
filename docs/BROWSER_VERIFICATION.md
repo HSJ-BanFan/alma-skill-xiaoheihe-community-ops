@@ -2,6 +2,34 @@
 
 本文把离线行为、真实平台观察和尚未验证的能力分开记录。测试通过只证明本地合同，真实请求成功只证明当次平台响应，二者都不能证明正文完整、历史已穷尽或公开可见。
 
+## 2026-11-16 final reader integrity pass
+
+### 离线验证
+
+- 完整 `unittest` 为 `314/314` 通过。新增回归覆盖 HTTP-date `Retry-After`、bounded worker 的等待时间传递、短信登录验证码与平台 HTTP 429、结构化账号错误、未绑定身份、正文候选摘要、App 资料的单向关注状态，以及已有快照在首轮续读被不可重试错误阻断后保留数据、清除 resume 与 pending、递增 revision。同名但属于另一查询的快照在平台阻断后保持不变。
+- `scripts/` 与 `tests/` 通过 `compileall`。Ruff F 检查和 `git diff --check` 无错误。更新的 `SNAPSHOT.json` 通过 portable verifier，验证随包 SDK 摘要和隔离目录下的夹具测试。Skill 官方验证器返回 `Skill is valid!`。
+- 回归把 `body_candidates` 限制为每个成功 reader 的摘要，不复制正文。`reader_attempts` 仍记录失败、预算停止、协议和 session revision。
+- 回归只在 App、目标非本人且原值为整数 `0` 或 `1` 时设置 `current_user_follows_target`。字符串、布尔值、Web 响应和本人资料保持 `null`；反向关注与互关没有证据时也保持 `null`。
+- 回归验证 `captcha_required` 和 `rate_limited` 都清除 resume。HTTP-header 或平台 envelope 的冷却错误传播 `retry_after_seconds`，没有可信等待时间时为 `null`。
+
+### 真实只读观察
+
+这些请求使用已保存的 App 会话。没有发送短信、重新登录、复用迟到的验证码或执行写操作。
+
+- 公开用户 `44117215` 的资料返回 `current_user_follows_target=false`，`target_follows_current=null`，`mutual=null`，证据为 `profile.user.follow_status`。
+- 当前账号关注列表的首条记录动态选出目标 `63003884`。该目标资料返回 `current_user_follows_target=true`。这一步使用 1 次关注列表请求和 1 次资料请求。
+- App 信息流、hashtag 动态页和 stories 各返回 5 条，均以退出码 0 停在 `partial/item_budget`，并提供安全续读。
+- `post 196926795 --reader html --section body --body-format text --requests 1` 在没有账号和签名器时完成 1 次公开 GET。页面没有文章正文时返回 `body_missing`，正文来源仍为 HTML，且 `identity_verified=false`。
+- 缺少 Web 会话时，`post --reader website` 在网络请求前返回 `web_session_missing`，不会借用已保存的 App 会话。
+- `post 196926795 --reader native --section body --body-format text --raw --requests 3` 使用 1 次请求返回 1 条 `native` 候选和 1 个原始响应。正文状态为 `available`，完整性为 `partial`，包含 3 个块。
+- 本轮真实请求没有出现 `show_captcha` 或限流响应。
+
+### 仍未验证
+
+- 当前账号没有保存的 Web 会话，因此 website 正文读取仍只验证了缺会话错误，没有验证真实 Web 正文。
+- 本地夹具验证了验证码、429、`Retry-After` 和原子快照阻断，但本轮没有主动制造这些平台状态。
+- 当前只读证据支持“当前账号是否关注目标用户”。目标用户是否关注当前账号、双方是否互关，以及 `/profile/relations` 集合的业务含义仍为 Unverified。
+
 ## 2026-11-16 user graph and discovery follow-up
 
 ### 离线验证
@@ -29,7 +57,7 @@
 
 ### 仍未验证
 
-- `/bbs/app/profile/relations` 的 `users` 具体业务含义未确认。用户资料中的 `follow_status` 在已知关注目标上观察到为 1，在未关注目标上观察到为 0，但粉丝方向和互关方向没有当前响应证据，因此未加入关系推断。
+- `/bbs/app/profile/relations` 的 `users` 具体业务含义未确认。资料中的 `follow_status` 已支持当前账号是否关注目标用户，且只接受 App 响应中的整数 `0` 或 `1`。粉丝方向、互关方向和该集合的业务含义没有当前响应证据。
 - 推荐用户当次返回空集合和 `recommendations_empty`。这不证明账号长期没有推荐，也没有验证推荐算法或跨页稳定性。
 
 ## 2026-11-16 reader follow-up

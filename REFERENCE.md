@@ -34,6 +34,8 @@ python -I -X utf8 "<skill>/scripts/xhh.py" account --help
 
 Creator 登录使用官方创作者页面，用户自行扫码或输入验证码。登录候选通过身份核对后才保存。凭据留在用户提供的配置或本地账号库，输出脱敏。
 
+账号管理失败输出 `{"ok":false,"command":"account","error":{...}}`。调用方读取 `error.code`、`error.fix` 和 `error.retry_allowed`。未绑定身份使用 `account_identity_unbound`，缺少风险令牌使用 `risk_token_missing`，验证码和限流分别使用 `captcha_required` 与 `rate_limited`。
+
 App 短信登录还要求四项输入。签名器为每次 App 请求生成平台签名。`x_xhh_tokenid` 风险令牌是登录接口使用的设备反滥用值，可由 `account risk-token` 在用户自己的浏览器中取得。数字 UID 把保存的会话绑定到预期账号。短信验证码只用于创建会话。
 
 ```console
@@ -172,15 +174,19 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 
 `user --view relations` 把平台 `/bbs/app/profile/relations` 的 `result.users` 映射到 `data.items`，把 `result.count` 映射到 `data.count`。默认输出还包含 `source` 和 `user_id`；原始响应通过 `--raw` 提供。该集合的业务含义尚未确认。空集合不表示当前账号与目标用户没有关注关系，用户列表也不证明共同关注、粉丝或互关。`count` 大于本次输出且平台没有 continuation 时，结果为 `partial/relation_collection_partial`，包含 `missing_count`，不生成 resume。
 
+`user UID --view profile` 的 `data.relationship.current_user_follows_target` 只采用 App 资料响应中的 `user.follow_status`。只有目标非当前账号且原值是整数 `0` 或 `1` 时才返回 `false` 或 `true`；字符串、布尔值、缺失值、Web 响应和当前账号自己的资料返回 `null`。`target_follows_current` 与 `mutual` 没有可靠证据，保持 `null`。`evidence` 固定为 `profile.user.follow_status`。`relations` 集合不能代替这个判断。
+
 分页命令用页级 continuation 续读。除 `user --view relations` 外，单资源命令一次返回的完整列表超过 `--limit` 时使用 `partial/item_budget`，在 `coverage.gaps` 中报告 `single_response_truncated`，在 `coverage.omitted` 中给出省略条数；这类结果没有平台 continuation，因此 `coverage.resume` 为 `null`。`user --view relations` 使用上一段的 `relation_collection_partial` 契约。
 
-正文读取的 `reader_attempts` 和 `provenance` 分别记录每次读取及最终元数据、正文来源。`identity_verified` 属于实际完成会话核对的读取器；公开 HTML 不发送凭据，也不会继承 App/Web 的核验结果。显式 `--reader html` 如果同时传入 `--account`，工具会先验证该别名，只把账号的 UID 用作快照命名空间；GET 仍不携带账号凭据或签名器。公开 HTML 只从结构化元数据、文章标题或非通用页面标题提取标题，只从结构化作者或作者元数据提取作者；缺失时分别报告 `html_title_not_found` 和 `html_author_not_found`。公开 HTTP 401/403 返回 `http_access_denied`，超过 4 MiB 返回 `public_response_too_large`。除 `--section metadata` 外，所需正文为空会以 `body_missing` 失败，不会返回 `complete`。
+正文读取的 `reader_attempts` 和 `provenance` 分别记录每次读取及最终元数据、正文来源。`body_candidates` 对每个成功 reader 返回 `text_characters`、`block_count`、排序后的 `block_types`、`body_gaps` 和 `body_sha256`，不复制正文或块内容。`identity_verified` 属于实际完成会话核对的读取器；公开 HTML 不发送凭据，也不会继承 App/Web 的核验结果。显式 `--reader html` 如果同时传入 `--account`，工具会先验证该别名，只把账号的 UID 用作快照命名空间；GET 仍不携带账号凭据或签名器。公开 HTML 只从结构化元数据、文章标题或非通用页面标题提取标题，只从结构化作者或作者元数据提取作者；缺失时分别报告 `html_title_not_found` 和 `html_author_not_found`。公开 HTTP 401/403 返回 `http_access_denied`，超过 4 MiB 返回 `public_response_too_large`。除 `--section metadata` 外，所需正文为空会以 `body_missing` 失败，不会返回 `complete`。
 
 `thread.data.reply_location` 给出该次指定目标的回复位置，字段为 `page`、`limit`、`sort`、`cursor`。`page` 是根楼被观察到的绝对页号；`cursor` 是实际包含目标的子评论页的输入游标，首屏和根楼预览为 `null`。读取更多页后，该位置仍对应目标，独立于最后一页的 `coverage.next`。未观察到目标时位置为 `null`。保存的已观察目标位置可随快照续读保留；旧快照缺少位置时，需重新观察目标。位置仅用于定位，发送前仍核验目标。
 
 `post --reader native` 缺少保存的 App 会话时返回 `app_session_missing`。`post --reader website` 缺少保存的 Web 会话时返回 `web_session_missing`。显式 reader 在缺会话时不会借用另一协议。`post --reader auto` 按 App、Web、公开 HTML 的顺序尝试当前实际拥有的 reader，缺会话本身不会伪造一次网络尝试。
 
 分页的 `completion=complete` 需要平台终点或总页数证据。空数组、缺少游标或达到预算只能产生 `unknown` 或停止状态，不能证明全量读取结束。`coverage.resume` 绑定真实账号、协议、资源和筛选；换资源或账号时被拒绝。页内与本次多页之间按 ID 去重。
+
+验证码和限流错误的公开形状包含 `code`、`retry_allowed=false`、`cooldown_required=true` 和 `retry_after_seconds`。`retry_after_seconds` 来自 HTTP `Retry-After` 的数字或 HTTP-date；平台没有提供可信值时返回 `null`。遇到这两类错误时停止当前任务、reader fallback 和后续 query。
 
 发现和搜索列表按记录规范化。无法解析的混合记录不会让整页丢弃可用条目；`coverage.invalid` 计数，`coverage.gaps` 加入对应的 `invalid_*_records`，`partial` 或 `unknown` 保留读取范围的不确定性。
 
@@ -204,6 +210,8 @@ python -I -X utf8 "<skill>/scripts/xhh.py" asset "https://imgheybox.max-c.com/�
 浏览来源的 `configured_uid` 是配置中的数据命名空间，`identity_verified` 表示该次读取是否已在网络中核对当前会话。浏览快照保存在独立的 `browsing/snapshots.sqlite3`，与发送日志分开。快照按配置 UID 分组，这属于数据命名空间，不是同一本地操作系统用户之间的身份权限边界。缓存目录和文件限制为本地所有者访问；Windows 使用受保护 DACL，POSIX 使用目录 0700、数据库 0600。离线查看不需要有效网络会话，也不能证明身份。新保存、`--since` 和网络续读会核对真实会话 UID，身份验证也计入请求预算，因此这些在线操作至少需要两个请求。`--since` 和 `snapshot diff` 只比较相同资源与筛选的查询。
 
 快照使用递增修订号拒绝并发陈旧更新，冲突时保留数据库与本次已读结果。续读既可以用 `snapshot resume`，也可以用原命令的 `--resume --snapshot`，均保留先前页。`snapshot resume NAME` 会先按名称查找未交付响应；仅当一个账号拥有该 pending 快照时，无需先加载账号配置即可离线重放。名称存在于多个账号时要求先用 `--account` 或 `--config` 选择账号。响应与下一断点在同一事务持久化，stdout 成功写出并刷新后才确认已交付；中断时下次调用先离线重放未交付响应，不跳过数据。原型期旧 `browsing.sqlite3` 路径不自动导入。
+
+同一查询的已有快照在续读或取得新页之前遇到不可重试错误时，工具保留原数据，将 coverage 原子更新为 `blocked`，清除 resume 和 pending，并递增 revision。该状态不会被误当作空结果，也不会保留下一次调用可复用的旧 token。同名快照属于另一查询时保持原快照不变。首次读取失败且没有快照时不创建空快照。
 
 ```console
 python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> comments <link-id> --pages 3 --requests 2 --snapshot discussion

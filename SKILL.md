@@ -27,6 +27,8 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
 
 首次登录、凭据配置与 App 签名器见 [REFERENCE.md](REFERENCE.md)。Web 协议使用内置 Python 签名器；App 协议需要用户提供签名器和 Java。协议由账号配置或 `--protocol` 明确选择，失败后保持该协议。
 
+账号管理命令也返回一行 JSON。缺失签名器、风险令牌、未绑定身份、会话或在线核验失败时，读取 `error.code` 和 `error.fix`，不要解析自由文本错误。
+
 用户要求逛论坛、回复收件箱来信或继续多轮讨论时，先读取 [CONVERSATION.md](CONVERSATION.md)。按其中的每轮流程补读正文、定位目标、复用操作 ID并读回新评论。
 
 公开 HTML 正文、媒体下载和离线快照查看不要求账号。App 或 Web 会话只用于对应协议的认证读取、个人数据和写操作；短信验证码只用于创建缺失的 App 会话。保存成功后复用会话，不重复登录。`native` 缺少 App 会话时返回 `app_session_missing`，`website` 缺少 Web 会话时返回 `web_session_missing`；`auto` 跳过缺失的会话并继续尝试可用的公开 HTML。
@@ -55,9 +57,15 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
 
 `post --reader native/website/html/auto` 选择正文读取方式。`native` 要求 App，`website` 要求 Web，`html` 读取无凭据的公开页面。`html` 不接受 `--protocol`，不需要账号或签名器；如果同时传入 `--account`，工具先验证别名，只把账号 UID 用作快照命名空间。显式入口不会切换协议，`auto` 只跳过缺失的会话并记录每次尝试。正文和身份证据按实际读取器记录，公开 HTML 不会继承 App 或 Web 的核验结果。除只读元数据外，所需正文为空会以 `body_missing` 失败。标题或作者没有公开证据时保留缺口，不从帖子 ID 或通用站点标题推断。`--section` 和 `--body-format` 可减少不需要的输出，`--raw` 包含成功 reader 的原始响应，仅用于检查。
 
+`data.body_candidates` 为每个成功 reader 提供正文长度、块数、块类型、缺口、来源和正文摘要。它不复制正文。用这些摘要比较 reader，不要把 metadata 来源当成正文来源。
+
 普通浏览的 `source.configured_uid` 是配置中的数据命名空间，`source.identity_verified=false` 只表示本次没有核验在线会话身份。需要持续浏览时用 `--snapshot <name>` 保存公开观察与断点，`--since <name>` 查看同一查询的新增、变化和未再次观察到的条目。保存、`--since` 和网络续读会先核验在线 UID。未交付的 pending 响应可以在唯一名称下先离线重放；名称跨多个账号时仍需显式选择账号。其他离线快照操作按配置 UID 隔离，不表示身份已核验。缺失条目不推断为删除。
 
+当同一查询的续读或已有快照在取得新页前遇到不可重试错误时，工具保留已有数据，原子写入 `blocked`，清除 resume 和 pending。同名快照属于另一查询时保持原快照不变。没有已有数据时不会创建空快照。
+
 `coverage.full_history=false` 表示有限范围。空单页不能证明全量历史已查完。平台接口缺少预期消息字段时返回错误，不把协议异常当作空收件箱。
+
+`captcha_required` 和 `rate_limited` 始终包含 `retry_allowed=false` 与 `cooldown_required=true`。`retry_after_seconds` 只在平台提供可信等待时间时为整数，否则为 `null`。遇到任一冷却错误时停止当前 run 的所有后续请求。
 
 ## 写操作
 
