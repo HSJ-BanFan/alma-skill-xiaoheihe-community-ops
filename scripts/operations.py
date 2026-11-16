@@ -4,7 +4,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import sqlite3
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -12,6 +11,8 @@ from pathlib import Path
 from xhh_sdk.exceptions import XhhConfigError
 from xhh_sdk.interaction import _validate_text
 from xhh_sdk.payload import Post
+from interaction_history import (database, bind_context, fingerprint, project_receipts, receipt_metadata,
+                                 request_fingerprint, bind_message_context, read_message_context)
 
 
 class OperationError(RuntimeError):
@@ -38,67 +39,111 @@ class Journal:
 
     @contextmanager
     def connect(self):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(self.path, timeout=10)
-        connection.row_factory = sqlite3.Row
-        try:
-            connection.execute("""CREATE TABLE IF NOT EXISTS operations (
-                uid TEXT NOT NULL, operation_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
-                kind TEXT NOT NULL, status TEXT NOT NULL, receipt TEXT, updated_at REAL NOT NULL,
-                PRIMARY KEY (uid, operation_id))""")
-            connection.commit()
-            with connection:
-                yield connection
-        finally:
-            connection.close()
+        with database(self.path, write=True) as connection:
+            yield connection
 
     def read(self, uid: str, operation_id: str):
         if not self.path.exists():
             return None
-        with self.connect() as connection:
+        with database(self.path) as connection:
             row = connection.execute("SELECT * FROM operations WHERE uid=? AND operation_id=?",
                                      (uid, operation_id)).fetchone()
+            context = read_message_context(connection, uid, operation_id)
         if row is None:
             return None
-        return {"operation_id": row["operation_id"], "kind": row["kind"], "status": row["status"],
-                "receipt": json.loads(row["receipt"]) if row["receipt"] else None,
-                "updated_at": row["updated_at"]}
+        result = {"operation_id": row["operation_id"], "kind": row["kind"], "status": row["status"],
+                  "receipt": receipt_metadata(row["kind"], json.loads(row["receipt"])) if row["receipt"] else None,
+                  "updated_at": row["updated_at"]}
+        if context:
+            result["context"] = context
+        return result
 
-    def execute(self, uid: str, operation_id: str, kind: str, payload: dict, send):
+    def execute(self, uid: str, operation_id: str, kind: str, payload: dict, send, *, identity_verified=False, context=None):
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", operation_id or ""):
             raise XhhConfigError("--operation-id requires 1-128 letters, digits, underscores or hyphens")
-        fingerprint = hashlib.sha256(json_text({"kind": kind, "payload": payload}).encode()).hexdigest()
+        request_hash = hashlib.sha256(json_text({"kind": kind, "payload": payload}).encode()).hexdigest()
+        replay = None
+        closed = None
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute("SELECT * FROM operations WHERE uid=? AND operation_id=?",
                                      (uid, operation_id)).fetchone()
             if row is not None:
-                if row["fingerprint"] != fingerprint:
+                if row["fingerprint"] != request_hash:
                     raise OperationError("operation_id_conflict", operation=self.read(uid, operation_id))
+                bind_context(connection, uid, operation_id, kind, payload, identity_verified=identity_verified, context=context)
+                bind_message_context(connection, uid, operation_id, context)
                 if row["status"] == "returned":
-                    return {"operation_id": operation_id, "replayed": True,
-                            "status": "returned", "receipt": json.loads(row["receipt"])}
-                raise OperationError("operation_pending_or_uncertain", operation=self.read(uid, operation_id))
-            connection.execute("INSERT INTO operations VALUES (?, ?, ?, ?, 'reserved', NULL, ?)",
-                               (uid, operation_id, fingerprint, kind, time.time()))
+                    replay = {"operation_id": operation_id, "replayed": True,
+                              "status": "returned", "receipt": receipt_metadata(kind, json.loads(row["receipt"]))}
+                else:
+                    closed = self.read(uid, operation_id)
+            else:
+                connection.execute("INSERT INTO operations VALUES (?, ?, ?, ?, 'reserved', NULL, ?)",
+                                   (uid, operation_id, request_hash, kind, time.time()))
+                bind_context(connection, uid, operation_id, kind, payload, identity_verified=identity_verified, context=context)
+                bind_message_context(connection, uid, operation_id, context)
+        if replay is not None:
+            return {**replay, **self.project(uid)}
+        if closed is not None:
+            raise OperationError("operation_pending_or_uncertain", operation=closed)
         try:
             receipt = send()
         except Exception as error:
+            operation = {
+                "operation_id": operation_id,
+                "status": "uncertain",
+                "error_type": type(error).__name__,
+                "uncertainty_persisted": False,
+            }
             try:
                 self.settle(uid, operation_id, "uncertain", None)
-            except Exception:
-                pass
-            raise OperationError("write_uncertain", operation={"operation_id": operation_id,
-                                 "status": "uncertain", "error_type": type(error).__name__}) from None
+            except Exception as persistence_error:
+                operation.update(
+                    status="unknown",
+                    persistence_error_type=type(persistence_error).__name__,
+                )
+            else:
+                operation["uncertainty_persisted"] = True
+            raise OperationError("write_uncertain", operation=operation) from None
         try:
             self.settle(uid, operation_id, "returned", receipt)
         except Exception:
             raise OperationError("receipt_persistence_failed", operation={"operation_id": operation_id,
                                  "status": "reserved"}, receipt=receipt) from None
-        return {"operation_id": operation_id, "replayed": False, "status": "returned", "receipt": receipt}
+        return {"operation_id": operation_id, "replayed": False, "status": "returned", "receipt": receipt,
+                **self.project(uid)}
+
+    def project(self, uid):
+        try:
+            with self.connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                project_receipts(connection, uid)
+            return {"interaction_projection_complete": True}
+        except Exception as error:
+            return {"interaction_projection_complete": False, "interaction_projection_error": type(error).__name__}
+
+    def bind_submitted_request(self, uid, operation_id, request):
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("""SELECT c.request_fingerprint,c.submission_fingerprint,o.kind,o.status
+                                     FROM interaction_write_context c JOIN operations o USING(uid,operation_id)
+                                     WHERE c.uid=? AND c.operation_id=?""",
+                                     (uid, operation_id)).fetchone()
+            if row is None or row["kind"] not in ("comment", "reply") or row["status"] != "reserved":
+                raise XhhConfigError("submitted comment requires reserved context")
+            if request_fingerprint(row["kind"], request) != row["request_fingerprint"]:
+                raise XhhConfigError("submitted request differs from reserved context")
+            submitted = fingerprint(request)
+            if row["submission_fingerprint"] is not None and row["submission_fingerprint"] != submitted:
+                raise XhhConfigError("submitted request differs from the first submission")
+            connection.execute("UPDATE interaction_write_context SET submission_fingerprint=? WHERE uid=? AND operation_id=?",
+                               (submitted, uid, operation_id))
 
     def settle(self, uid: str, operation_id: str, status: str, receipt):
         with self.connect() as connection:
+            row = connection.execute("SELECT kind FROM operations WHERE uid=? AND operation_id=?", (uid, operation_id)).fetchone()
+            receipt = receipt_metadata(row["kind"], receipt)
             connection.execute("UPDATE operations SET status=?, receipt=?, updated_at=? WHERE uid=? AND operation_id=?",
                                (status, json_text(receipt) if receipt is not None else None,
                                 time.time(), uid, operation_id))
@@ -114,7 +159,7 @@ def verify_identity(client) -> dict:
             for key in ("heybox_id", "userid", "user_id", "id"):
                 if container.get(key) is not None:
                     identities.add(str(container[key]))
-    if str(client.config.heybox_id) not in identities:
+    if identities != {str(client.config.heybox_id)}:
         raise OperationError("account_identity_not_verified")
     return data
 
@@ -135,8 +180,6 @@ def read(client, kind: str, args) -> tuple[object, dict]:
             raise OperationError("invalid_inbox_response")
         return result, {**coverage, "offset": args.offset, "limit": args.limit,
                         "next_offset": args.offset + len(messages)}
-    elif kind == "emojis":
-        return client.emojis(), coverage
     elif kind == "creator-options":
         return client.topic_index(link_id=args.link_id), coverage
     elif kind == "drafts":
@@ -146,13 +189,18 @@ def read(client, kind: str, args) -> tuple[object, dict]:
                     query={**query, "userid": client.config.heybox_id})
         return data, coverage
     elif kind == "my-comments":
-        return client.my_comments(offset=args.offset, limit=args.limit), coverage
+        data = client.transport.signed_request("/bbs/app/profile/bbs/comment/list",
+                    query={**query, "userid": str(client.config.heybox_id), "only_cy": "0"})
+        result = data.get("result") if isinstance(data, dict) else None
+        if not isinstance(result, list) or not all(isinstance(row, dict) for row in result):
+            raise OperationError("invalid_my_comments_response")
+        return result, {**coverage, "offset": args.offset, "limit": args.limit,
+                        "next_offset": args.offset + len(result)}
     else:
         raise XhhConfigError("unknown read operation")
-    return data, {**coverage, "offset": args.offset, "limit": args.limit}
 
 
-def prepare_write(client, kind: str, args):
+def prepare_write(client, kind: str, args, *, before_post=None):
     payload = {"link_id": getattr(args, "link_id", None)}
     if kind in ("comment", "reply"):
         body = _validate_text(args.text_file.read_text(encoding="utf-8-sig"))
@@ -193,13 +241,18 @@ def prepare_write(client, kind: str, args):
             request = {"link_id": args.link_id, "text": body, "imgs": url or "", "is_cy": "0"}
             if kind == "reply":
                 request.update(root_id=args.root_id, reply_id=args.reply_id)
+            if before_post:
+                before_post(request)
             result = client.transport.signed_request("/bbs/app/comment/create", query={"h_src": ""}, payload=request)
             cid = client._created_comment_id(result)
             if not cid:
                 raise OperationError("missing_comment_receipt")
-            return {"comment_id": numeric_id(cid), "link_id": args.link_id,
-                    "root_id": getattr(args, "root_id", None), "reply_id": getattr(args, "reply_id", None),
-                    "visibility": "not_checked"}
+            receipt = {"comment_id": numeric_id(cid), "link_id": args.link_id,
+                       "root_id": getattr(args, "root_id", None), "reply_id": getattr(args, "reply_id", None),
+                       "visibility": "not_checked"}
+            if url:
+                receipt["image_url"] = url
+            return receipt
         return payload, send
     if kind == "like":
         client.post_state(args.link_id)

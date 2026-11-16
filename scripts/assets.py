@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import sys
 import urllib.parse
 import urllib.request
 import uuid
@@ -37,7 +38,15 @@ def digest(data):
 def owned(root, path):
     path = Path(path)
     resolved = path.resolve()
-    if not resolved.is_relative_to(root.resolve()) or path.is_symlink():
+    base = root.resolve()
+    if sys.platform == "win32":
+        def comparable(value):
+            value = str(value)
+            if value.startswith("\\\\?\\UNC\\"):
+                return Path("\\\\" + value[8:])
+            return Path(value[4:] if value.startswith("\\\\?\\") else value)
+        resolved, base = comparable(resolved), comparable(base)
+    if not resolved.is_relative_to(base) or path.is_symlink():
         raise XhhConfigError("asset cache path escapes its root")
     return path
 

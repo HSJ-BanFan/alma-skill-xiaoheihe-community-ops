@@ -233,9 +233,27 @@ class ToolsTest(unittest.TestCase):
         journal = Journal(self.folder / "failure")
         with patch.object(journal, "settle", side_effect=OSError("fixture disk full")):
             with self.assertRaises(OperationError) as error:
-                journal.execute("101", "send-1", "comment", {}, lambda: {"comment_id": "701"})
+                journal.execute("101", "send-1", "comment", {"link_id": "501", "text": "fixture"}, lambda: {"comment_id": "701"})
         self.assertEqual(error.exception.receipt, {"comment_id": "701"})
         self.assertEqual(journal.read("101", "send-1")["status"], "reserved")
+
+    def test_uncertain_persistence_failure_preserves_both_errors(self):
+        journal = Journal(self.folder / "uncertain-failure")
+        def fail_send():
+            raise RuntimeError("fixture send failed")
+        with patch.object(journal, "settle", side_effect=OSError("fixture state store full")):
+            with self.assertRaises(OperationError) as error:
+                journal.execute("101", "send-1", "comment", {"link_id": "501", "text": "fixture"}, fail_send)
+        operation = error.exception.operation
+        self.assertEqual(error.exception.code, "write_uncertain")
+        self.assertEqual(operation["status"], "unknown")
+        self.assertEqual(operation["error_type"], "RuntimeError")
+        self.assertEqual(operation["persistence_error_type"], "OSError")
+        self.assertFalse(operation["uncertainty_persisted"])
+        self.assertEqual(journal.read("101", "send-1")["status"], "reserved")
+        with self.assertRaises(OperationError) as replay:
+            journal.execute("101", "send-1", "comment", {"link_id": "501", "text": "fixture"}, lambda: self.fail("closed reservation resent"))
+        self.assertEqual(replay.exception.code, "operation_pending_or_uncertain")
 
     def test_local_image_runs_sdk_cos_flow(self):
         image = self.folder / "pixel.png"

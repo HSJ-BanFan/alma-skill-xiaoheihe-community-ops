@@ -1,6 +1,6 @@
 ---
 name: xiaoheihe-tools
-description: 独立的小黑盒社区工具，提供社区发现、信息流、搜索、正文、评论、账号和写入功能，以及有预算和 checkpoint 的多查询 corpus。用户需要读取或操作小黑盒时使用。
+description: 独立的小黑盒社区与内容工具，提供社区发现、信息流、搜索、正文、评论、账号、写入、互动历史，以及有预算和 checkpoint 的多查询 corpus；还提供官方原生表情、图片贴纸、内容准备和读回核对。用户需要浏览或操作小黑盒时使用。
 ---
 
 # 小黑盒工具
@@ -14,6 +14,7 @@ description: 独立的小黑盒社区工具，提供社区发现、信息流、�
 ```console
 python -I -X utf8 "<skill>/scripts/xhh.py" --help
 python -I -X utf8 "<skill>/scripts/xhh.py" --protocol web doctor --offline
+python -I -X utf8 "<skill>/scripts/xhh.py" describe
 python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> account-info
 python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> feed <topic-id> --limit 20
 python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> post <link-id>
@@ -32,6 +33,18 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
 用户要求逛论坛、回复收件箱来信或继续多轮讨论时，先读取 [CONVERSATION.md](CONVERSATION.md)。按其中的每轮流程补读正文、定位目标、复用操作 ID并读回新评论。
 
 公开 HTML 正文、媒体下载和离线快照查看不要求账号。App 或 Web 会话只用于对应协议的认证读取、个人数据和写操作；短信验证码只用于创建缺失的 App 会话。保存成功后复用会话，不重复登录。`native` 缺少 App 会话时返回 `app_session_missing`，`website` 缺少 Web 会话时返回 `web_session_missing`；`auto` 跳过缺失的会话并继续尝试可用的公开 HTML。
+
+准备继续既有讨论、核对来信处置或恢复发送结果时，读取 [互动参考](docs/INTERACTION.md)。`interaction status <post-id>` 查询参与、轮数和待处理状态，`interaction history <post-id>` 返回评论 ID、作者、回复关系和时间；`--peer <uid>`、`--root <cid>` 缩小讨论范围。互动存储只保存结构化事实，原文和配图按需要用 `post`、`thread` 当前读取取得。`interaction sync <post-id>` 在预算内核验账号并补录事实，调用方决定是否回复及回复风格。
+
+## 原生表情与图片贴纸
+
+选择表情、创建带表情的帖子或使用自制贴纸时，读取 [表情内容流程](references/EMOJIS.md)。按表达意图调用 `emojis search`，用返回的 ID 查详情和预览。目录中的含义说明标记来源与核验状态，排名分数是关键词匹配结果。
+
+`describe` 返回精简命令目录，`describe --command compose` 返回结构化内容的输入、输出 schema 和对应 CLI 参数。`describe --command "emojis get"` 可查询子命令。内容节点使用 `text`、`native_emoji` 或 `image_sticker`。原生表情 ID 来自目录；图片贴纸 ID 来自 `stickers import`。创建新图片使用当前宿主的绘图能力，再登记文件。
+
+`compose` 只做本地校验和准备，可用 `--out` 保存准备结果，用 `--preview-file` 生成自包含 HTML。生成图片预览需要可选 Pillow 和首次读取官方贴图。准备结果绑定内容、素材摘要、目录版本与协议。
+
+发送已获授权的内容时，用 `send` 提交准备结果，提供明确账号、稳定操作 ID 与 `--confirm`。帖子默认保存草稿，`--public` 才公开发布。`verify` 读回并核对内容，分别报告回执、内容一致性、公开可见性与图标渲染证据。恢复同一次操作沿用其 ID。
 
 ## 平台数据
 
@@ -53,7 +66,9 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
 
 `user <uid>` 读取作者公开资料，`--view posts/followers/following` 继续导航。粉丝和关注视图接受平台顶层 `follow_list`，返回条目、总数与 `follow_cnt`；平台忽略请求页大小时仍按实际返回位置生成安全续读。`--view relations` 只返回当次平台 `count/users` 集合，不把空集合或用户列表解释为当前账号的已关注、被关注或互关状态。`favourites folders/posts` 读取当前账号的收藏夹和内容。`inbox` 保留平台消息字段，读取 `entries` 或旧 `messages` 列表，不改已读状态。
 
-`asset <CDN-URL>` 下载平台图片并生成可用本地图像工具查看的 `preview_file`，需要可选 Pillow 依赖。源图与预览都有完整摘要；动画预览只展示首帧，原文件保留。官方表情使用 `emojis` 返回的平台目录。
+`asset <CDN-URL>` 下载平台图片并生成可用本地图像工具查看的 `preview_file`，需要可选 Pillow 依赖。源图与预览都有完整摘要；动画预览只展示首帧，原文件保留。`emojis list/search/get` 使用验证过的官方目录快照，`emojis refresh` 从官方创作者资源更新。缓存异常在 `saved_error` 报告，失效刷新保留原缓存。
+
+读取时原生短码、官方 `data-emoji` 标签和可唯一识别的字体标签归一化为 `native_emoji`，保留 ID、短码及位置。未知或冲突的身份保留原始数据并报告缺口。
 
 `post --reader native/website/html/auto` 选择正文读取方式。`native` 要求 App，`website` 要求 Web，`html` 读取无凭据的公开页面。`html` 不接受 `--protocol`，不需要账号或签名器；如果同时传入 `--account`，工具先验证别名，只把账号 UID 用作快照命名空间。显式入口不会切换协议，`auto` 只跳过缺失的会话并记录每次尝试。正文和身份证据按实际读取器记录，公开 HTML 不会继承 App 或 Web 的核验结果。除只读元数据外，所需正文为空会以 `body_missing` 失败。标题或作者没有公开证据时保留缺口，不从帖子 ID 或通用站点标题推断。`--section` 和 `--body-format` 可减少不需要的输出，`--raw` 包含成功 reader 的原始响应，仅用于检查。
 
@@ -66,6 +81,8 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
 `coverage.full_history=false` 表示有限范围。空单页不能证明全量历史已查完。平台接口缺少预期消息字段时返回错误，不把协议异常当作空收件箱。
 
 `captcha_required` 和 `rate_limited` 始终包含 `retry_allowed=false` 与 `cooldown_required=true`。`retry_after_seconds` 只在平台提供可信等待时间时为整数，否则为 `null`。遇到任一冷却错误时停止当前 run 的所有后续请求。
+
+`post.data.interaction` 和 `feed`、`hot` 各条目的 `interaction` 是本地轻量摘要，不增加 HTTP 请求。`unknown` 和已知零条都不能证明从未参与。`identity_established` 表示该 UID 曾在本地历史中被核验；`source.identity_verified_this_read` 表示本次读取核验。普通公开读取可以为已有可信 UID 补充公开事实，仍保留本次未核验的标签。仅配置 UID 且没有可信历史时，公开读取不会建立个人历史。`inbox` 和 `my-comments` 每次先核验实际 UID，验证请求计入 `--requests` 和 `--seconds`。
 
 ## 写操作
 

@@ -1,0 +1,3814 @@
+{
+  "schema_version": 1,
+  "catalog_version": "creator-b1eb89a07fc086cf",
+  "source": {
+    "kind": "official_creator_assets",
+    "js_url": "https://static.max-c.com/static/heybox/webapp/@heybox-spa/creator/app/index-BIeKgP-u.js",
+    "css_url": "https://static.max-c.com/static/heybox/webapp/@heybox-spa/creator/app/index-C5fc7x2_.css",
+    "js_sha256": "b1eb89a07fc086cf93e218ea6dc9366ee7a7625dd94dbff829fb1f15ef91a265",
+    "css_sha256": "48f30de8cdb656c7209e712ff115a19b7d44943130f4b7caefb2ea47e12cd781",
+    "observed_at": "2026-11-15T11:39:24.921452+00:00",
+    "render_contract": "creator_span_and_shortcode",
+    "live_post_verified": false
+  },
+  "items": [
+    {
+      "id": "cube:11",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "11",
+      "name": "哭泣",
+      "shortcode": "[cube_哭泣]",
+      "font_unicode": "e012",
+      "visual_description": "眼泪沿脸颊流下的盒子脸。",
+      "meaning": "表达伤心、失落或感动落泪。",
+      "tags": [
+        "难过",
+        "伤心",
+        "泪目"
+      ],
+      "cautions": [],
+      "annotation_source": "agent_visual_review_and_usage_note",
+      "annotation_status": "suggested",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 0,
+        "row": 0
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:12",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "12",
+      "name": "酷",
+      "shortcode": "[cube_酷]",
+      "font_unicode": "e037",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 1,
+        "row": 0
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:13",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "13",
+      "name": "doge",
+      "shortcode": "[cube_doge]",
+      "font_unicode": "e003",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 2,
+        "row": 0
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:14",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "14",
+      "name": "喜欢",
+      "shortcode": "[cube_喜欢]",
+      "font_unicode": "e013",
+      "visual_description": "带爱心、眯眼笑的盒子脸。",
+      "meaning": "表达喜欢、欣赏或好感。",
+      "tags": [
+        "喜欢",
+        "欣赏",
+        "爱心"
+      ],
+      "cautions": [],
+      "annotation_source": "agent_visual_review_and_usage_note",
+      "annotation_status": "suggested",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 3,
+        "row": 0
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:15",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "15",
+      "name": "黑人问号",
+      "shortcode": "[cube_黑人问号]",
+      "font_unicode": "e03b",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 4,
+        "row": 0
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:16",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "16",
+      "name": "惊讶",
+      "shortcode": "[cube_惊讶]",
+      "font_unicode": "e020",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 5,
+        "row": 0
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:21",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "21",
+      "name": "开心",
+      "shortcode": "[cube_开心]",
+      "font_unicode": "e01d",
+      "visual_description": "张嘴眯眼笑的盒子脸。",
+      "meaning": "表达开心、愉快或高兴。",
+      "tags": [
+        "快乐",
+        "开心",
+        "高兴"
+      ],
+      "cautions": [],
+      "annotation_source": "agent_visual_review_and_usage_note",
+      "annotation_status": "suggested",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 0,
+        "row": 1
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:22",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "22",
+      "name": "捂脸哭",
+      "shortcode": "[cube_捂脸哭]",
+      "font_unicode": "e025",
+      "visual_description": "盒子脸捂住嘴，眼中有泪。",
+      "meaning": "表达哭笑不得、尴尬或无奈。",
+      "tags": [
+        "无奈",
+        "尴尬",
+        "哭笑不得"
+      ],
+      "cautions": [],
+      "annotation_source": "agent_visual_review_and_usage_note",
+      "annotation_status": "suggested",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 1,
+        "row": 1
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:23",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "23",
+      "name": "晕",
+      "shortcode": "[cube_晕]",
+      "font_unicode": "e029",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 2,
+        "row": 1
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:24",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "24",
+      "name": "感动",
+      "shortcode": "[cube_感动]",
+      "font_unicode": "e021",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 3,
+        "row": 1
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:25",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "25",
+      "name": "委屈",
+      "shortcode": "[cube_委屈]",
+      "font_unicode": "e017",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 4,
+        "row": 1
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:26",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "26",
+      "name": "并不简单",
+      "shortcode": "[cube_并不简单]",
+      "font_unicode": "e01a",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 5,
+        "row": 1
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:31",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "31",
+      "name": "乖",
+      "shortcode": "[cube_乖]",
+      "font_unicode": "e007",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 0,
+        "row": 2
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:32",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "32",
+      "name": "笑cry",
+      "shortcode": "[cube_笑cry]",
+      "font_unicode": "e032",
+      "visual_description": "带眼泪笑的盒子脸。",
+      "meaning": "表达大笑、笑出眼泪或哭笑不得。",
+      "tags": [
+        "好笑",
+        "大笑",
+        "笑哭"
+      ],
+      "cautions": [],
+      "annotation_source": "agent_visual_review_and_usage_note",
+      "annotation_status": "suggested",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 1,
+        "row": 2
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:33",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "33",
+      "name": "怒",
+      "shortcode": "[cube_怒]",
+      "font_unicode": "e01f",
+      "visual_description": "红色、眉头向下的盒子脸。",
+      "meaning": "表达强烈生气或愤怒。",
+      "tags": [
+        "愤怒",
+        "生气"
+      ],
+      "cautions": [
+        "anger"
+      ],
+      "annotation_source": "agent_visual_review_and_usage_note",
+      "annotation_status": "suggested",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 2,
+        "row": 2
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:34",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "34",
+      "name": "滑稽",
+      "shortcode": "[cube_滑稽]",
+      "font_unicode": "e02d",
+      "visual_description": "眯眼侧看的笑脸。",
+      "meaning": "常用于调侃或反讽，需结合上下文。",
+      "tags": [
+        "调侃",
+        "玩笑",
+        "反讽"
+      ],
+      "cautions": [
+        "sarcasm"
+      ],
+      "annotation_source": "agent_visual_review_and_usage_note",
+      "annotation_status": "suggested",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 3,
+        "row": 2
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:35",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "35",
+      "name": "沧桑",
+      "shortcode": "[cube_沧桑]",
+      "font_unicode": "e02c",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 4,
+        "row": 2
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:36",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "36",
+      "name": "凄凉",
+      "shortcode": "[cube_凄凉]",
+      "font_unicode": "e00a",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 5,
+        "row": 2
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:41",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "41",
+      "name": "赞",
+      "shortcode": "[cube_赞]",
+      "font_unicode": "e033",
+      "visual_description": "盒子脸竖起大拇指。",
+      "meaning": "表达认可、赞同或赞扬。",
+      "tags": [
+        "赞同",
+        "认可",
+        "称赞"
+      ],
+      "cautions": [],
+      "annotation_source": "agent_visual_review_and_usage_note",
+      "annotation_status": "suggested",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 0,
+        "row": 3
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:42",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "42",
+      "name": "学习",
+      "shortcode": "[cube_学习]",
+      "font_unicode": "e018",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 1,
+        "row": 3
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:43",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "43",
+      "name": "叹气",
+      "shortcode": "[cube_叹气]",
+      "font_unicode": "e00d",
+      "visual_description": "盒子脸张嘴呼出一口气。",
+      "meaning": "表达疲惫、无奈或叹息。",
+      "tags": [
+        "无奈",
+        "疲惫",
+        "叹息"
+      ],
+      "cautions": [],
+      "annotation_source": "agent_visual_review_and_usage_note",
+      "annotation_status": "suggested",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 2,
+        "row": 3
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:44",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "44",
+      "name": "加油",
+      "shortcode": "[cube_加油]",
+      "font_unicode": "e00b",
+      "visual_description": "张嘴大笑、双手握拳的盒子脸。",
+      "meaning": "表达鼓励、支持或一起努力。",
+      "tags": [
+        "鼓励",
+        "支持",
+        "加油"
+      ],
+      "cautions": [],
+      "annotation_source": "agent_visual_review_and_usage_note",
+      "annotation_status": "suggested",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 3,
+        "row": 3
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:45",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "45",
+      "name": "摊手",
+      "shortcode": "[cube_摊手]",
+      "font_unicode": "e027",
+      "visual_description": "盒子脸摊开双手。",
+      "meaning": "表达没办法、无奈或不知如何回答。",
+      "tags": [
+        "无奈",
+        "没办法",
+        "不知所措"
+      ],
+      "cautions": [],
+      "annotation_source": "agent_visual_review_and_usage_note",
+      "annotation_status": "suggested",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 4,
+        "row": 3
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:46",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "46",
+      "name": "喷水",
+      "shortcode": "[cube_喷水]",
+      "font_unicode": "e014",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 5,
+        "row": 3
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:51",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "51",
+      "name": "打脸",
+      "shortcode": "[cube_打脸]",
+      "font_unicode": "e024",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 0,
+        "row": 4
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:52",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "52",
+      "name": "H币",
+      "shortcode": "[cube_H币]",
+      "font_unicode": "e002",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 1,
+        "row": 4
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:53",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "53",
+      "name": "生气",
+      "shortcode": "[cube_生气]",
+      "font_unicode": "e02e",
+      "visual_description": "瞪眼皱眉的盒子脸。",
+      "meaning": "表达生气、不满或愤怒。",
+      "tags": [
+        "愤怒",
+        "生气",
+        "不满"
+      ],
+      "cautions": [
+        "anger"
+      ],
+      "annotation_source": "agent_visual_review_and_usage_note",
+      "annotation_status": "suggested",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 2,
+        "row": 4
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:54",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "54",
+      "name": "困",
+      "shortcode": "[cube_困]",
+      "font_unicode": "e015",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 3,
+        "row": 4
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:55",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "55",
+      "name": "闭嘴",
+      "shortcode": "[cube_闭嘴]",
+      "font_unicode": "e038",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 4,
+        "row": 4
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:56",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "56",
+      "name": "吐",
+      "shortcode": "[cube_吐]",
+      "font_unicode": "e00e",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 5,
+        "row": 4
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:61",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "61",
+      "name": "咕咕",
+      "shortcode": "[cube_咕咕]",
+      "font_unicode": "e010",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 0,
+        "row": 5
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:62",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "62",
+      "name": "微笑",
+      "shortcode": "[cube_微笑]",
+      "font_unicode": "e01e",
+      "visual_description": "正面露出小笑容的盒子脸。",
+      "meaning": "可以表达礼貌，也可能在上下文中带反讽。",
+      "tags": [
+        "微笑",
+        "礼貌"
+      ],
+      "cautions": [
+        "sarcasm"
+      ],
+      "annotation_source": "agent_visual_review_and_usage_note",
+      "annotation_status": "suggested",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 1,
+        "row": 5
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:63",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "63",
+      "name": "哇",
+      "shortcode": "[cube_哇]",
+      "font_unicode": "e011",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 2,
+        "row": 5
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:64",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "64",
+      "name": "汗",
+      "shortcode": "[cube_汗]",
+      "font_unicode": "e02b",
+      "visual_description": "脸边带蓝色汗滴的盒子脸。",
+      "meaning": "表达尴尬、紧张或难以接话。",
+      "tags": [
+        "尴尬",
+        "紧张",
+        "汗"
+      ],
+      "cautions": [],
+      "annotation_source": "agent_visual_review_and_usage_note",
+      "annotation_status": "suggested",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 3,
+        "row": 5
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:65",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "65",
+      "name": "吓",
+      "shortcode": "[cube_吓]",
+      "font_unicode": "e00f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 4,
+        "row": 5
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:66",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "66",
+      "name": "睡觉",
+      "shortcode": "[cube_睡觉]",
+      "font_unicode": "e030",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 5,
+        "row": 5
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:71",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "71",
+      "name": "2023",
+      "shortcode": "[cube_2023]",
+      "font_unicode": "e001",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 0,
+        "row": 6
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:72",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "72",
+      "name": "圣诞树",
+      "shortcode": "[cube_圣诞树]",
+      "font_unicode": "e016",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 1,
+        "row": 6
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:73",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "73",
+      "name": "庆祝",
+      "shortcode": "[cube_庆祝]",
+      "font_unicode": "e01c",
+      "visual_description": "吹庆祝喇叭、带彩纸的盒子脸。",
+      "meaning": "表达庆祝、祝贺或喜悦。",
+      "tags": [
+        "庆祝",
+        "祝贺",
+        "通关",
+        "成功"
+      ],
+      "cautions": [],
+      "annotation_source": "agent_visual_review_and_usage_note",
+      "annotation_status": "suggested",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 2,
+        "row": 6
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:74",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "74",
+      "name": "庆祝-圣诞",
+      "shortcode": "[cube_庆祝-圣诞]",
+      "font_unicode": "e01b",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 3,
+        "row": 6
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:75",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "75",
+      "name": "你懂我",
+      "shortcode": "[cube_你懂我]",
+      "font_unicode": "e008",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 4,
+        "row": 6
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:76",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "76",
+      "name": "我懂你",
+      "shortcode": "[cube_我懂你]",
+      "font_unicode": "e022",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 5,
+        "row": 6
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:81",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "81",
+      "name": "阳",
+      "shortcode": "[cube_阳]",
+      "font_unicode": "e039",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 0,
+        "row": 7
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:82",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "82",
+      "name": "比心",
+      "shortcode": "[cube_比心]",
+      "font_unicode": "e02a",
+      "visual_description": "带红色爱心的盒子脸。",
+      "meaning": "表达喜欢、感谢或友好。",
+      "tags": [
+        "感谢",
+        "喜欢",
+        "友好"
+      ],
+      "cautions": [],
+      "annotation_source": "agent_visual_review_and_usage_note",
+      "annotation_status": "suggested",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 1,
+        "row": 7
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:83",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "83",
+      "name": "wota",
+      "shortcode": "[cube_wota]",
+      "font_unicode": "e004",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 2,
+        "row": 7
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:84",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "84",
+      "name": "鹅",
+      "shortcode": "[cube_鹅]",
+      "font_unicode": "e03a",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 3,
+        "row": 7
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:85",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "85",
+      "name": "握草",
+      "shortcode": "[cube_握草]",
+      "font_unicode": "e026",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 4,
+        "row": 7
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:86",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "86",
+      "name": "这是什么鸟",
+      "shortcode": "[cube_这是什么鸟]",
+      "font_unicode": "e035",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 5,
+        "row": 7
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:91",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "91",
+      "name": "上学-乐",
+      "shortcode": "[cube_上学-乐]",
+      "font_unicode": "e006",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 0,
+        "row": 8
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:92",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "92",
+      "name": "上学-丧",
+      "shortcode": "[cube_上学-丧]",
+      "font_unicode": "e005",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 1,
+        "row": 8
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:93",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "93",
+      "name": "打咩",
+      "shortcode": "[cube_打咩]",
+      "font_unicode": "e023",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 2,
+        "row": 8
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:94",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "94",
+      "name": "超人",
+      "shortcode": "[cube_超人]",
+      "font_unicode": "e034",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 3,
+        "row": 8
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:95",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "95",
+      "name": "僵尸",
+      "shortcode": "[cube_僵尸]",
+      "font_unicode": "e009",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 4,
+        "row": 8
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:96",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "96",
+      "name": "小鸡",
+      "shortcode": "[cube_小鸡]",
+      "font_unicode": "e019",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 5,
+        "row": 8
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:101",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "101",
+      "name": "窝囊",
+      "shortcode": "[cube_窝囊]",
+      "font_unicode": "e031",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 0,
+        "row": 9
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:102",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "102",
+      "name": "摸摸头",
+      "shortcode": "[cube_摸摸头]",
+      "font_unicode": "e028",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 1,
+        "row": 9
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:103",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "103",
+      "name": "电牛",
+      "shortcode": "[cube_电牛]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 2,
+        "row": 9
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:104",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "104",
+      "name": "摘墨镜",
+      "shortcode": "[cube_摘墨镜]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 3,
+        "row": 9
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:105",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "105",
+      "name": "悟空",
+      "shortcode": "[cube_悟空]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 4,
+        "row": 9
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:106",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "106",
+      "name": "2024",
+      "shortcode": "[cube_2024]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 5,
+        "row": 9
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:111",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "111",
+      "name": "良民",
+      "shortcode": "[cube_良民]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 0,
+        "row": 10
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:112",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "112",
+      "name": "嬉水女王",
+      "shortcode": "[cube_嬉水女王]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 1,
+        "row": 10
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:113",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "113",
+      "name": "2025",
+      "shortcode": "[cube_2025]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 2,
+        "row": 10
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:114",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "114",
+      "name": "浪人砍一刀",
+      "shortcode": "[cube_浪人砍一刀]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 3,
+        "row": 10
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:115",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "115",
+      "name": "吃鸡啦",
+      "shortcode": "[cube_吃鸡啦]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 4,
+        "row": 10
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:116",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "116",
+      "name": "鸡毙你",
+      "shortcode": "[cube_鸡毙你]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 5,
+        "row": 10
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:121",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "121",
+      "name": "机智",
+      "shortcode": "[cube_机智]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 0,
+        "row": 11
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:122",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "122",
+      "name": "石化",
+      "shortcode": "[cube_石化]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 1,
+        "row": 11
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:123",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "123",
+      "name": "吹口哨",
+      "shortcode": "[cube_吹口哨]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 2,
+        "row": 11
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:124",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "124",
+      "name": "思考",
+      "shortcode": "[cube_思考]",
+      "font_unicode": "e02f",
+      "visual_description": "抬手靠近下巴、皱眉思考的盒子脸。",
+      "meaning": "表达思考、疑惑或需要判断。",
+      "tags": [
+        "思考",
+        "疑惑",
+        "判断"
+      ],
+      "cautions": [],
+      "annotation_source": "agent_visual_review_and_usage_note",
+      "annotation_status": "suggested",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 3,
+        "row": 11
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:125",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "125",
+      "name": "太酷啦",
+      "shortcode": "[cube_太酷啦]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 4,
+        "row": 11
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:126",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "126",
+      "name": "蛋糕",
+      "shortcode": "[cube_蛋糕]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 5,
+        "row": 11
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:131",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "131",
+      "name": "毁灭战士",
+      "shortcode": "[cube_毁灭战士]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 0,
+        "row": 12
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:132",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "132",
+      "name": "P的谎言",
+      "shortcode": "[cube_P的谎言]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 1,
+        "row": 12
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:133",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "133",
+      "name": "剑星伊芙",
+      "shortcode": "[cube_剑星伊芙]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 2,
+        "row": 12
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:134",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "134",
+      "name": "欧润吉",
+      "shortcode": "[cube_欧润吉]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 3,
+        "row": 12
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:135",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "135",
+      "name": "剑星渡鸦",
+      "shortcode": "[cube_剑星渡鸦]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 4,
+        "row": 12
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:136",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "136",
+      "name": "猛男微笑",
+      "shortcode": "[cube_猛男微笑]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 5,
+        "row": 12
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:141",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "141",
+      "name": "时间旅者",
+      "shortcode": "[cube_时间旅者]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 0,
+        "row": 13
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:142",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "142",
+      "name": "来财",
+      "shortcode": "[cube_来财]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 1,
+        "row": 13
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:143",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "143",
+      "name": "我方了",
+      "shortcode": "[cube_我方了]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 2,
+        "row": 13
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:144",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "144",
+      "name": "喜+1",
+      "shortcode": "[cube_喜+1]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 3,
+        "row": 13
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:145",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "145",
+      "name": "2026",
+      "shortcode": "[cube_2026]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 4,
+        "row": 13
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:146",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "146",
+      "name": "害羞",
+      "shortcode": "[cube_害羞]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 5,
+        "row": 13
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:151",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "151",
+      "name": "吃瓜",
+      "shortcode": "[cube_吃瓜]",
+      "font_unicode": "e02f",
+      "visual_description": "坐在一旁吃西瓜的盒子脸。",
+      "meaning": "表达围观、好奇或看热闹。",
+      "tags": [
+        "围观",
+        "看热闹",
+        "吃瓜"
+      ],
+      "cautions": [],
+      "annotation_source": "agent_visual_review_and_usage_note",
+      "annotation_status": "suggested",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 0,
+        "row": 14
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:152",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "152",
+      "name": "菜doge",
+      "shortcode": "[cube_菜doge]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 1,
+        "row": 14
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:153",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "153",
+      "name": "柠檬",
+      "shortcode": "[cube_柠檬]",
+      "font_unicode": "e02f",
+      "visual_description": "张嘴看向旁边的黄色柠檬形脸。",
+      "meaning": "常表达羡慕或酸了，需结合上下文。",
+      "tags": [
+        "羡慕",
+        "酸了"
+      ],
+      "cautions": [],
+      "annotation_source": "agent_visual_review_and_usage_note",
+      "annotation_status": "suggested",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 2,
+        "row": 14
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:154",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "154",
+      "name": "比耶",
+      "shortcode": "[cube_比耶]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 3,
+        "row": 14
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:155",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "155",
+      "name": "爱心",
+      "shortcode": "[cube_爱心]",
+      "font_unicode": "e02f",
+      "visual_description": "红色爱心图案。",
+      "meaning": "表达喜爱、支持或感谢。",
+      "tags": [
+        "喜欢",
+        "支持",
+        "感谢"
+      ],
+      "cautions": [],
+      "annotation_source": "agent_visual_review_and_usage_note",
+      "annotation_status": "suggested",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 4,
+        "row": 14
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:156",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "156",
+      "name": "玫瑰",
+      "shortcode": "[cube_玫瑰]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 5,
+        "row": 14
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:161",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "161",
+      "name": "+1",
+      "shortcode": "[cube_+1]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 0,
+        "row": 15
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:162",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "162",
+      "name": "-1",
+      "shortcode": "[cube_-1]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 1,
+        "row": 15
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:163",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "163",
+      "name": "点赞",
+      "shortcode": "[cube_点赞]",
+      "font_unicode": "e02f",
+      "visual_description": "白色竖起的大拇指图案。",
+      "meaning": "表达认可或点赞。",
+      "tags": [
+        "赞同",
+        "认可",
+        "点赞"
+      ],
+      "cautions": [],
+      "annotation_source": "agent_visual_review_and_usage_note",
+      "annotation_status": "suggested",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 2,
+        "row": 15
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:164",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "164",
+      "name": "盒十",
+      "shortcode": "[cube_盒十]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 3,
+        "row": 15
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:165",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "165",
+      "name": "耶",
+      "shortcode": "[cube_耶]",
+      "font_unicode": "e02f",
+      "visual_description": "白色比出胜利手势的手。",
+      "meaning": "表达开心、胜利或庆祝。",
+      "tags": [
+        "开心",
+        "胜利",
+        "庆祝"
+      ],
+      "cautions": [],
+      "annotation_source": "agent_visual_review_and_usage_note",
+      "annotation_status": "suggested",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 4,
+        "row": 15
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:166",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "166",
+      "name": "鼓掌",
+      "shortcode": "[cube_鼓掌]",
+      "font_unicode": "e02f",
+      "visual_description": "白色双手鼓掌图案。",
+      "meaning": "表达赞扬、欢迎或祝贺。",
+      "tags": [
+        "赞扬",
+        "欢迎",
+        "祝贺"
+      ],
+      "cautions": [],
+      "annotation_source": "agent_visual_review_and_usage_note",
+      "annotation_status": "suggested",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 5,
+        "row": 15
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:171",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "171",
+      "name": "碰拳",
+      "shortcode": "[cube_碰拳]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 0,
+        "row": 16
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:172",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "172",
+      "name": "马年吉祥",
+      "shortcode": "[cube_马年吉祥]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 1,
+        "row": 16
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:173",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "173",
+      "name": "红包",
+      "shortcode": "[cube_红包]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 2,
+        "row": 16
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:174",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "174",
+      "name": "炒菜",
+      "shortcode": "[cube_炒菜]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 3,
+        "row": 16
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:175",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "175",
+      "name": "山姆无奈",
+      "shortcode": "[cube_山姆无奈]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 4,
+        "row": 16
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:176",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "176",
+      "name": "洛的点赞",
+      "shortcode": "[cube_洛的点赞]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 5,
+        "row": 16
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:181",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "181",
+      "name": "灵光一闪",
+      "shortcode": "[cube_灵光一闪]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 0,
+        "row": 17
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:182",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "182",
+      "name": "露莉亚",
+      "shortcode": "[cube_露莉亚]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 1,
+        "row": 17
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:183",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "183",
+      "name": "傲娇助手",
+      "shortcode": "[cube_傲娇助手]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 2,
+        "row": 17
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:184",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "184",
+      "name": "认真记录",
+      "shortcode": "[cube_认真记录]",
+      "font_unicode": "e02f",
+      "visual_description": "盒子脸拿着笔，面对横线组成的记录图案。",
+      "meaning": "表达记下内容或认真学习。",
+      "tags": [
+        "记录",
+        "学习",
+        "记下来"
+      ],
+      "cautions": [],
+      "annotation_source": "agent_visual_review_and_usage_note",
+      "annotation_status": "suggested",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 3,
+        "row": 17
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:185",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "185",
+      "name": "鳄鱼",
+      "shortcode": "[cube_鳄鱼]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 4,
+        "row": 17
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "cube:186",
+      "type": "native_emoji",
+      "group": "cube",
+      "native_id": "186",
+      "name": "星乐蒂",
+      "shortcode": "[cube_星乐蒂]",
+      "font_unicode": "e02f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "source_url": "https://static.max-c.com/heybox_web/emoji/cube/cube_emoji_v33.png",
+        "columns": 6,
+        "rows": 18,
+        "column": 5,
+        "row": 17
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "heygirl:11",
+      "type": "native_emoji",
+      "group": "heygirl",
+      "native_id": "11",
+      "name": "诶嘿",
+      "shortcode": "[heygirl_诶嘿]",
+      "font_unicode": "e019",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "source_url": "http://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "columns": 6,
+        "rows": 4,
+        "column": 0,
+        "row": 0
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "heygirl:12",
+      "type": "native_emoji",
+      "group": "heygirl",
+      "native_id": "12",
+      "name": "哭",
+      "shortcode": "[heygirl_哭]",
+      "font_unicode": "e006",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "source_url": "http://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "columns": 6,
+        "rows": 4,
+        "column": 1,
+        "row": 0
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "heygirl:13",
+      "type": "native_emoji",
+      "group": "heygirl",
+      "native_id": "13",
+      "name": "白嫖怪",
+      "shortcode": "[heygirl_白嫖怪]",
+      "font_unicode": "e014",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "source_url": "http://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "columns": 6,
+        "rows": 4,
+        "column": 2,
+        "row": 0
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "heygirl:14",
+      "type": "native_emoji",
+      "group": "heygirl",
+      "native_id": "14",
+      "name": "疑问",
+      "shortcode": "[heygirl_疑问]",
+      "font_unicode": "e012",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "source_url": "http://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "columns": 6,
+        "rows": 4,
+        "column": 3,
+        "row": 0
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "heygirl:15",
+      "type": "native_emoji",
+      "group": "heygirl",
+      "native_id": "15",
+      "name": "痴",
+      "shortcode": "[heygirl_痴]",
+      "font_unicode": "e013",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "source_url": "http://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "columns": 6,
+        "rows": 4,
+        "column": 4,
+        "row": 0
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "heygirl:16",
+      "type": "native_emoji",
+      "group": "heygirl",
+      "native_id": "16",
+      "name": "喜欢",
+      "shortcode": "[heygirl_喜欢]",
+      "font_unicode": "e007",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "source_url": "http://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "columns": 6,
+        "rows": 4,
+        "column": 5,
+        "row": 0
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "heygirl:21",
+      "type": "native_emoji",
+      "group": "heygirl",
+      "native_id": "21",
+      "name": "捏脸",
+      "shortcode": "[heygirl_捏脸]",
+      "font_unicode": "e00e",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "source_url": "http://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "columns": 6,
+        "rows": 4,
+        "column": 0,
+        "row": 1
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "heygirl:22",
+      "type": "native_emoji",
+      "group": "heygirl",
+      "native_id": "22",
+      "name": "害羞",
+      "shortcode": "[heygirl_害羞]",
+      "font_unicode": "e00a",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "source_url": "http://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "columns": 6,
+        "rows": 4,
+        "column": 1,
+        "row": 1
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "heygirl:23",
+      "type": "native_emoji",
+      "group": "heygirl",
+      "native_id": "23",
+      "name": "苦酒入喉",
+      "shortcode": "[heygirl_苦酒入喉]",
+      "font_unicode": "e016",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "source_url": "http://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "columns": 6,
+        "rows": 4,
+        "column": 2,
+        "row": 1
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "heygirl:24",
+      "type": "native_emoji",
+      "group": "heygirl",
+      "native_id": "24",
+      "name": "秃",
+      "shortcode": "[heygirl_秃]",
+      "font_unicode": "e015",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "source_url": "http://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "columns": 6,
+        "rows": 4,
+        "column": 3,
+        "row": 1
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "heygirl:25",
+      "type": "native_emoji",
+      "group": "heygirl",
+      "native_id": "25",
+      "name": "rua!",
+      "shortcode": "[heygirl_rua!]",
+      "font_unicode": "e001",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "source_url": "http://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "columns": 6,
+        "rows": 4,
+        "column": 4,
+        "row": 1
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "heygirl:26",
+      "type": "native_emoji",
+      "group": "heygirl",
+      "native_id": "26",
+      "name": "吃瓜",
+      "shortcode": "[heygirl_吃瓜]",
+      "font_unicode": "e004",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "source_url": "http://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "columns": 6,
+        "rows": 4,
+        "column": 5,
+        "row": 1
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "heygirl:31",
+      "type": "native_emoji",
+      "group": "heygirl",
+      "native_id": "31",
+      "name": "茄化",
+      "shortcode": "[heygirl_茄化]",
+      "font_unicode": "e017",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "source_url": "http://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "columns": 6,
+        "rows": 4,
+        "column": 0,
+        "row": 2
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "heygirl:32",
+      "type": "native_emoji",
+      "group": "heygirl",
+      "native_id": "32",
+      "name": "无语",
+      "shortcode": "[heygirl_无语]",
+      "font_unicode": "e010",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "source_url": "http://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "columns": 6,
+        "rows": 4,
+        "column": 1,
+        "row": 2
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "heygirl:33",
+      "type": "native_emoji",
+      "group": "heygirl",
+      "native_id": "33",
+      "name": "这…",
+      "shortcode": "[heygirl_这…]",
+      "font_unicode": "e01a",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "source_url": "http://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "columns": 6,
+        "rows": 4,
+        "column": 2,
+        "row": 2
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "heygirl:34",
+      "type": "native_emoji",
+      "group": "heygirl",
+      "native_id": "34",
+      "name": "敲开心",
+      "shortcode": "[heygirl_敲开心]",
+      "font_unicode": "e00f",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "source_url": "http://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "columns": 6,
+        "rows": 4,
+        "column": 3,
+        "row": 2
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "heygirl:35",
+      "type": "native_emoji",
+      "group": "heygirl",
+      "native_id": "35",
+      "name": "开可乐",
+      "shortcode": "[heygirl_开可乐]",
+      "font_unicode": "e00b",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "source_url": "http://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "columns": 6,
+        "rows": 4,
+        "column": 4,
+        "row": 2
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "heygirl:36",
+      "type": "native_emoji",
+      "group": "heygirl",
+      "native_id": "36",
+      "name": "哈哈",
+      "shortcode": "[heygirl_哈哈]",
+      "font_unicode": "e005",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "source_url": "http://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "columns": 6,
+        "rows": 4,
+        "column": 5,
+        "row": 2
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "heygirl:41",
+      "type": "native_emoji",
+      "group": "heygirl",
+      "native_id": "41",
+      "name": "滑稽",
+      "shortcode": "[heygirl_滑稽]",
+      "font_unicode": "e011",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "source_url": "http://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "columns": 6,
+        "rows": 4,
+        "column": 0,
+        "row": 3
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "heygirl:42",
+      "type": "native_emoji",
+      "group": "heygirl",
+      "native_id": "42",
+      "name": "偷看",
+      "shortcode": "[heygirl_偷看]",
+      "font_unicode": "e003",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "source_url": "http://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "columns": 6,
+        "rows": 4,
+        "column": 1,
+        "row": 3
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "heygirl:43",
+      "type": "native_emoji",
+      "group": "heygirl",
+      "native_id": "43",
+      "name": "喝奶茶",
+      "shortcode": "[heygirl_喝奶茶]",
+      "font_unicode": "e008",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "source_url": "http://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "columns": 6,
+        "rows": 4,
+        "column": 2,
+        "row": 3
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "heygirl:44",
+      "type": "native_emoji",
+      "group": "heygirl",
+      "native_id": "44",
+      "name": "惊",
+      "shortcode": "[heygirl_惊]",
+      "font_unicode": "e00c",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "source_url": "http://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "columns": 6,
+        "rows": 4,
+        "column": 3,
+        "row": 3
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "heygirl:45",
+      "type": "native_emoji",
+      "group": "heygirl",
+      "native_id": "45",
+      "name": "记下来",
+      "shortcode": "[heygirl_记下来]",
+      "font_unicode": "e018",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "source_url": "http://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "columns": 6,
+        "rows": 4,
+        "column": 4,
+        "row": 3
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    },
+    {
+      "id": "heygirl:46",
+      "type": "native_emoji",
+      "group": "heygirl",
+      "native_id": "46",
+      "name": "挨刀",
+      "shortcode": "[heygirl_挨刀]",
+      "font_unicode": "e00d",
+      "visual_description": null,
+      "meaning": null,
+      "tags": [],
+      "cautions": [],
+      "annotation_source": "official_name_only",
+      "annotation_status": "unannotated",
+      "sprite": {
+        "url": "https://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "source_url": "http://cdn.max-c.com/heybox_web/emoji/cube2/cube2_emoji.png",
+        "columns": 6,
+        "rows": 4,
+        "column": 5,
+        "row": 3
+      },
+      "usage": {
+        "post": "creator_span",
+        "comment": "shortcode",
+        "reply": "shortcode"
+      }
+    }
+  ]
+}

@@ -31,6 +31,8 @@ def _text_to_html(text: str) -> str:
 
 def plain_text(markup: str) -> str:
     """Strip tags for desc/words_count, matching the editor's approach."""
+    markup = re.sub(r'<span\b[^>]*\bdata-emoji=([\'"])([^\'"]+)\1[^>]*>\s*</span>',
+                    lambda match: "[" + _html.unescape(match.group(2)) + "]", markup, flags=re.I)
     markup = re.sub(r"<br\s*/?>", "\n", markup, flags=re.I)
     markup = re.sub(r"</(?:p|h[1-6]|li|blockquote|div)>", "\n", markup, flags=re.I)
     return _html.unescape(re.sub(r"<[^>]+>", "", markup))
@@ -72,7 +74,7 @@ class Post:
         content = self.content
         if self.content_format == "text":
             content = _text_to_html(content)
-        if not content.strip():
+        if not content.strip() and not self.images:
             raise XhhConfigError("content is required")
 
         # Normalize hashtags: keep exactly one leading # on submission.
@@ -85,7 +87,7 @@ class Post:
                 seen.add(tag.casefold())
 
         # Append explicit images as body blocks (after the html block).
-        blocks: list[dict] = [{"type": "html", "text": content.strip()}]
+        blocks: list[dict] = [{"type": "html", "text": content.strip()}] if content.strip() else []
         for image in self.images:
             ref = str(image)
             if ref.startswith("http://") or ref.startswith("https://"):
@@ -125,6 +127,6 @@ class Post:
             payload["post_plan"] = self.post_plan
         if self.extra_declaration is not None:
             payload["extra_declaration"] = str(self.extra_declaration)
-        if not payload["title"] and not payload["words_count"].strip("0"):
+        if not payload["title"] and not payload["words_count"].strip("0") and not self.images:
             raise XhhConfigError("post needs a title or non-empty content")
         return payload

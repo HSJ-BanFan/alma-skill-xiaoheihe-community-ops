@@ -6,7 +6,8 @@
 
 ### 离线验证
 
-- 完整 `unittest` 为 `315/315` 通过。新增回归覆盖 HTTP-date `Retry-After`、bounded worker 的等待时间传递、短信登录验证码与平台 HTTP 429、结构化账号错误、未绑定身份、正文候选摘要、App 资料的单向关注状态，以及已有快照在首轮续读被不可重试错误阻断后保留数据、清除 resume 与 pending、递增 revision。可重试平台错误与属于另一查询的同名快照都保持不变。
+- 完整 `unittest` 为 `460/460` 通过。新增回归覆盖 HTTP-date `Retry-After`、bounded worker 的等待时间传递、短信登录验证码与平台 HTTP 429、结构化账号错误、未绑定身份、正文候选摘要、App 资料的单向关注状态、发送与不确定状态双写失败，以及已有快照在首轮续读被不可重试错误阻断后保留数据、清除 resume 与 pending、递增 revision。可重试平台错误与属于另一查询的同名快照都保持不变。
+- 合并主分支的最新消息与互动能力后，回归覆盖原生表情目录、搜索和预览，预发送组合、发送去重和读回核对，图片贴纸，结构化 `describe`，以及 `interaction status/history/sync`；`post`、`feed` 和 `hot` 的互动摘要与原生表情归一化不增加 HTTP 请求。
 - `scripts/` 与 `tests/` 通过 `compileall`。Ruff F 检查和 `git diff --check` 无错误。更新的 `SNAPSHOT.json` 通过 portable verifier，验证随包 SDK 摘要和隔离目录下的夹具测试。Skill 官方验证器返回 `Skill is valid!`。
 - 回归把 `body_candidates` 限制为每个成功 reader 的摘要，不复制正文。`reader_attempts` 仍记录失败、预算停止、协议和 session revision。
 - 回归只在 App、目标非本人且原值为整数 `0` 或 `1` 时设置 `current_user_follows_target`。字符串、布尔值、Web 响应和本人资料保持 `null`；反向关注与互关没有证据时也保持 `null`。
@@ -22,6 +23,7 @@
 - `post 196926795 --reader html --section body --body-format text --requests 1` 在没有账号和签名器时完成 1 次公开 GET。页面没有文章正文时返回 `body_missing`，正文来源仍为 HTML，且 `identity_verified=false`。
 - 缺少 Web 会话时，`post --reader website` 在网络请求前返回 `web_session_missing`，不会借用已保存的 App 会话。
 - `post 196926795 --reader native --section body --body-format text --raw --requests 3` 使用 1 次请求返回 1 条 `native` 候选和 1 个原始响应。正文状态为 `available`，完整性为 `partial`，包含 3 个块。
+- 合并后的真实只读复测中，同一 `post` 以退出码 0 返回 `body.status=available`、`body.completeness=partial` 和 1 个原始响应。缺少可信 UID 命名空间时，互动投影明确返回 `participation=unknown`、`reason=no_trusted_uid_namespace`，不会把它写成“从未参与”。随后 `feed 549999 --pages 1 --limit 5` 以退出码 0 交付 5 条记录，每条都带本地互动摘要，coverage 为 `partial/item_budget`。两次请求均未出现验证码或限流。
 - 本轮真实请求没有出现 `show_captcha` 或限流响应。
 
 ### 仍未验证

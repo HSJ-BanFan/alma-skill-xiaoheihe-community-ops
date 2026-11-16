@@ -27,6 +27,7 @@ from xhh_sdk.exceptions import (
     XhhError,
 )
 from xhh_sdk.web_signer import sign_web_request
+from emoji_catalog import Catalog
 
 COMMANDS = {
     "community", "topics", "hot", "feed", "search", "post", "comments",
@@ -636,14 +637,14 @@ def game_detail(result, target, evidence):
         "invalid": invalid, "excluded": invalid}
 
 
-def discovery_user(raw):
+def discovery_user(raw, catalog=None):
     user = author(raw)
     if not user["uid"]:
         raise XhhConfigError("user record has no valid ID")
     return user
 
 
-def discovery_game(raw):
+def discovery_game(raw, catalog=None):
     return game(raw.get("game", raw))
 
 
@@ -659,21 +660,21 @@ def search_payload(raw, expected):
     return raw
 
 
-def search_link(raw):
-    return summary(search_payload(raw, "link"))
+def search_link(raw, catalog=None):
+    return summary(search_payload(raw, "link"), catalog)
 
 
-def search_game(raw):
+def search_game(raw, catalog=None):
     return discovery_game(search_payload(raw, "game"))
 
 
-def search_user(raw):
+def search_user(raw, catalog=None):
     return discovery_user(search_payload(raw, "user"))
 
 
-def story(raw):
+def story(raw, catalog=None):
     if "link_card_info" not in raw:
-        post = summary(raw)
+        post = summary(raw, catalog)
         post.update(type="story", provenance={"identity": "link_id", "shape": "link"})
         return post
     card, identity = raw["link_card_info"], raw.get("card_id_info")
@@ -685,9 +686,12 @@ def story(raw):
         "create_at", "modify_at", "topics", "imgs", "has_video",
         "comment_num", "link_award_num", "favour_count", "click",
     )}
-    post = summary({**fields, "linkid": uid,
-                    "description": card.get("description") or card.get("desc") or card.get("excerpt"),
-                    "user": card.get("user") or card.get("user_info")})
+    post = summary({
+        **fields,
+        "linkid": uid,
+        "description": card.get("description") or card.get("desc") or card.get("excerpt"),
+        "user": card.get("user") or card.get("user_info"),
+    }, catalog)
     stats = card.get("stat") or card.get("stats") or card.get("statistics")
     if isinstance(stats, dict):
         for name, key in (("comments", "comment_num"), ("charges", "link_award_num"),
@@ -713,7 +717,7 @@ def story(raw):
     return post
 
 
-def banner(raw):
+def banner(raw, catalog=None):
     topic = raw.get("topic_info") or raw.get("topic") or raw
     if not isinstance(topic, dict):
         raise XhhConfigError("banner community must be an object")
@@ -754,8 +758,8 @@ RESPONSES = {
                                       discovery_user, route="/bbs/app/profile/recommend/following",
                                       empty_gap="recommendations_empty"),
     "link": ResponseSpec("link", (("links",), ("search_result",), ("items",), ("list",), ("news",)), search_link),
-    "feed": ResponseSpec("link", (("links",), ("items",), ("list",), ("news",)), summary),
-    "hashtag-links": ResponseSpec("link", (("links",), ("items",), ("list",)), summary),
+    "feed": ResponseSpec("link", (("links",), ("items",), ("list",), ("news",)), search_link),
+    "hashtag-links": ResponseSpec("link", (("links",), ("items",), ("list",)), search_link),
     "game": ResponseSpec("game", (("games",), ("search_result",), ("items",), ("list",),
                                   ("links",), ("news",), ("recommend",), ("similar",)), search_game),
     "user": ResponseSpec("user", (("users",), ("search_result",), ("items",), ("list",), ("links",), ("news",)), search_user),
@@ -782,7 +786,7 @@ def response_records(result, spec):
     return records
 
 
-def normalize_response(result, spec, *, include_occurrences=False):
+def normalize_response(result, spec, *, include_occurrences=False, catalog=None):
     records = response_records(result, spec)
     items, invalid = [], 0
     occurrences = []
@@ -798,7 +802,7 @@ def normalize_response(result, spec, *, include_occurrences=False):
             })
             continue
         try:
-            item = spec.adapter(row)
+            item = spec.adapter(row, catalog)
         except XhhConfigError:
             invalid += 1
             occurrences.append({
@@ -889,10 +893,46 @@ def request_arguments(args):
 
 
 class Browser:
-    def __init__(self, client, *, clients=None):
+    def __init__(self, client, *, clients=None, capture=None):
         self.client = client
         self.clients = dict(clients or {client.config.protocol_mode: client})
         self.verified_client_ids = set()
+        self.identity_verified = False
+        self.catalog = None
+        self.capture = capture
+        self.capture_results = []
+
+    def record(self, nodes, evidence, post_id, root_id, scope):
+        if self.capture is not None:
+            result = self.capture(nodes, evidence, post_id, root_id, scope)
+            self.capture_results.append(result)
+
+    def _record_comment_floors(
+            self, result, evidence, post_id, root_id, *, position, mode,
+            scope_updates=None):
+        records = result.get("comments")
+        nodes = floors(records, post_id, self.catalog)
+        scope = coverage(
+            result,
+            count=len(records),
+            position=position,
+            mode=mode,
+        )
+        if scope_updates:
+            scope.update(scope_updates)
+        self.record(nodes, evidence, post_id, root_id, scope)
+        return nodes, scope
+
+    def capture_coverage(self, scope):
+        if self.capture_results:
+            scope["interaction_capture"] = {
+                "pages": self.capture_results,
+                "complete": all(
+                    result.get("persisted")
+                    or result.get("reason") == "no_trusted_uid_namespace"
+                    for result in self.capture_results
+                ),
+            }
 
     @staticmethod
     def _session_revision(client):
@@ -916,11 +956,14 @@ class Browser:
             error.raw_response = raw
             raise
         evidence = source(selected, route)
-        evidence["identity_verified"] = id(selected) in self.verified_client_ids
+        verified = id(selected) in self.verified_client_ids
+        evidence["identity_verified"] = verified
+        evidence["identity_verified_this_read"] = verified
         evidence["session_revision"] = self._session_revision(selected)
         return raw, result, evidence
 
     def execute(self, args, *, verify_account=False, prior_data=None):
+        self.catalog = Catalog(data_dir=getattr(args, "data_dir", None))
         budget = Budget(
             args.requests,
             args.seconds,
@@ -935,6 +978,10 @@ class Browser:
                 raise XhhConfigError("saving, resuming, or comparing observations requires at least two requests including account verification")
             budget.call(self.client, lambda: verify_identity(self.client))
             self.verified_client_ids.add(id(self.client))
+            self.identity_verified = True
+            identity_source = source(self.client, "/account/restore_login")
+            identity_source.update(identity_verified=True, identity_verified_this_read=True)
+            self.record([], identity_source, None, None, {"scope": "identity_check", "completion": "unknown"})
         if args.command == "post":
             return self.post(args, budget, plan=post_plan)
         if args.command == "thread":
@@ -1202,6 +1249,7 @@ class Browser:
             binding=binding,
             resume_parameters=resume_parameters,
         )
+        self.capture_coverage(scope)
         return data, scope
 
     @staticmethod
@@ -1241,7 +1289,9 @@ class Browser:
         transport = selected.transport
         raw = budget.call(selected, lambda: transport._checked_response(route, transport._decode(transport._open(request))))
         evidence = source(selected, route)
-        evidence["identity_verified"] = id(selected) in self.verified_client_ids
+        verified = id(selected) in self.verified_client_ids
+        evidence["identity_verified"] = verified
+        evidence["identity_verified_this_read"] = verified
         evidence["session_revision"] = self._session_revision(selected)
         evidence["reader"] = "website"
         return raw, result_object(raw), evidence
@@ -1369,7 +1419,7 @@ class Browser:
             query, budget, client=self._reader_client("app"))
         if not isinstance(result.get("link"), dict):
             raise XhhConfigError("post missing from platform result")
-        return document(result["link"], evidence), raw
+        return document(result["link"], evidence, self.catalog), raw
 
     def _read_website_post(self, args, budget):
         query = {"link_id": args.link_id, "page": str(args.page),
@@ -1378,7 +1428,7 @@ class Browser:
             query, budget, client=self._reader_client("web"))
         if not isinstance(result.get("link"), dict):
             raise XhhConfigError("post missing from platform result")
-        return document(result["link"], evidence), raw
+        return document(result["link"], evidence, self.catalog), raw
 
     def _read_html_post(self, args, budget):
         return self.public_html(args.link_id, budget)
@@ -1553,6 +1603,28 @@ class Browser:
             try:
                 value, raw = spec.handler(args, budget)
                 documents.append(value)
+                comment_result = None
+                if isinstance(raw, dict):
+                    try:
+                        comment_result = result_object(raw)
+                    except XhhError:
+                        comment_result = raw
+                if (isinstance(comment_result, dict)
+                        and "comments" in comment_result):
+                    try:
+                        self._record_comment_floors(
+                            comment_result,
+                            value["source"],
+                            args.link_id,
+                            None,
+                            position=args.page,
+                            mode="page",
+                        )
+                    except XhhConfigError:
+                        self.capture_results.append({
+                            "persisted": False,
+                            "reason": "interaction_page_invalid",
+                        })
                 if args.raw:
                     raw_responses.append({
                         "reader": spec.reader,
@@ -1692,6 +1764,7 @@ class Browser:
                 if stop.kind == StopKind.BUDGET_PAUSE else None
             ),
         )
+        self.capture_coverage(scope)
         if args.body_format != "both":
             data["body"].pop("text" if args.body_format == "blocks" else "blocks")
         if args.section == "metadata":
@@ -1738,7 +1811,7 @@ class Browser:
                     raise XhhConfigError("returned author identity does not match requested user")
                 if args.view == "posts":
                     records = rows(result, ("links",))
-                    data = {"user_id": args.user_id, "items": [summary(row) for row in records], "source": evidence}
+                    data = {"user_id": args.user_id, "items": [summary(row, self.catalog) for row in records], "source": evidence}
                     scope = coverage(result, count=len(records), position=args.offset)
                 else:
                     user = returned_user
@@ -1805,7 +1878,7 @@ class Browser:
                 raw, result, evidence = self.fetch("/bbs/app/profile/fav/folder/v2/links",
                             {"folder_id": args.folder_id, "offset": str(args.offset), "limit": str(args.limit)}, budget)
                 records = rows(result, ("links", "list"))
-                data = {"items": [summary(row) for row in records], "folder_id": args.folder_id, "source": evidence}
+                data = {"items": [summary(row, self.catalog) for row in records], "folder_id": args.folder_id, "source": evidence}
                 scope = coverage(result, count=len(records), position=args.offset)
         elif args.command == "hashtags":
             if args.action in ("search", "links") and not args.target:
@@ -1934,13 +2007,17 @@ class Browser:
             query = {"link_id": args.link_id, "page": str(args.page), "limit": str(args.limit), "sort_filter": args.sort}
             raw, result, evidence = self.fetch(
                 "/bbs/app/link/tree", query, budget)
-            nodes = floors(result.get("comments"), args.link_id)
+            nodes, scope = self._record_comment_floors(
+                result,
+                evidence,
+                args.link_id,
+                None,
+                position=args.page,
+                mode="page",
+                scope_updates={"sort": args.sort},
+            )
             data = {"post_id": args.link_id, "items": nodes,
                     "source": evidence}
-            scope = coverage(result, count=len(result.get("comments", [])), position=args.page, mode="page")
-            if "comments" not in result:
-                scope["gaps"].append("comments_not_returned")
-            scope["sort"] = args.sort
             data["available_sorts"] = result.get("sort_filter", [])
         elif args.command == "replies":
             query = {"root_comment_id": args.root_id, "hide_cy": "0", "h_src": ""}
@@ -1948,10 +2025,13 @@ class Browser:
                 query["lastval"] = args.cursor
             raw, result, evidence = self.fetch("/bbs/app/comment/sub/comments", query, budget)
             nodes = rows(result, ("comments",))
-            data = {"items": [comment(node, args.post_id, args.root_id) for node in nodes], "source": evidence,
+            data = {"items": [comment(node, args.post_id, args.root_id, self.catalog) for node in nodes], "source": evidence,
                     "root_id": args.root_id, "post_id": args.post_id,
                     "post_id_source": "caller" if args.post_id else "unknown"}
             scope = coverage(result, count=len(nodes), position=args.cursor, mode="cursor")
+            evidence["post_id_source"] = "caller" if args.post_id else "unknown"
+            if args.post_id:
+                self.record(data["items"], evidence, args.post_id, args.root_id, scope)
         else:
             if args.command == "search" and (args.hot_words or args.suggest):
                 if args.hot_words and args.suggest:
@@ -2004,6 +2084,7 @@ class Browser:
                             result,
                             RESPONSES[args.type],
                             include_occurrences=True,
+                            catalog=self.catalog,
                         )
                     )
                 else:
@@ -2012,6 +2093,7 @@ class Browser:
                             result,
                             RESPONSES["feed"],
                             include_occurrences=True,
+                            catalog=self.catalog,
                         )
                     )
                 scope = coverage(result, count=count,
@@ -2128,7 +2210,14 @@ class Browser:
                                 "page": str(page), "limit": str(args.limit), "sort_filter": args.sort}, budget)
                     if args.raw:
                         raw_pages.append(raw)
-                    parsed = floors(result.get("comments"), args.link_id)
+                    parsed, page_scope = self._record_comment_floors(
+                        result,
+                        evidence,
+                        args.link_id,
+                        args.root_id,
+                        position=page,
+                        mode="page",
+                    )
                     page_keys, remainder = [], False
                     for node in parsed:
                         if node["root_id"] == args.root_id:
@@ -2151,7 +2240,7 @@ class Browser:
                             if node["id"] == target:
                                 reply_location = {"page": page, "limit": args.limit, "sort": args.sort, "cursor": None}
                     root = nodes.get(args.root_id)
-                    last_scope = coverage(result, count=len(result["comments"]), position=page, mode="page")
+                    last_scope = page_scope
                     page += 1
                     if remainder:
                         if budget.item_limit <= 1:
@@ -2218,9 +2307,25 @@ class Browser:
                     if args.raw:
                         raw_pages.append(raw)
                     records = rows(result, ("comments",))
+                    parsed = [
+                        comment(item, args.link_id, args.root_id, self.catalog)
+                        for item in records
+                    ]
+                    last_scope = coverage(
+                        result,
+                        count=len(records),
+                        position=cursor,
+                        mode="cursor",
+                    )
+                    self.record(
+                        parsed,
+                        evidence,
+                        args.link_id,
+                        args.root_id,
+                        last_scope,
+                    )
                     page_keys, remainder = [], False
-                    for item in records:
-                        node = comment(item, args.link_id, args.root_id)
+                    for node in parsed:
                         key = "comment:" + node["id"]
                         duplicate = node["id"] in nodes
                         if not duplicate and key in skipped:
@@ -2238,7 +2343,6 @@ class Browser:
                             new_items.add(key)
                         if node["id"] == target:
                             reply_location = {"page": root_page, "limit": args.limit, "sort": args.sort, "cursor": cursor}
-                    last_scope = coverage(result, count=len(records), position=cursor, mode="cursor")
                     if remainder:
                         if budget.item_limit <= 1:
                             public = XhhConfigError(
@@ -2361,4 +2465,5 @@ class Browser:
                 "items": list(nodes.values())}
         if args.raw:
             data["raw_pages"] = raw_pages
+        self.capture_coverage(last_scope)
         return data, last_scope

@@ -77,16 +77,23 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 | `my-comments --offset N --limit N` | 当前账号的评论页 |
 | `drafts --offset N --limit N` | 平台草稿页 |
 | `creator-options --link-id LINK` | 编辑器板块、标签、作者计划选项 |
-| `emojis` | 平台官方表情目录；服务器可能返回空组 |
+| `emojis list/search/get/refresh` | 验证过的官方目录、含义说明、图像预览与官方资源刷新；本地查询不需要账号 |
 | `operation ID` | 本地按真实 UID 隔离的发送状态及回执 |
+| `interaction status POST [--peer UID] [--root CID]` | 本地参与、轮数、来信状态及未解决操作 |
+| `interaction history POST [--peer UID] [--root CID] [--limit N] [--resume TOKEN]` | 本地完整原文、关系、来源和时间证据，输出版本 2 |
+| `interaction sync POST [--peer UID] [--root CID]` | 核验 UID 后按预算补录收件箱、自己的评论和公开楼层，输出版本 2 |
 
 收件箱使用平台返回的 `entries` 列表，缺少该字段时接受旧 `messages` 列表。平台字段、完整正文和未读数量保持原样；存在但形状错误的列表返回 `invalid_inbox_response`。`comment_a_id` 是来信 CID，`comment_b_id` 是被回复的 CID，`root_comment_id` 是根楼层，`linkid` 是帖子 ID。正文分别在 `comment_a_text` 和 `comment_b_text`。
+
+`inbox` 和 `my-comments` 支持 `--requests 10 --seconds 30`，上限各 100。正常单页需要一次身份核验和一次数据读取。实际 UID 不匹配或身份字段相互矛盾时拒绝个人导入。`my-comments` 验证 SDK 接口的原始 `result` 列表，形状错误返回 `invalid_my_comments_response`，显式作者错配返回 `own_comment_uid_mismatch`。互动查询、同步预算、续读绑定和证据字段见 [互动参考](docs/INTERACTION.md)。
 
 `replies` 的下一位置在 `coverage.next`，完整绑定账号、命令和查询的续读令牌在 `coverage.resume`；平台原始 `lastval` 只在 `--raw` 的原始页中保留。`coverage.has_more` 缺失时完成状态未知。收件箱的 `coverage.next_offset` 按本页实际消息数计算，仅提供下一读取位置，不能证明后续为空。板块 ID 由用户或平台查询选择，工具不内置兴趣板块。
 
 收件箱的 offset 不是稳定快照游标。分页期间有新消息插入列表前方时，后续页可能重复先前消息。调用方按 `message_id` 或来信 CID跨页、跨轮去重；下一轮最新消息检查从 offset 0 开始。完整处置流程见 [CONVERSATION.md](CONVERSATION.md)。
 
 ## 写入
+
+结构化表情内容使用 `compose SPEC.json --out prepared.json`，然后用 `send prepared.json --confirm --operation-id ID`，最后用 `verify ID`。输入、输出 schema 与 CLI 参数由 `describe --command compose` 返回。素材选择、图片创建与错误恢复见 [表情内容流程](references/EMOJIS.md)。既有纯文本和 SDK 发帖命令仍可使用。
 
 所有下列命令要求 `--confirm --operation-id ID`。正文文件使用 UTF-8，评论和回复最多 1000 字符。工具在写前在线核对账号，不要求调用方提供宿主会话证明。
 
@@ -125,7 +132,7 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 
 ## 发送状态
 
-写入日志只保存操作类型、真实账号 UID、请求指纹和回执，不包含人格、情绪、运营偏好或调度信息。
+写入日志保存操作类型、真实账号 UID、请求指纹和回执。评论与回复还在同一个 `operations.sqlite3` 中保存帖子、根楼和目标 CID，以及用于提交核对的 SHA-256 指纹和可恢复的互动事实。完整请求只在本次发送中使用，互动数据库不保存正文或图片。人格、情绪、运营偏好及调度仍由调用方管理。
 
 | 状态 | 含义 |
 | --- | --- |
@@ -138,6 +145,8 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 日志使用 SQLite 原子 reservation，多个进程不能同时取得同一 UID 与 ID 的发送权。去重范围是调用方给出的操作 ID，不把永久禁止再次评论同一个帖子当作平台限制。新的独立用户操作使用新 ID；恢复结果未知的请求沿用旧 ID，并先人工核对平台。
 
 单次写入没有自动重试。验证码、限流和会话失效会结束当前命令。`public_visibility=not_checked` 表示未验证公开可见；平台 `ok`、CID 或本地记录都不是公开展示证据。
+
+`interaction_projection_complete=false` 表示回执已提交，但派生互动记录尚未完成。`returned` 回执仍保留并可重放，`interaction status`、`interaction history` 或相同操作的重放会尝试本地恢复，不发送 POST。旧日志的指纹不能还原未知目标；仅当当前完整请求匹配旧指纹时才绑定已知上下文，继续遵守原来的关闭或回执重放状态。
 
 ## Agent 浏览工具
 
@@ -208,6 +217,8 @@ python -I -X utf8 "<skill>/scripts/xhh.py" asset "https://imgheybox.max-c.com/�
 正文数据保留平台返回的旧 HTTP 图片引用，但 `asset` 仍要求 HTTPS，不能把已知引用当成已成功下载。正文中作者写出的文件路径仅作为文本返回，不读取对应的宿主文件。
 
 浏览来源的 `configured_uid` 是配置中的数据命名空间，`identity_verified` 表示该次读取是否已在网络中核对当前会话。浏览快照保存在独立的 `browsing/snapshots.sqlite3`，与发送日志分开。快照按配置 UID 分组，这属于数据命名空间，不是同一本地操作系统用户之间的身份权限边界。缓存目录和文件限制为本地所有者访问；Windows 使用受保护 DACL，POSIX 使用目录 0700、数据库 0600。离线查看不需要有效网络会话，也不能证明身份。新保存、`--since` 和网络续读会核对真实会话 UID，身份验证也计入请求预算，因此这些在线操作至少需要两个请求。`--since` 和 `snapshot diff` 只比较相同资源与筛选的查询。
+
+`identity_verified_this_read` 明确描述当前读取，兼容字段 `identity_verified` 保持同一含义。曾经核验的互动命名空间由 `interaction.identity_established` 表示，普通公开读取的当前身份标签仍为 false。快照差异比较排除本地 `interaction` 摘要，参与状态变化不会被当作平台帖子编辑。
 
 快照使用递增修订号拒绝并发陈旧更新，冲突时保留数据库与本次已读结果。续读既可以用 `snapshot resume`，也可以用原命令的 `--resume --snapshot`，均保留先前页。`snapshot resume NAME` 会先按名称查找未交付响应；仅当一个账号拥有该 pending 快照时，无需先加载账号配置即可离线重放。名称存在于多个账号时要求先用 `--account` 或 `--config` 选择账号。响应与下一断点在同一事务持久化，stdout 成功写出并刷新后才确认已交付；中断时下次调用先离线重放未交付响应，不跳过数据。原型期旧 `browsing.sqlite3` 路径不自动导入。
 

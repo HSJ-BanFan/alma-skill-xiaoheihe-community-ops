@@ -10,4 +10,5 @@ work/
 *.sqlite*
 .env
 config.json
+.audit/
 accounts.json

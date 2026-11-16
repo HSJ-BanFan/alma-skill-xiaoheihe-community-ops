@@ -45,7 +45,7 @@ def main():
         assert "Creator" in invoke("account", "login", "--help")
         assert not (folder / "isolated-data").exists(), "offline discovery wrote state"
         test = subprocess.run([sys.executable, "-I", "-X", "utf8", "-m", "unittest", "discover", "-s", str(skill / "tests"), "-q"], cwd=unrelated,
-                env=environment, capture_output=True, text=True, encoding="utf-8", timeout=60)
+                env=environment, capture_output=True, text=True, encoding="utf-8", timeout=180)
         assert test.returncode == 0, test.stdout + test.stderr
         print(json.dumps({"ok": True, "sdk_snapshot_verified": len(snapshot["files"]),
                           "unrelated_cwd": True, "isolated_python": True,
