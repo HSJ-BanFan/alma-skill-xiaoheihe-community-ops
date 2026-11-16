@@ -115,9 +115,26 @@ def capture_private(store, client, kind, data, page_coverage, *, sanitize=lambda
     return {**result, "gaps": gaps}
 
 
+KNOWN_LIMIT = 100
+LEGACY_STATE_FIELDS = frozenset(("phase", "offset", "page", "roots", "cursor", "comments_done",
+                                 "inbox_offset", "own_list_offset"))
+STATE_FIELDS = LEGACY_STATE_FIELDS | frozenset(("known_roots", "known_done", "return_phase"))
+
+
 def initial_state():
     return {"phase": "inbox", "offset": 0, "page": 1, "roots": [], "cursor": None, "comments_done": False,
-            "inbox_offset": 0, "own_list_offset": 0}
+            "inbox_offset": 0, "own_list_offset": 0, "known_roots": [], "known_done": [], "return_phase": "inbox"}
+
+
+def normalize_state(state):
+    if not isinstance(state, dict):
+        raise XhhConfigError("invalid sync continuation")
+    if set(state) == STATE_FIELDS:
+        return state
+    if set(state) != LEGACY_STATE_FIELDS:
+        raise XhhConfigError("invalid sync continuation")
+    return {**state, "known_roots": [], "known_done": [],
+            "return_phase": state["phase"] if state["phase"] in ("inbox", "own_list", "comments", "done") else "inbox"}
 
 
 def private_continuation(state, preferred="inbox"):
@@ -131,16 +148,30 @@ def private_continuation(state, preferred="inbox"):
 
 
 def validate_state(state):
-    if not isinstance(state, dict) or set(state) != set(initial_state()):
+    if not isinstance(state, dict) or set(state) != STATE_FIELDS:
         raise XhhConfigError("invalid sync continuation")
-    if state["phase"] not in ("inbox", "own_list", "comments", "replies", "done"):
+    if state["phase"] not in ("inbox", "own_list", "comments", "known_replies", "replies", "done"):
         raise XhhConfigError("invalid sync phase")
+    if state["return_phase"] not in ("inbox", "own_list", "comments", "done"):
+        raise XhhConfigError("invalid sync return phase")
     if type(state["offset"]) is not int or state["offset"] < 0 or type(state["page"]) is not int or state["page"] < 1:
         raise XhhConfigError("invalid sync position")
-    if not isinstance(state["roots"], list) or len(state["roots"]) > 100 or any(not identifier(cid) for cid in state["roots"]):
-        raise XhhConfigError("invalid sync roots")
+    for field in ("roots", "known_roots", "known_done"):
+        values = state[field]
+        if (not isinstance(values, list) or len(values) > KNOWN_LIMIT
+                or any(not isinstance(cid, str) or not identifier(cid) for cid in values)
+                or len(set(values)) != len(values)):
+            raise XhhConfigError("invalid sync " + field)
     if state["phase"] == "replies" and not state["roots"]:
         raise XhhConfigError("sync replies require a root")
+    if state["phase"] != "replies" and state["roots"]:
+        raise XhhConfigError("sync roots require the replies phase")
+    if state["phase"] == "known_replies" and not state["known_roots"]:
+        raise XhhConfigError("sync known replies require a root")
+    if state["phase"] != "known_replies" and state["known_roots"]:
+        raise XhhConfigError("sync known reply roots require the known_replies phase")
+    if set(state["known_roots"]) & set(state["known_done"]):
+        raise XhhConfigError("sync known reply roots conflict with completed roots")
     if state["cursor"] is not None and (not isinstance(state["cursor"], str) or len(state["cursor"]) > 4096):
         raise XhhConfigError("invalid sync cursor")
     if type(state["comments_done"]) is not bool:
@@ -150,6 +181,51 @@ def validate_state(state):
             raise XhhConfigError("invalid private sync continuation")
 
 
+def seed_known_roots(store, scope, state, gaps):
+    candidates = store.root_candidates(scope, limit=KNOWN_LIMIT)
+    if candidates["truncated"]:
+        gaps.append("known_root_candidates_truncated")
+    gaps.extend(candidates["gaps"])
+    seen = set(state["known_roots"]) | set(state["known_done"])
+    added = []
+    for root in candidates["root_ids"]:
+        if root in seen:
+            continue
+        if not store.root_reference_valid(scope, root):
+            gaps.append("unsupported_known_root:" + root)
+            continue
+        seen.add(root)
+        added.append(root)
+    room = KNOWN_LIMIT - len(state["known_roots"])
+    if len(added) > room:
+        gaps.append("known_roots_truncated")
+        added = added[:room]
+    if added:
+        state["known_roots"].extend(added)
+        if state["phase"] in ("inbox", "own_list", "comments", "done"):
+            state["return_phase"] = state["phase"]
+        state["phase"] = "known_replies"
+
+
+def complete_known_root(state, root, gaps):
+    done = list(state["known_done"])
+    done.append(root)
+    if len(done) > KNOWN_LIMIT:
+        done = done[-KNOWN_LIMIT:]
+        gaps.append("known_roots_truncated")
+    state["known_done"] = done
+
+
+def validate_references(store, scope, state):
+    if state["phase"] == "replies" and any(
+            store.root_post(scope.account_uid, root) != scope.post_id or (scope.root_id and root != scope.root_id)
+            for root in state["roots"]):
+        raise XhhConfigError("sync continuation root is not established on the selected post")
+    for root in (*state["known_roots"], *state["known_done"]):
+        if (scope.root_id and root != scope.root_id) or not store.root_reference_valid(scope, root):
+            raise XhhConfigError("sync continuation root reference is not established on the selected post")
+
+
 def synchronize(store, client, scope, args, *, sanitize=lambda value: value):
     binding = {**scope.binding(), "protocol": client.config.protocol_mode, "limit": args.limit, "sort": args.sort}
     state = initial_state()
@@ -157,10 +233,9 @@ def synchronize(store, client, scope, args, *, sanitize=lambda value: value):
         token = decode_resume(args.resume, "interaction-sync", scope.account_uid)
         if set(token) != {"binding", "state"} or token["binding"] != binding:
             raise XhhConfigError("sync resume belongs to a different account, protocol or query")
-        state = token["state"]
+        state = normalize_state(token["state"])
         validate_state(state)
-        if any(store.root_post(scope.account_uid, root) != scope.post_id or scope.root_id and root != scope.root_id for root in state["roots"]):
-            raise XhhConfigError("sync continuation root is not established on the selected post")
+        validate_references(store, scope, state)
     budget = Budget(args.requests, args.seconds)
     imported, pages, gaps, stop = 0, 0, [], None
     last_error = None
@@ -180,16 +255,28 @@ def synchronize(store, client, scope, args, *, sanitize=lambda value: value):
         except (sqlite3.Error, OSError) as error:
             stop = "storage_error"
             last_error = {"type": type(error).__name__, "code": "interaction_cache_incomplete"}
+    if stop is None and not args.resume:
+        try:
+            seed_known_roots(store, scope, state, gaps)
+        except (sqlite3.Error, OSError) as error:
+            stop = "storage_error"
+            last_error = {"type": type(error).__name__, "code": "interaction_cache_incomplete"}
     seen_positions = set()
     while stop is None and state["phase"] != "done" and pages < args.pages:
-        position = (state["phase"], state["offset"], state["page"], tuple(state["roots"]), state["cursor"])
+        position = (state["phase"], state["offset"], state["page"], tuple(state["roots"]),
+                    tuple(state["known_roots"]), tuple(state["known_done"]), state["cursor"])
         if position in seen_positions:
             stop = "cursor_stalled"
             gaps.append("repeated_continuation")
             break
         seen_positions.add(position)
         phase = state["phase"]
-        next_state = {**state, "roots": list(state["roots"])}
+        if phase == "known_replies":
+            root = state["known_roots"][0]
+            if (scope.root_id and root != scope.root_id) or not store.root_reference_valid(scope, root):
+                raise XhhConfigError("sync known reply root is not established on the selected post")
+        next_state = {**state, "roots": list(state["roots"]), "known_roots": list(state["known_roots"]),
+                      "known_done": list(state["known_done"])}
         read_page = None
         try:
             if phase in ("inbox", "own_list"):
@@ -214,6 +301,9 @@ def synchronize(store, client, scope, args, *, sanitize=lambda value: value):
                 result = capture_private(store, client, kind, data, {**page_scope, "continuation": next_state}, sanitize=sanitize, scope=scope)
                 gaps.extend(result["gaps"])
                 imported += result["comments_observed"]
+                if kind == "my-comments":
+                    read_page = None
+                    seed_known_roots(store, scope, next_state, gaps)
             elif phase == "comments":
                 raw = budget.call(client, lambda: client.transport.signed_request("/bbs/app/link/tree", query={"link_id": scope.post_id,
                     "page": str(state["page"]), "limit": str(args.limit), "sort_filter": args.sort}))
@@ -222,8 +312,11 @@ def synchronize(store, client, scope, args, *, sanitize=lambda value: value):
                 nodes = floors(result.get("comments"), scope.post_id)
                 page_scope = coverage(result, count=len(result["comments"]), position=state["page"], mode="page")
                 roots = [node for node in nodes if node["id"] == node["root_id"] and (not scope.root_id or node["id"] == scope.root_id)]
+                completed_known = set(state["known_done"])
                 queued = []
                 for node in roots:
+                    if node["id"] in completed_known:
+                        continue
                     known = len({child["id"] for child in nodes if child["root_id"] == node["id"] and child["id"] != node["id"]})
                     count = node["children_count"]
                     if node["has_more"] is True or count is not None and known < count or node["has_more"] is None and count is None:
@@ -248,7 +341,8 @@ def synchronize(store, client, scope, args, *, sanitize=lambda value: value):
                                        coverage={**page_scope, "continuation": next_state})
                 imported += result["comments_observed"]
             else:
-                root = state["roots"][0]
+                pending = "known_roots" if phase == "known_replies" else "roots"
+                root = state[pending][0]
                 query = {"root_comment_id": root, "hide_cy": "0", "h_src": ""}
                 if state["cursor"] is not None:
                     query["lastval"] = state["cursor"]
@@ -266,8 +360,13 @@ def synchronize(store, client, scope, args, *, sanitize=lambda value: value):
                     stop = "cursor_stalled"
                     gaps.append("repeated_continuation")
                 elif page_scope["completion"] == "complete" or page_scope["next"] is None:
-                    next_state.update(roots=state["roots"][1:], cursor=None)
-                    if not next_state["roots"]:
+                    remaining = list(state[pending][1:])
+                    next_state.update({pending: remaining, "cursor": None})
+                    if phase == "known_replies":
+                        complete_known_root(next_state, root, gaps)
+                        if not remaining:
+                            next_state["phase"] = state["return_phase"]
+                    elif not remaining:
                         next_state["phase"] = "done" if state["comments_done"] else "comments"
                         if next_state["phase"] == "done":
                             private_continuation(next_state)
@@ -277,6 +376,8 @@ def synchronize(store, client, scope, args, *, sanitize=lambda value: value):
                     next_state["cursor"] = page_scope["next"]
                 evidence = source(client, "/bbs/app/comment/sub/comments")
                 evidence.update(identity_verified=True, identity_verified_this_read=True)
+                if phase == "known_replies":
+                    evidence["post_id_source"] = "verified_own_list_reference"
                 result = store.capture(scope.account_uid, sanitize(nodes), "public", evidence, scope=scope,
                                        coverage={**page_scope, "continuation": next_state})
                 imported += result["comments_observed"]

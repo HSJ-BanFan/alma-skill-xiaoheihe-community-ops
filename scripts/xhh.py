@@ -432,6 +432,8 @@ def add_interaction_summaries(store, uid, command, data):
     except (sqlite3.Error, OSError, XhhConfigError, ValueError, TypeError) as error:
         summaries = {item["id"]: {"account_uid": uid, "participation": "unknown", "history_complete": False,
             "my_known_comment_count": None, "my_publicly_observed_comment_count": None, "completed_round_count": None,
+            "count_semantics": "public_verified_lower_bound", "discussion_status": "unknown",
+            "relation_completeness": "unknown", "own_reply_relations_complete": None, "unattributed_own_comment_count": None,
             "cache_incomplete": True, "error_type": type(error).__name__} for item in items}
     for item in items:
         item["interaction"] = summaries[item["id"]]

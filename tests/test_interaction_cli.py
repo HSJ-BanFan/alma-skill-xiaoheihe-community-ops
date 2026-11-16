@@ -197,7 +197,7 @@ class InteractionCLITest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(first["coverage"]["budget"]["used_requests"], 3)
         self.assertEqual(first["coverage"]["stop_reason"], "request_budget")
-        self.assertEqual(first["coverage"]["continuation"]["phase"], "comments")
+        self.assertEqual(first["coverage"]["continuation"]["phase"], "known_replies")
         self.assertIsNotNone(first["coverage"]["resume"])
         self.assertEqual(first["data"]["status"]["completed_round_count"], 0)
         code, second = self.run_cli("interaction", "sync", "501", "--requests", "10", "--pages", "10", "--resume", first["coverage"]["resume"])
