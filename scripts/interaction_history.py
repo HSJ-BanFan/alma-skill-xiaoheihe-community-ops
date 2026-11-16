@@ -24,6 +24,8 @@ SOURCE_RANK = {"receipt": 0, "inbox": 1, "own_list": 2, "public": 3}
 SOURCE_ROUTES = {"/account/restore_login", "/bbs/app/link/tree", "/bbs/app/comment/sub/comments",
                  "/bbs/app/user/message", "/bbs/app/profile/bbs/comment/list", "operation_receipt"}
 SYNC_FIELDS = ("phase", "offset", "page", "roots", "cursor", "comments_done", "inbox_offset", "own_list_offset")
+SHA256 = re.compile(r"[a-f0-9]{64}")
+NATIVE_EMOJI_ID = re.compile(r"[a-z][a-z0-9]*:[0-9]{1,6}")
 TABLES = (
     """CREATE TABLE IF NOT EXISTS operations (
         uid TEXT NOT NULL, operation_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
@@ -239,6 +241,72 @@ def identity_metadata(uid, at, evidence):
     return {"account_uid": uid, "identity_established_at": timestamp(at), "evidence": selected}
 
 
+def message_manifest(value):
+    if not isinstance(value, dict) or not isinstance(value.get("text_sha256"), str) or not SHA256.fullmatch(value["text_sha256"]):
+        raise XhhConfigError("message manifest requires a text digest")
+    emojis = value.get("emoji_ids")
+    if not isinstance(emojis, list) or any(not isinstance(item, str) or not NATIVE_EMOJI_ID.fullmatch(item) for item in emojis):
+        raise XhhConfigError("message manifest requires native emoji identifiers")
+    result = {"text_sha256": value["text_sha256"], "emoji_ids": list(emojis)}
+    for key in ("content_sha256", "image_urls_sha256"):
+        if key in value:
+            if not isinstance(value[key], str) or not SHA256.fullmatch(value[key]):
+                raise XhhConfigError("message manifest digests must be SHA-256")
+            result[key] = value[key]
+    return result
+
+
+def message_context_metadata(value):
+    if not isinstance(value, dict) or not isinstance(value.get("prepared_fingerprint"), str) or not SHA256.fullmatch(value["prepared_fingerprint"]):
+        return None
+    kind = value.get("kind")
+    if kind not in ("post", "comment", "reply"):
+        raise XhhConfigError("message context requires a supported kind")
+    result = {"prepared_fingerprint": value["prepared_fingerprint"], "kind": kind,
+              "expected": message_manifest(value.get("expected"))}
+    target = value.get("target")
+    if kind != "post":
+        if not isinstance(target, dict) or not identifier(target.get("link_id")):
+            raise XhhConfigError("message context requires a known target")
+        selected = {"link_id": identifier(target["link_id"])}
+        if kind == "reply":
+            for key in ("root_id", "reply_id"):
+                if not identifier(target.get(key)):
+                    raise XhhConfigError("reply context requires root and target IDs")
+                selected[key] = identifier(target[key])
+            selected.update(request_provenance(target))
+            selected.pop("protocol")
+        result["target"] = selected
+    else:
+        result["target"] = None
+    for key in ("catalog_version", "renderer_version"):
+        if isinstance(value.get(key), str) and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", value[key]):
+            result[key] = value[key]
+    if type(value.get("public_requested")) is bool:
+        result["public_requested"] = value["public_requested"]
+    if identifier(value.get("author_uid")):
+        result["author_uid"] = identifier(value["author_uid"])
+    return result
+
+
+def bind_message_context(connection, uid, operation_id, value):
+    metadata = message_context_metadata(value)
+    if metadata is None:
+        return
+    connection.execute("""CREATE TABLE IF NOT EXISTS operation_messages (
+        uid TEXT NOT NULL, operation_id TEXT NOT NULL, metadata_json TEXT NOT NULL,
+        PRIMARY KEY (uid,operation_id), FOREIGN KEY (uid,operation_id) REFERENCES operations(uid,operation_id))""")
+    connection.execute("INSERT INTO operation_messages VALUES (?,?,?) ON CONFLICT(uid,operation_id) DO NOTHING",
+                       (uid, operation_id, dumps(metadata)))
+
+
+def read_message_context(connection, uid, operation_id):
+    if not connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='operation_messages'").fetchone():
+        return None
+    row = connection.execute("SELECT metadata_json FROM operation_messages WHERE uid=? AND operation_id=?", (uid, operation_id)).fetchone()
+    return message_context_metadata(json.loads(row[0])) if row else None
+
+
 def receipt_metadata(kind, value):
     if value is None:
         return None
@@ -266,6 +334,11 @@ def receipt_metadata(kind, value):
         result["visibility"] = value["visibility"]
     if value.get("status") == "ok":
         result["status"] = "ok"
+    if (kind in ("publish", "comment", "reply") and isinstance(value.get("prepared_fingerprint"), str)
+            and SHA256.fullmatch(value["prepared_fingerprint"])):
+        result["prepared_fingerprint"] = value["prepared_fingerprint"]
+        result["kind"] = "post" if kind == "publish" else kind
+        result["expected"] = message_manifest(value.get("expected"))
     return result
 
 

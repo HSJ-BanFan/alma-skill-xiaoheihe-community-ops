@@ -5,6 +5,7 @@
 ```console
 python -I -X utf8 scripts/xhh.py --help
 python -I -X utf8 scripts/xhh.py --protocol web doctor --offline
+python -I -X utf8 scripts/xhh.py describe
 ```
 
 技能只接收明确的账号、目标和内容，并提供小黑盒读取与写入操作。说明入口为 [SKILL.md](SKILL.md)，命令与认证参考为 [REFERENCE.md](REFERENCE.md)。
@@ -14,6 +15,10 @@ python -I -X utf8 scripts/xhh.py --protocol web doctor --offline
 这次改造删除了 Alma 路径、宿主运行信封、原生工具输出证据、梗词库、表情推荐服务、兴趣画像、第三方图床和跨仓库 CLI。旧 `community.py scan/read/act` 由 `scripts/xhh.py` 的直接平台命令替代，是一次不兼容变更。调用方维护任务队列、执行节奏和内容策略。互动事实及来信的发送证据由本地存储维护。
 
 浏览工具提供结构化正文、完整性证据、社区发现、评论上下文、预算续读、作者与收藏导航以及账号隔离的公开观察快照。媒体预览按需安装 `requirements-media.txt`。读取输出版本为 `2`，`post/comments` 数据结构已更新；原始平台响应通过 `--raw` 按需取得。
+
+原生表情工具提供官方创作者目录快照、关键词与含义检索、原图裁剪预览，以及已知标签和短码的读取归一化。`compose` 接收文字、原生表情 ID 和登记过的图片贴纸 ID，生成准备结果与自包含 HTML 预览。`send` 复用原有账号核对和操作 ID 去重，`verify` 分别报告读回一致性、公开可见性与图标渲染范围。流程见 [表情内容](references/EMOJIS.md)。
+
+`describe` 返回精简命令目录，`describe --command compose` 返回输入和输出 schema、真实 CLI 参数及其编码方式；`describe --command "emojis get"` 查询子命令。说明从当前 CLI 参数定义生成，agent 可以先读技能流程，再按需查询命令契约。目录查询和本地准备不需要账号，也不调用特定模型或宿主服务。图片贴纸由调用方创建文件后登记，项目不会创建新的官方原生表情。
 
 互动历史共用 `operations.sqlite3`，按实际 UID 与 CID 隔离，自动记录评论目标、回复关系、回执、时间和可信来源。持久化记录不包含帖子正文、评论全文、图片或原始通知。`interaction status`、`interaction history` 是本地事实查询，`interaction sync` 按请求、时间和页数预算补录；`post`、`feed` 和 `hot` 自动附加轻量本地摘要。讨论原文按需要从 `post` 和 `thread` 当前读取取得。完整契约见 [互动参考](docs/INTERACTION.md)，SQLite 及字段选择见 [存储说明](docs/INTERACTION_STORAGE.md)。历史可信 UID 与当前读取的在线核验分别标记，单请求 post 保持原预算。
 
@@ -26,6 +31,9 @@ SDK 的 Python 源码和平台数据目录随技能提供，许可与来源见 [
 验证命令使用隔离测试数据，不登录真实账号，也不向平台写入。
 
 ```console
+python -m pip install -r requirements-test.txt
 python -m unittest discover -s tests -v
 python tests/verify_portable.py
 ```
+
+测试依赖包含图像与 JSON Schema 验证库，不是核心运行依赖。所有发帖、评论、图片上传和读回测试使用合成响应。真实官方资源只用于核对目录和本地图像预览，API 回执与本地渲染不冒充线上公开效果。

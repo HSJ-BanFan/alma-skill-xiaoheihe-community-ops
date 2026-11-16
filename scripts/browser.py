@@ -11,6 +11,7 @@ from documents import author, comment, document, floors, identifier, integer, li
 from paging import Budget, ReadLimit, coverage, decode_resume, encode_resume
 from xhh_sdk.exceptions import XhhConfigError, XhhError
 from xhh_sdk.web_signer import sign_web_request
+from emoji_catalog import Catalog
 
 COMMANDS = {"community", "topics", "hot", "feed", "search", "post", "comments", "replies", "thread", "user", "favourites"}
 
@@ -162,6 +163,7 @@ class Browser:
     def __init__(self, client, *, capture=None):
         self.client = client
         self.identity_verified = False
+        self.catalog = None
         self.capture = capture
         self.capture_results = []
 
@@ -187,6 +189,7 @@ class Browser:
         return raw, result, evidence
 
     def execute(self, args, *, verify_account=False, prior_data=None):
+        self.catalog = Catalog(data_dir=getattr(args, "data_dir", None))
         budget = Budget(args.requests, args.seconds)
         if verify_account:
             from operations import verify_identity
@@ -346,7 +349,7 @@ class Browser:
                     raise XhhConfigError("returned author identity does not match requested user")
                 if args.view == "posts":
                     records = rows(result, ("links",))
-                    data = {"user_id": args.user_id, "items": [summary(row) for row in records], "source": evidence}
+                    data = {"user_id": args.user_id, "items": [summary(row, self.catalog) for row in records], "source": evidence}
                     scope = coverage(result, count=len(records), position=args.offset)
                 else:
                     user = returned_user
@@ -374,7 +377,7 @@ class Browser:
                 raw, result, evidence = self.fetch("/bbs/app/profile/fav/folder/v2/links",
                             {"folder_id": args.folder_id, "offset": str(args.offset), "limit": str(args.limit)}, budget)
                 records = rows(result, ("links", "list"))
-                data = {"items": [summary(row) for row in records], "folder_id": args.folder_id, "source": evidence}
+                data = {"items": [summary(row, self.catalog) for row in records], "folder_id": args.folder_id, "source": evidence}
                 scope = coverage(result, count=len(records), position=args.offset)
         elif args.command in ("post", "comments"):
             query = {"link_id": args.link_id, "page": str(args.page), "limit": str(args.limit), "sort_filter": args.sort}
@@ -384,8 +387,8 @@ class Browser:
             raw, result, evidence = self.website(query, budget) if reader == "website" else self.fetch("/bbs/app/link/tree", query, budget)
             if args.command == "post" and not isinstance(result.get("link"), dict):
                 raise XhhConfigError("post missing from platform result")
-            nodes = floors(result.get("comments"), args.link_id) if args.command == "comments" or "comments" in result else []
-            data = document(result["link"], evidence) if args.command == "post" else {"post_id": args.link_id, "items": nodes, "source": evidence}
+            nodes = floors(result.get("comments"), args.link_id, self.catalog) if args.command == "comments" or "comments" in result else []
+            data = document(result["link"], evidence, self.catalog) if args.command == "post" else {"post_id": args.link_id, "items": nodes, "source": evidence}
             scope = coverage(result, count=len(result.get("comments", [])), position=args.page, mode="page")
             if "comments" not in result:
                 scope["gaps"].append("comments_not_returned")
@@ -409,7 +412,7 @@ class Browser:
                 query["lastval"] = args.cursor
             raw, result, evidence = self.fetch("/bbs/app/comment/sub/comments", query, budget)
             nodes = rows(result, ("comments",))
-            data = {"items": [comment(node, args.post_id, args.root_id) for node in nodes], "source": evidence,
+            data = {"items": [comment(node, args.post_id, args.root_id, self.catalog) for node in nodes], "source": evidence,
                     "root_id": args.root_id, "post_id": args.post_id,
                     "post_id_source": "caller" if args.post_id else "unknown"}
             scope = coverage(result, count=len(nodes), position=args.cursor, mode="cursor")
@@ -426,7 +429,7 @@ class Browser:
                 query["sort_filter"] = {"recommended": "hot-rank", "newest": "create", "recent-replies": "reply"}[args.order]
             raw, result, evidence = self.fetch(route, {**query, "offset": str(args.offset), "limit": str(args.limit)}, budget)
             records = rows(result, ("links", "search_result", "items", "list", "news"))
-            items = [summary(row) for row in records] if args.command != "search" or args.type == "link" else records
+            items = [summary(row, self.catalog) for row in records] if args.command != "search" or args.type == "link" else records
             scope = coverage(result, count=len(records), position=args.offset)
             if args.command == "feed":
                 items = [item for item in items if (args.content_type == "all" or item["content_type"] == args.content_type)
@@ -473,7 +476,7 @@ class Browser:
                                 "page": str(page), "limit": str(args.limit), "sort_filter": args.sort}, budget)
                     if args.raw:
                         raw_pages.append(raw)
-                    parsed = floors(result.get("comments"), args.link_id)
+                    parsed = floors(result.get("comments"), args.link_id, self.catalog)
                     page_scope = coverage(result, count=len(result["comments"]), position=page, mode="page")
                     self.record(parsed, evidence, args.link_id, args.root_id, page_scope)
                     for node in parsed:
@@ -508,7 +511,7 @@ class Browser:
                     if args.raw:
                         raw_pages.append(raw)
                     records = rows(result, ("comments",))
-                    parsed = [comment(item, args.link_id, args.root_id) for item in records]
+                    parsed = [comment(item, args.link_id, args.root_id, self.catalog) for item in records]
                     self.record(parsed, evidence, args.link_id, args.root_id,
                                 coverage(result, count=len(records), position=cursor, mode="cursor"))
                     for node in parsed:

@@ -1,6 +1,6 @@
 ---
 name: xiaoheihe-tools
-description: 提供小黑盒账号、帖子、评论楼层、收件箱、互动历史、搜索、图片上传、评论回复、点赞收藏和发帖工具。用户需要读取或操作小黑盒时使用。
+description: 读取小黑盒帖子、评论、收件箱和互动历史，查询与预览官方原生表情，登记用户提供的图片贴纸，构建带表情的内容并按明确账号、目标和操作ID发送及读回核对。用户需要浏览或使用小黑盒时使用。
 ---
 
 # 小黑盒工具
@@ -14,6 +14,7 @@ description: 提供小黑盒账号、帖子、评论楼层、收件箱、互动�
 ```console
 python -I -X utf8 "<skill>/scripts/xhh.py" --help
 python -I -X utf8 "<skill>/scripts/xhh.py" --protocol web doctor --offline
+python -I -X utf8 "<skill>/scripts/xhh.py" describe
 python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> account-info
 python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> feed <topic-id> --limit 20
 python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> post <link-id>
@@ -27,6 +28,16 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
 用户要求逛论坛、回复收件箱来信或继续多轮讨论时，先读取 [CONVERSATION.md](CONVERSATION.md)。按其中的每轮流程补读正文、定位目标、复用操作 ID并读回新评论。
 
 准备继续既有讨论、核对来信处置或恢复发送结果时，读取 [互动参考](docs/INTERACTION.md)。`interaction status <post-id>` 查询参与、轮数和待处理状态，`interaction history <post-id>` 返回评论 ID、作者、回复关系和时间；`--peer <uid>`、`--root <cid>` 缩小讨论范围。互动存储只保存结构化事实，原文和配图按需要用 `post`、`thread` 当前读取取得。`interaction sync <post-id>` 在预算内核验账号并补录事实，调用方决定是否回复及回复风格。
+
+## 原生表情与图片贴纸
+
+选择表情、创建带表情的帖子或使用自制贴纸时，读取 [表情内容流程](references/EMOJIS.md)。按表达意图调用 `emojis search`，用返回的 ID 查详情和预览。目录中的含义说明标记来源与核验状态，排名分数是关键词匹配结果。
+
+`describe` 返回精简命令目录，`describe --command compose` 返回结构化内容的输入、输出 schema 和对应 CLI 参数。`describe --command "emojis get"` 可查询子命令。内容节点使用 `text`、`native_emoji` 或 `image_sticker`。原生表情 ID 来自目录；图片贴纸 ID 来自 `stickers import`。创建新图片使用当前宿主的绘图能力，再登记文件。
+
+`compose` 只做本地校验和准备，可用 `--out` 保存准备结果，用 `--preview-file` 生成自包含 HTML。生成图片预览需要可选 Pillow 和首次读取官方贴图。准备结果绑定内容、素材摘要、目录版本与协议。
+
+发送已获授权的内容时，用 `send` 提交准备结果，提供明确账号、稳定操作 ID 与 `--confirm`。帖子默认保存草稿，`--public` 才公开发布。`verify` 读回并核对内容，分别报告回执、内容一致性、公开可见性与图标渲染证据。恢复同一次操作沿用其 ID。
 
 ## 平台数据
 
@@ -42,7 +53,9 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
 
 `user <uid>` 读取作者公开资料，`--view posts/followers/following` 继续导航。`favourites folders/posts` 读取当前账号的收藏夹和内容。`inbox` 保留平台消息字段，读取 `entries` 或旧 `messages` 列表，不改已读状态。
 
-`asset <CDN-URL>` 下载平台图片并生成可用本地图像工具查看的 `preview_file`，需要可选 Pillow 依赖。源图与预览都有完整摘要；动画预览只展示首帧，原文件保留。官方表情使用 `emojis` 返回的平台目录。
+`asset <CDN-URL>` 下载平台图片并生成可用本地图像工具查看的 `preview_file`，需要可选 Pillow 依赖。源图与预览都有完整摘要；动画预览只展示首帧，原文件保留。`emojis list/search/get` 使用验证过的官方目录快照，`emojis refresh` 从官方创作者资源更新。缓存异常在 `saved_error` 报告，失效刷新保留原缓存。
+
+读取时原生短码、官方 `data-emoji` 标签和可唯一识别的字体标签归一化为 `native_emoji`，保留 ID、短码及位置。未知或冲突的身份保留原始数据并报告缺口。
 
 `post` 默认使用 `--reader auto`，Web 会话读取网站正文，App 会话读取原生正文。`--reader native` 和 `--reader website` 可显式选择身份，网站方式需要 Web 会话。每次读取选择一个入口，不在失败后切换协议。`--section` 和 `--body-format` 可减少不需要的输出，`--raw` 仅用于检查原始响应。
 

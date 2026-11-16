@@ -6,8 +6,10 @@ import json
 import re
 import time
 from html.parser import HTMLParser
+from functools import lru_cache
 from urllib.parse import urlsplit, parse_qs
 
+from emoji_catalog import Catalog
 from xhh_sdk.exceptions import XhhConfigError
 
 
@@ -93,11 +95,26 @@ def source(client, route):
             "identity_verified": False, "identity_verified_this_read": False}
 
 
+@lru_cache(maxsize=1)
+def default_catalog():
+    return Catalog()
+
+
+def native_event(item):
+    result = {key: item.get(key) for key in ("type", "id", "group", "native_id", "name", "shortcode",
+                                           "visual_description", "meaning", "annotation_status")}
+    result.update(tags=list(item.get("tags") or []), cautions=list(item.get("cautions") or []))
+    return result
+
+
 class Markup(HTMLParser):
-    def __init__(self):
+    def __init__(self, catalog=None):
         super().__init__(convert_charrefs=True)
+        self.catalog = catalog or default_catalog()
         self.parts, self.links, self.images = [], [], []
         self.events, self.chunk = [], []
+        self.gaps, self.native_tags = [], []
+        self.unknown_native = None
 
     def flush(self):
         text = "".join(self.chunk)
@@ -107,6 +124,34 @@ class Markup(HTMLParser):
 
     def handle_starttag(self, tag, attributes):
         attributes = dict(attributes)
+        if self.native_tags:
+            if tag not in {"img", "br", "hr", "input", "source", "wbr"}:
+                self.native_tags.append(tag)
+            return
+        item = self.catalog.resolve_attributes(tag, attributes)
+        classes = (attributes.get("class") or "").split()
+        font_marker = tag == "i" and any(group in classes and any(value.startswith(group + "-e") for value in classes)
+                                        for group in ("cube", "heygirl"))
+        marked = attributes.get("data-emoji") or "hb-emoji" in classes or font_marker
+        if item or marked:
+            self.flush()
+            if item:
+                self.events.append(native_event(item))
+                self.parts.append(item["shortcode"])
+            else:
+                value = attributes.get("data-emoji") or attributes.get("alt") or "unknown"
+                fallback = value if value.startswith("[") and value.endswith("]") else "[" + value + "]"
+                event = {"type": "unknown", "platform_type": "native_emoji", "fallback_text": fallback,
+                         "data": {"tag": tag, "attributes": attributes, "text": ""}}
+                self.events.append(event)
+                self.parts.append(fallback)
+                self.gaps.append("unknown_native_emoji")
+                self.unknown_native = event
+            if tag not in {"img", "br", "hr", "input", "source", "wbr"}:
+                self.native_tags.append(tag)
+            else:
+                self.unknown_native = None
+            return
         if tag in {"br", "p", "div", "li", "blockquote", "pre", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "table"}:
             self.parts.append("\n")
             self.chunk.append("\n")
@@ -126,6 +171,13 @@ class Markup(HTMLParser):
             self.chunk.append(self.get_starttag_text())
 
     def handle_endtag(self, tag):
+        if self.native_tags:
+            if tag in self.native_tags:
+                index = len(self.native_tags) - 1 - self.native_tags[::-1].index(tag)
+                del self.native_tags[index:]
+            if not self.native_tags:
+                self.unknown_native = None
+            return
         if tag in {"p", "div", "li", "blockquote", "pre", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "table"}:
             self.parts.append("\n")
             self.chunk.append("\n")
@@ -134,16 +186,34 @@ class Markup(HTMLParser):
             self.chunk.append("\t")
 
     def handle_data(self, data):
+        if self.native_tags:
+            if self.unknown_native:
+                self.unknown_native["data"]["text"] += data
+            return
         self.parts.append(data)
-        self.chunk.append(data)
+        previous = 0
+        for match in re.finditer(r"\[[^\]\n]+_[^\]\n]+\]", data):
+            item = self.catalog.resolve_shortcode(match.group())
+            if item is None:
+                if match.group().startswith(("[cube_", "[heygirl_")):
+                    self.gaps.append("unknown_native_shortcode")
+                continue
+            self.chunk.append(data[previous:match.start()])
+            self.flush()
+            self.events.append(native_event(item))
+            previous = match.end()
+        self.chunk.append(data[previous:])
+
+    def text(self):
+        return re.sub(r"\n{3,}", "\n\n", "".join(self.parts)).strip()
 
 
-def plain(value):
+def plain(value, catalog=None):
     if not isinstance(value, str):
         return ""
-    parsed = Markup()
+    parsed = Markup(catalog)
     parsed.feed(value)
-    return re.sub(r"\n{3,}", "\n\n", "".join(parsed.parts)).strip()
+    return parsed.text()
 
 
 def author(raw):
@@ -165,7 +235,7 @@ def media(raw, position=None):
             "position": position, "alt": raw.get("alt") or None, "preview_url": raw.get("thumb_url") or None}
 
 
-def summary(raw):
+def summary(raw, catalog=None):
     if not isinstance(raw, dict):
         raise XhhConfigError("post record must be an object")
     row = raw.get("link", raw)
@@ -184,8 +254,8 @@ def summary(raw):
     images = [asset for asset in (media(item) for item in raw_images) if asset]
     title, excerpt, hashtags = row.get("title"), row.get("description"), row.get("hashtags")
     return {"id": uid, "url": "https://www.xiaoheihe.cn/app/bbs/link/" + uid,
-            "title": plain(title) if title is not None else None,
-            "excerpt": plain(excerpt) if excerpt is not None else None, "content_type": kind, "author": author(row),
+            "title": plain(title, catalog) if title is not None else None,
+            "excerpt": plain(excerpt, catalog) if excerpt is not None else None, "content_type": kind, "author": author(row),
             "created_at": integer(row.get("create_at")), "updated_at": integer(row.get("modify_at")),
             "communities": communities, "hashtags": hashtags if isinstance(hashtags, list) else None,
             "statistics": {"comments": integer(row.get("comment_num")), "charges": integer(row.get("link_award_num")),
@@ -193,8 +263,9 @@ def summary(raw):
             "media": images, "has_video": truth(row.get("has_video"))}
 
 
-def document(link, evidence):
-    post = summary(link)
+def document(link, evidence, catalog=None):
+    catalog = catalog or default_catalog()
+    post = summary(link, catalog)
     value = link.get("text")
     blocks, gaps = [], []
     status = "available"
@@ -231,11 +302,25 @@ def document(link, evidence):
                 else:
                     blocks.append({"type": "unknown", "platform_type": kind, "position": position, "data": node})
                     gaps.append("playable_url_missing")
+            elif kind in ("emoji", "native_emoji"):
+                item = catalog.resolve_shortcode(node.get("shortcode") or node.get("text") or "")
+                if isinstance(node.get("id"), str) and ":" in node["id"]:
+                    try:
+                        by_id = catalog.get(node["id"])
+                    except ValueError:
+                        by_id = None
+                    item = by_id if item is None else item if by_id and by_id["id"] == item["id"] else None
+                if item:
+                    blocks.append({**native_event(item), "position": position})
+                else:
+                    blocks.append({"type": "unknown", "platform_type": kind, "position": position, "data": node})
+                    gaps.append("unknown_native_emoji")
             elif kind in ("text", "html", None):
                 markup = str(node.get("text") or "")
-                parsed = Markup()
+                parsed = Markup(catalog)
                 parsed.feed(markup)
                 parsed.flush()
+                gaps.extend(parsed.gaps)
                 for event in parsed.events:
                     if event["type"] == "image":
                         asset = media(event, position)
@@ -258,6 +343,10 @@ def document(link, evidence):
             pieces.append("\n")
         if block["type"] == "text":
             pieces.append(block["text"])
+        elif block["type"] == "native_emoji":
+            pieces.append(block["shortcode"])
+        elif block["type"] == "unknown" and block.get("fallback_text"):
+            pieces.append(block["fallback_text"])
         elif block["type"] in ("image", "video", "audio"):
             pieces.append("\n")
         previous_position = position
@@ -277,7 +366,7 @@ def document(link, evidence):
     return post
 
 
-def comment(raw, post_id, root_id):
+def comment(raw, post_id, root_id, catalog=None):
     if not isinstance(raw, dict):
         raise XhhConfigError("comment node must be an object")
     uid = identifier(raw.get("commentid") or raw.get("comment_id") or raw.get("id"))
@@ -288,7 +377,7 @@ def comment(raw, post_id, root_id):
     assets = raw[attachment_key] if attachment_key else []
     if not isinstance(assets, list):
         assets = [assets]
-    parsed = Markup()
+    parsed = Markup(catalog)
     parsed.feed(str(raw.get("text") or ""))
     parsed.flush()
     inline = [asset for asset in (media(event, index) for index, event in enumerate(parsed.events)
@@ -303,15 +392,15 @@ def comment(raw, post_id, root_id):
     return {"id": uid, "post_id": post_id, "root_id": root_id,
             "reply_to_id": identifier(raw.get("replyid") or raw.get("reply_id") or raw.get("reply_to_id")) if uid != root_id else None,
             "reply_to_uid": identifier(raw.get("replyuserid") or raw.get("reply_userid") or raw.get("reply_to_uid")), "author": author(raw),
-            "text": plain(text) if text is not None else None,
+            "text": parsed.text() if text is not None else None,
             "raw_text": text, "updated_at": integer(raw.get("modify_at") or raw.get("update_at")),
             "observed_fields": ["media"] if len(media_observed) == 2 else [], "media_observed": media_observed,
             "created_at": integer(raw.get("create_at")), "children_count": integer(raw.get("child_num")),
             "has_more": truth(raw.get("has_more")), "statistics": {"up": integer(raw.get("up"))},
-            "media": combined}
+            "media": combined, "content": parsed.events, "gaps": sorted(set(parsed.gaps))}
 
 
-def floors(rows, post_id):
+def floors(rows, post_id, catalog=None):
     if not isinstance(rows, list):
         raise XhhConfigError("comment floors missing from platform response")
     result = []
@@ -323,7 +412,7 @@ def floors(rows, post_id):
             raise XhhConfigError("comment floor contains a non-object node")
         root = identifier(nodes[0].get("commentid") or nodes[0].get("comment_id") or nodes[0].get("id"))
         for node in nodes:
-            result.append(comment(node, post_id, root))
+            result.append(comment(node, post_id, root, catalog))
     return result
 
 

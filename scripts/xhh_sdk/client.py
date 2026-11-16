@@ -314,8 +314,11 @@ class XhhClient(GroupMixin, InteractionMixin, BrowseMixin):
 
     def emojis(self) -> dict:
         """Emoji catalog (note: emoji_groups is empty server-side)."""
-        return self.transport.signed_request(
-            "/bbs/app/api/emojis/list").get("result", {})
+        response = self.transport.signed_request("/bbs/app/api/emojis/list")
+        result = response.get("result") if isinstance(response, dict) else None
+        if not isinstance(result, dict):
+            raise XhhAPIError("emojis/list returned no catalog object")
+        return result
 
     def search(self, q: str, *, search_type: str = "link", offset: int = 0,
                limit: int = 20) -> dict:

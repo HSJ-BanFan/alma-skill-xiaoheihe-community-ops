@@ -11,7 +11,8 @@ from pathlib import Path
 from xhh_sdk.exceptions import XhhConfigError
 from xhh_sdk.interaction import _validate_text
 from xhh_sdk.payload import Post
-from interaction_history import database, bind_context, fingerprint, project_receipts, receipt_metadata, request_fingerprint
+from interaction_history import (database, bind_context, fingerprint, project_receipts, receipt_metadata,
+                                 request_fingerprint, bind_message_context, read_message_context)
 
 
 class OperationError(RuntimeError):
@@ -47,11 +48,15 @@ class Journal:
         with database(self.path) as connection:
             row = connection.execute("SELECT * FROM operations WHERE uid=? AND operation_id=?",
                                      (uid, operation_id)).fetchone()
+            context = read_message_context(connection, uid, operation_id)
         if row is None:
             return None
-        return {"operation_id": row["operation_id"], "kind": row["kind"], "status": row["status"],
-                "receipt": receipt_metadata(row["kind"], json.loads(row["receipt"])) if row["receipt"] else None,
-                "updated_at": row["updated_at"]}
+        result = {"operation_id": row["operation_id"], "kind": row["kind"], "status": row["status"],
+                  "receipt": receipt_metadata(row["kind"], json.loads(row["receipt"])) if row["receipt"] else None,
+                  "updated_at": row["updated_at"]}
+        if context:
+            result["context"] = context
+        return result
 
     def execute(self, uid: str, operation_id: str, kind: str, payload: dict, send, *, identity_verified=False, context=None):
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", operation_id or ""):
@@ -67,6 +72,7 @@ class Journal:
                 if row["fingerprint"] != request_hash:
                     raise OperationError("operation_id_conflict", operation=self.read(uid, operation_id))
                 bind_context(connection, uid, operation_id, kind, payload, identity_verified=identity_verified, context=context)
+                bind_message_context(connection, uid, operation_id, context)
                 if row["status"] == "returned":
                     replay = {"operation_id": operation_id, "replayed": True,
                               "status": "returned", "receipt": receipt_metadata(kind, json.loads(row["receipt"]))}
@@ -76,6 +82,7 @@ class Journal:
                 connection.execute("INSERT INTO operations VALUES (?, ?, ?, ?, 'reserved', NULL, ?)",
                                    (uid, operation_id, request_hash, kind, time.time()))
                 bind_context(connection, uid, operation_id, kind, payload, identity_verified=identity_verified, context=context)
+                bind_message_context(connection, uid, operation_id, context)
         if replay is not None:
             return {**replay, **self.project(uid)}
         if closed is not None:
@@ -233,9 +240,12 @@ def prepare_write(client, kind: str, args, *, before_post=None):
             cid = client._created_comment_id(result)
             if not cid:
                 raise OperationError("missing_comment_receipt")
-            return {"comment_id": numeric_id(cid), "link_id": args.link_id,
-                    "root_id": getattr(args, "root_id", None), "reply_id": getattr(args, "reply_id", None),
-                    "visibility": "not_checked"}
+            receipt = {"comment_id": numeric_id(cid), "link_id": args.link_id,
+                       "root_id": getattr(args, "root_id", None), "reply_id": getattr(args, "reply_id", None),
+                       "visibility": "not_checked"}
+            if url:
+                receipt["image_url"] = url
+            return receipt
         return payload, send
     if kind == "like":
         client.post_state(args.link_id)
