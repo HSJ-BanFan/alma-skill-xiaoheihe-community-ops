@@ -1,4 +1,3 @@
-"""Official native emoji catalog: lookup, keyword search, markup and Creator source parsing."""
 from __future__ import annotations
 
 import copy

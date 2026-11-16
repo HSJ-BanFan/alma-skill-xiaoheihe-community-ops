@@ -1,4 +1,3 @@
-"""Verify metadata retention through real read-only requests and isolated state."""
 from __future__ import annotations
 
 import argparse

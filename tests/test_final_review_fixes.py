@@ -1,5 +1,4 @@
 import base64
-import io
 import json
 import sys
 import subprocess
@@ -70,7 +69,8 @@ class FinalReviewFixTests(unittest.TestCase):
                 users = [1, 2] if query["offset"] == "0" else [2, 3]
                 return {"result": {"items": [{"userid": uid, "username": "name"} for uid in users], "has_more": query["offset"] == "0"}}
         data, scope = Browser(Fixture()).execute(xhh.parser().parse_args(["search", "name", "--type", "user", "--pages", "2"]))
-        self.assertEqual([item["userid"] for item in data["items"]], [1, 2, 3])
+        self.assertEqual([item["uid"] for item in data["items"]],
+                         ["1", "2", "3"])
         self.assertEqual(scope["duplicates_removed"], 1)
         self.assertEqual(difference({"items": [{"userid": 1, "username": "old"}]}, {"items": [{"userid": 1, "username": "new"}]})["changed"], ["1"])
         with tempfile.TemporaryDirectory() as temporary:

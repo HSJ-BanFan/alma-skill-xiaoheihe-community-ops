@@ -24,7 +24,6 @@ from operations import Journal, OperationError
 from paging import decode_resume, encode_resume
 from test_interaction_cli import InteractionFixture
 from test_tools import Response
-from xhh_sdk.exceptions import XhhConfigError
 
 
 CONTENT_KEYS = {"text", "raw_text", "media", "raw", "raw_json", "payload_json", "submitted_request", "request_context",

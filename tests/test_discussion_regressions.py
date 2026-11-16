@@ -29,6 +29,12 @@ class DiscussionFixture(test_tools.PlatformFixture):
         self.show_created = True
         self.sub_pages = None
         self.root_page = None
+        self.follow_users = [{
+            "userid": "404",
+            "username": "fixture relation",
+        }]
+        self.follow_total = None
+        self.follow_has_more = None
 
     def __call__(self, request, timeout=None):
         data = json.loads(super().__call__(request, timeout).read())
@@ -83,9 +89,38 @@ class DiscussionFixture(test_tools.PlatformFixture):
                 "text": payload["text"][0],
             }
         elif path == "/bbs/app/profile/user/link/list":
-            data["result"] = {"user": {"id": "303", "username": "fixture author"}, "links": []}
+            data.pop("result", None)
+            data.update({
+                "post_links": [],
+                "total_page": 1,
+                "user": {
+                    "userid": "303",
+                    "username": "fixture author",
+                    "follow_status": 1,
+                },
+            })
         elif path in ("/bbs/app/profile/follower/list", "/bbs/app/profile/following/list"):
-            data["result"] = {"users": [{"id": "404", "username": "fixture relation"}], "has_more": False}
+            data.pop("result", None)
+            total = len(self.follow_users) if self.follow_total is None else self.follow_total
+            data.update({
+                "follow_cnt": {
+                    "fan_num": total,
+                    "follow_num": total,
+                    "inter_follow_num": len(self.follow_users),
+                },
+                "follow_list": [dict(row) for row in self.follow_users],
+                "summary_url": "https://www.xiaoheihe.cn/fixture/relations",
+            })
+            if self.follow_has_more is not None:
+                data["has_more"] = self.follow_has_more
+        elif path == "/bbs/app/profile/relations":
+            data["result"] = {
+                "count": 1,
+                "users": [{
+                    "userid": "505",
+                    "username": "fixture related user",
+                }],
+            }
         return test_tools.Response(data)
 
 
@@ -196,12 +231,70 @@ class DiscussionRegressionTests(unittest.TestCase):
     def test_public_user_profile_accepts_its_user_id_field(self):
         value = self.assert_success(self.run_cli("user", "303"))
         self.assertEqual((value["data"]["uid"], value["data"]["name"]), ("303", "fixture author"))
+        self.assertEqual(value["data"]["relationship"], {
+            "current_user_follows_target": None,
+            "target_follows_current": None,
+            "mutual": None,
+            "evidence": "profile.user.follow_status",
+        })
 
     def test_public_user_relations_accept_their_user_id_fields(self):
         for view in ("followers", "following"):
             with self.subTest(view=view):
                 value = self.assert_success(self.run_cli("user", "303", "--view", view))
                 self.assertEqual(value["data"]["items"][0]["uid"], "404")
+
+    def test_relation_collection_preserves_platform_users_and_count(self):
+        value = self.assert_success(
+            self.run_cli("user", "303", "--view", "relations")
+        )
+        self.assertEqual(value["data"]["count"], 1)
+        self.assertEqual(value["data"]["items"][0]["uid"], "505")
+
+    def test_following_item_budget_keeps_same_page_resume(self):
+        self.fixture.follow_users = [
+            {"userid": "601", "username": "first"},
+            {"userid": "602", "username": "second"},
+            {"userid": "603", "username": "third"},
+        ]
+        value = self.assert_success(
+            self.run_cli(
+                "user", "303", "--view", "following",
+                "--pages", "1", "--limit", "1",
+            )
+        )
+        self.assertEqual([item["uid"] for item in value["data"]["items"]], ["601"])
+        self.assertEqual(value["coverage"]["status"], "partial")
+        self.assertEqual(value["coverage"]["stop_reason"], "item_budget")
+        self.assertIsNotNone(value["coverage"]["resume"])
+
+    def test_followers_preserve_explicit_has_more_evidence(self):
+        self.fixture.follow_users = [
+            {"userid": "601", "username": "first"},
+            {"userid": "602", "username": "second"},
+        ]
+        self.fixture.follow_has_more = True
+        value = self.assert_success(
+            self.run_cli(
+                "user", "303", "--view", "followers",
+                "--pages", "1", "--limit", "10",
+            )
+        )
+        self.assertEqual(value["coverage"]["status"], "partial")
+        self.assertEqual(value["coverage"]["stop_reason"], "page_budget")
+        self.assertIsNotNone(value["coverage"]["resume"])
+
+        self.fixture.follow_users = [{"userid": "601", "username": "first"}]
+        self.fixture.follow_total = 3
+        self.fixture.follow_has_more = False
+        value = self.assert_success(
+            self.run_cli(
+                "user", "303", "--view", "followers",
+                "--pages", "1", "--limit", "10",
+            )
+        )
+        self.assertEqual(value["coverage"]["status"], "complete")
+        self.assertIsNone(value["coverage"]["resume"])
 
     def test_inline_reply_location_matches_the_observed_root_page(self):
         self.fixture.root_page = 3
@@ -253,8 +346,6 @@ class DiscussionRegressionTests(unittest.TestCase):
 
     def test_read_reply_and_readback_loop_reuses_message_operation_id(self):
         self.fixture.article = True
-        post = self.assert_success(self.run_cli("post", "501", "--reader", "native"))
-        self.assertEqual(post["data"]["body"]["status"], "missing")
         post = self.assert_success(self.run_cli("post", "501", "--reader", "website"))
         self.assertEqual(post["data"]["body"]["status"], "available")
         self.assertIn("fixture article body", post["data"]["body"]["text"])
@@ -283,15 +374,22 @@ class DiscussionRegressionTests(unittest.TestCase):
         self.assertEqual(len(post["data"]["media"]), 1)
         self.assertEqual(len(self.fixture.calls), 1)
 
-    def test_explicit_native_reader_keeps_native_identity_without_retry(self):
+    def test_explicit_native_without_app_session_never_uses_web_session(self):
         self.fixture.article = True
-        post = self.assert_success(self.run_cli("post", "501", "--reader", "native"))
-        self.assertEqual(post["data"]["body"]["status"], "missing")
-        self.assertEqual(len(self.fixture.calls), 1)
+        code, value = self.run_cli("post", "501", "--reader", "native")
+        self.assertEqual(code, 1)
+        self.assertEqual(value["error"]["code"], "app_session_missing")
+        self.assertEqual(self.fixture.calls, [])
 
     def test_app_default_reader_uses_the_native_session(self):
         calls = []
-        config = SimpleNamespace(protocol_mode="app", heybox_id="101", timeout=5)
+        config = SimpleNamespace(
+            protocol_mode="app",
+            heybox_id="101",
+            timeout=5,
+            web_origin="https://www.xiaoheihe.cn",
+            user_agent_web="fixture",
+        )
         def native(route, query=None):
             calls.append((route, query))
             return {"status": "ok", "result": {"link": {"id": "501", "text": "native body"},

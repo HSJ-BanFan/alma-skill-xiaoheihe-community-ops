@@ -1,4 +1,3 @@
-"""Agent-facing commands and schemas derived from their argparse definitions."""
 from __future__ import annotations
 
 import argparse
@@ -298,7 +297,7 @@ def command_definitions():
         schema = {"type": "object", "properties": fields, "required": list(dict.fromkeys(required)), "additionalProperties": False}
         if path == ("compose",):
             fields["protocol"].update(default="web", description="Local preparation defaults to web; send uses the same explicit protocol.")
-        groups = [group for group in parser._mutually_exclusive_groups]
+        groups = list(parser._mutually_exclusive_groups)
         if auth:
             groups = [*root._mutually_exclusive_groups, *groups]
         constraints = []

@@ -2,7 +2,6 @@ import contextlib
 import ctypes as C
 import io
 import json
-import os
 import sys
 import tempfile
 import unittest
@@ -49,6 +48,29 @@ class CacheRecoveryTests(unittest.TestCase):
                 store.save("101", "data", "query", {"id": "3"}, {}, [], expected_revision=first)
             self.assertEqual(store.get("101", "data")["data"]["id"], "2")
             self.assertEqual(store.get("101", "data")["revision"], second)
+
+    def test_pending_projection_rejects_a_stale_snapshot_writer(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            store = Store(Path(temporary))
+            first = store.save(
+                "101", "read", "query", {"items": []}, {},
+                [], pending_response={"ok": True},
+            )
+            projected = store.delivered(
+                "101", "read", first,
+                coverage={"status": "blocked", "resume": None},
+            )
+
+            self.assertEqual(projected, first + 1)
+            saved = store.get("101", "read")
+            self.assertEqual(saved["coverage"]["status"], "blocked")
+            self.assertIsNone(saved["coverage"]["resume"])
+            self.assertIsNone(saved["pending_response"])
+            with self.assertRaises(SnapshotConflict):
+                store.save(
+                    "101", "read", "query", {"items": [{"id": "stale"}]},
+                    {}, [], expected_revision=first,
+                )
 
     def test_saved_response_is_replayed_after_stdout_failure(self):
         with tempfile.TemporaryDirectory() as temporary:

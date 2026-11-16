@@ -28,7 +28,10 @@ _CHILD_ENV_KEYS = {
 
 def _normalize_digest(value: str) -> str:
     if not isinstance(value, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", value):
-        raise XhhSignerError("signer SHA-256 must contain exactly 64 hexadecimal characters")
+        raise XhhSignerError(
+            "signer SHA-256 must contain exactly 64 hexadecimal characters",
+            code="signer_invalid",
+        )
     return value.lower()
 
 
@@ -63,7 +66,10 @@ def _require_file(path: Path) -> None:
     if not path.is_file():
         raise XhhSignerError(
             f"signer jar not found: {path}; set XHH_SIGNER_JAR "
-            "or signer_jar in your config to a trusted local JAR")
+            "or signer_jar in your config to a trusted local JAR",
+            code="signer_missing",
+            fix="install or configure a readable App signer JAR",
+        )
 
 
 def _verify_file(path: Path, expected: str | None = None) -> str:
@@ -74,7 +80,10 @@ def _verify_file(path: Path, expected: str | None = None) -> str:
             digest.update(block)
     actual = digest.hexdigest()
     if expected is not None and actual != expected:
-        raise XhhSignerError("signer SHA-256 mismatch; refusing to use JAR")
+        raise XhhSignerError(
+            "signer SHA-256 mismatch; refusing to use JAR",
+            code="signer_invalid",
+        )
     return actual
 
 
@@ -213,7 +222,10 @@ class Signer:
                 if self.reference.startswith("managed:"):
                     _verify_file(self.jar, self.sha256)
         except (OSError, ValueError, TypeError, RuntimeError) as exc:
-            raise XhhSignerError("invalid signer path; set XHH_SIGNER_JAR to a readable JAR file") from exc
+            raise XhhSignerError(
+                "invalid signer path; set XHH_SIGNER_JAR to a readable JAR file",
+                code="signer_invalid",
+            ) from exc
         self.identity = str(identity).strip()
         self.imei = str(imei).strip()
         self.device_info = str(device_info).strip()
@@ -234,7 +246,10 @@ class Signer:
         if java_path is None:
             raise XhhSignerError(
                 f"java executable not found ({java!r}); install a JRE 17+ "
-                "or pass java=<path>")
+                "or pass java=<path>",
+                code="signer_java_missing",
+                fix="install Java 17+ or configure the account's java path",
+            )
         self.java = str(Path(java_path).resolve())
 
     def sign(self, path: str, timestamp: int | None = None) -> dict[str, str]:
@@ -270,14 +285,26 @@ class Signer:
                     creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
                 )
         except subprocess.TimeoutExpired as exc:
-            raise XhhSignerError("signer timed out") from exc
+            raise XhhSignerError(
+                "signer timed out",
+                code="signer_execution_failed",
+            ) from exc
         except OSError as exc:
-            raise XhhSignerError(f"signer failed to start: {exc}") from exc
+            raise XhhSignerError(
+                f"signer failed to start: {exc}",
+                code="signer_execution_failed",
+            ) from exc
         if proc.returncode != 0:
-            raise XhhSignerError(f"signer exited {proc.returncode}")
+            raise XhhSignerError(
+                f"signer exited {proc.returncode}",
+                code="signer_execution_failed",
+            )
         matches = re.findall(r"(?m)^\s*(\{[^\r\n]*\})\s*$", proc.stdout)
         if not matches:
-            raise XhhSignerError("signer produced no JSON line")
+            raise XhhSignerError(
+                "signer produced no JSON line",
+                code="signer_execution_failed",
+            )
         try:
             out = json.loads(matches[-1])
         except ValueError as exc:

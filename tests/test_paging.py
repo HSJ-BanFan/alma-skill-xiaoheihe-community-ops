@@ -5,9 +5,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import xhh
 from browser import Browser
-from paging import encode_resume
 from xhh_sdk.config import XhhConfig
-from xhh_sdk.exceptions import XhhAPIError, XhhConfigError
+from xhh_sdk.exceptions import XhhAPIError, XhhConfigError, XhhTransportError
 
 
 class PagedFixture:
@@ -71,6 +70,48 @@ class PagingTests(unittest.TestCase):
         self.assertEqual(len(data["items"]), 2)
         self.assertEqual(scope["stop_reason"], "platform_error")
         self.assertEqual(scope["error"]["status"], "show_captcha")
+        self.assertEqual(scope["status"], "blocked")
+        self.assertIsNone(scope["resume"])
+
+    def test_retryable_error_after_data_keeps_safe_resume(self):
+        class RetryableFixture(PagedFixture):
+            def signed_request(self, path, query=None):
+                if int(query.get("page", 1)) == 2:
+                    self.calls.append((path, query))
+                    raise XhhTransportError("temporary network failure")
+                return super().signed_request(path, query)
+
+        client = RetryableFixture()
+        data, scope = Browser(client).execute(
+            xhh.parser().parse_args([
+                "comments", "123", "--pages", "3",
+            ]))
+        self.assertEqual(len(data["items"]), 2)
+        self.assertEqual(scope["status"], "retryable_failure")
+        self.assertIsNotNone(scope["resume"])
+
+    def test_non_retryable_error_after_data_stops_without_resume(self):
+        class BrokenShapeFixture(PagedFixture):
+            def signed_request(self, path, query=None):
+                if int(query.get("page", 1)) == 2:
+                    self.calls.append((path, query))
+                    raise XhhConfigError(
+                        "unexpected comment payload",
+                        code="platform_shape_invalid",
+                    )
+                return super().signed_request(path, query)
+
+        client = BrokenShapeFixture()
+        data, scope = Browser(client).execute(
+            xhh.parser().parse_args([
+                "comments", "123", "--pages", "3",
+            ]))
+
+        self.assertEqual(len(data["items"]), 2)
+        self.assertEqual(scope["status"], "blocked")
+        self.assertEqual(scope["error"]["code"], "platform_shape_invalid")
+        self.assertFalse(scope["error"]["retry_allowed"])
+        self.assertIsNone(scope["resume"])
 
     def test_thread_resolves_ancestors_from_subpage(self):
         client = PagedFixture()

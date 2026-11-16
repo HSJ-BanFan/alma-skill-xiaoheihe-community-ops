@@ -5,9 +5,6 @@ Three transports, matching the verified contract:
 * `signed_request` selects App or Web signing from the configured protocol.
 * `web_request` uses Creator signing for Web sessions and cookie-only App uploads.
 * `put_cos` — Tencent COS V5 signed PUT of the raw bytes.
-
-Error mapping is centralized: 发帖频率过快 -> XhhRateLimitError, login
-required -> XhhAuthError, everything else non-ok -> XhhAPIError.
 """
 from __future__ import annotations
 
@@ -15,19 +12,22 @@ import hashlib
 import hmac
 import http.client
 import json
+import math
 import re
 import socket
-import ssl
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import timezone
+from email.utils import parsedate_to_datetime
 
 from .config import XhhConfig
 from .exceptions import (
     SDKDiagnostic,
     XhhAPIError,
     XhhAuthError,
+    XhhCaptchaError,
     XhhConfigError,
     XhhRateLimitError,
     XhhTransportError,
@@ -42,6 +42,22 @@ _WEB_PROTECTED_QUERY = _SESSION_FIELDS | frozenset({
     "_time", "nonce", "hkey", "_rnd", "version", "os_type", "x_os_type",
     "app", "x_app", "x_client_type", "x_client_version", "channel", "imei", "device_info",
 })
+
+
+def _retry_after_seconds(headers) -> int | None:
+    raw = headers.get("Retry-After") if headers is not None else None
+    if raw is None:
+        return None
+    value = str(raw).strip()
+    if value.isdigit():
+        return int(value)
+    try:
+        deadline = parsedate_to_datetime(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if deadline.tzinfo is None:
+        deadline = deadline.replace(tzinfo=timezone.utc)
+    return max(0, math.ceil(deadline.timestamp() - time.time()))
 
 
 def _hmac_sha1(key: bytes, message: bytes) -> bytes:
@@ -115,10 +131,20 @@ class Transport:
             with urllib.request.urlopen(request, timeout=self.config.timeout) as r:
                 return r.read(4 * 1024 * 1024 + 1)
         except urllib.error.HTTPError as exc:
+            if exc.code == 429:
+                raise XhhRateLimitError(
+                    "platform throttled the request",
+                    code="rate_limited",
+                    retry_after_seconds=_retry_after_seconds(exc.headers),
+                ) from exc
             if exc.code in (401, 403):
                 raise XhhAuthError(
                     "platform rejected the session (login required or expired)") from exc
-            raise XhhAPIError(f"HTTP {exc.code}", status=f"HTTP_{exc.code}") from exc
+            raise XhhAPIError(
+                f"HTTP {exc.code}",
+                status=f"HTTP_{exc.code}",
+                retry_allowed=exc.code >= 500 or exc.code == 408,
+            ) from exc
         except (urllib.error.URLError, http.client.HTTPException, TimeoutError,
                 socket.timeout, ConnectionError, OSError) as exc:
             raise XhhTransportError(f"request failed: {exc}") from exc
@@ -140,12 +166,30 @@ class Transport:
         msg = str(data.get("msg") or "")
         if status in ("ok", "success"):
             return
+        normalized_status = str(status).casefold()
+        if normalized_status in {"show_captcha", "captcha", "verify_captcha"}:
+            raise XhhCaptchaError(
+                "platform requires interactive captcha verification",
+                code="captcha_required",
+            )
+        if normalized_status in {"http_429", "429"}:
+            raise XhhRateLimitError(
+                "platform throttled the request",
+                code="rate_limited",
+            )
         if status in ("login", "relogin"):
-            raise XhhAuthError("platform says: login required (请登录后使用该功能)")
+            raise XhhAuthError(
+                "platform says: login required (请登录后使用该功能)",
+                code="session_expired",
+            )
         if _RATE_LIMIT_MARK in msg:
-            raise XhhRateLimitError(f"platform throttled the action: {msg}")
+            raise XhhRateLimitError(
+                f"platform throttled the action: {msg}",
+                code="rate_limited",
+            )
         raise XhhAPIError(f"platform returned status={status!r} msg={msg!r}",
-                          status=str(status or ""))
+                          status=str(status or ""),
+                          retry_allowed=False)
 
     @classmethod
     def _checked_response(cls, path: str, data: dict) -> dict:

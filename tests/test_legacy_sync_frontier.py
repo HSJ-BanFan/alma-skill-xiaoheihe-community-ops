@@ -12,6 +12,7 @@ sys.path[:0] = [str(ROOT / "scripts"), str(Path(__file__).resolve().parent)]
 
 from interaction_history import InteractionHistory, Scope
 from paging import decode_resume, encode_resume
+from xhh_sdk.exceptions import XhhAPIError
 import test_interaction_cli as interaction_tests
 from test_tools import Response
 
@@ -50,6 +51,22 @@ class PaginatedKnownFixture(interaction_tests.InteractionFixture):
             else:
                 value = {"status": "show_captcha"}
         return Response(value)
+
+
+class RetryableKnownFixture(interaction_tests.InteractionFixture):
+    def __init__(self):
+        super().__init__()
+        self.fail_once = True
+
+    def __call__(self, request, timeout=None):
+        if urlsplit(request.full_url).path == "/bbs/app/comment/sub/comments" and self.fail_once:
+            self.fail_once = False
+            raise XhhAPIError(
+                "HTTP 503",
+                status="HTTP_503",
+                retry_allowed=True,
+            )
+        return super().__call__(request, timeout)
 
 
 class LegacySyncFrontierTest(unittest.TestCase):
@@ -156,9 +173,36 @@ class LegacySyncFrontierTest(unittest.TestCase):
         self.assertEqual(continuation["known_roots"], ["601"])
         self.assertEqual(continuation["known_done"], [])
         self.assertEqual(result["coverage"]["pages_read"], 1)
+        self.assertIsNone(result["coverage"]["resume"])
         item = next(row for row in self.store().history(Scope("101", "501"))["items"] if row["id"] == "602")
         self.assertEqual(item["author"]["uid"], "202")
         self.assertNotIn("text", item)
+        self.assertEqual(self.sends(), [])
+
+    def test_retryable_known_reply_failure_returns_a_safe_resume(self):
+        self.seed_references(["601"])
+        self.fixture = RetryableKnownFixture()
+        code, first = self.run_cli(
+            "interaction", "sync", "501",
+            "--requests", "2", "--pages", "2",
+        )
+        self.assertEqual(code, 1)
+        self.assertTrue(first["coverage"]["error"]["retry_allowed"])
+        self.assertIsNotNone(first["coverage"]["resume"])
+        self.assertEqual(
+            first["coverage"]["continuation"]["phase"],
+            "known_replies",
+        )
+        self.assertEqual(
+            first["coverage"]["continuation"]["known_roots"],
+            ["601"],
+        )
+        code, second = self.run_cli(
+            "interaction", "sync", "501",
+            "--resume", first["coverage"]["resume"],
+        )
+        self.assertEqual(code, 0)
+        self.assertTrue(second["coverage"]["scan_finished"])
         self.assertEqual(self.sends(), [])
 
     def test_resume_rejects_forged_completed_and_queued_known_roots_before_http(self):
@@ -181,7 +225,7 @@ class LegacySyncFrontierTest(unittest.TestCase):
             before = len(self.fixture.calls)
             code, value = self.run_cli("interaction", "sync", "501", "--resume", forged)
             self.assertEqual(code, 1)
-            self.assertEqual(value["error"]["code"], "XhhConfigError")
+            self.assertEqual(value["error"]["code"], "configuration_error")
             self.assertEqual(len(self.fixture.calls), before)
 
     def test_legacy_token_without_frontier_fields_still_resumes(self):
@@ -207,7 +251,7 @@ class LegacySyncFrontierTest(unittest.TestCase):
         token = encode_resume("interaction-sync", "101", {"binding": self.binding(), "state": state})
         code, value = self.run_cli("interaction", "sync", "501", "--resume", token)
         self.assertEqual(code, 1)
-        self.assertEqual(value["error"]["code"], "XhhConfigError")
+        self.assertEqual(value["error"]["code"], "configuration_error")
         self.assertEqual(self.fixture.calls, [])
 
 

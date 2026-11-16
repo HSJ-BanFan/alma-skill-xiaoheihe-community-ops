@@ -1,4 +1,3 @@
-"""Local-user permissions for browsing observations."""
 import ctypes as C
 import os
 import sys

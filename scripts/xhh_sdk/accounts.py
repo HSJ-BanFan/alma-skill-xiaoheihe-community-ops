@@ -17,10 +17,15 @@ import tempfile
 import uuid
 
 from .config import XhhConfig
-from .exceptions import XhhConfigError
+from .exceptions import (
+    XhhConfigError,
+    XhhIdentityUnboundError,
+    XhhSessionMissingError,
+)
 
 _CONFIG_KEYS = {"java", "signer_jar", "signer_bundle", "imei", "device_info",
                 "app_version", "os_version", "timeout", "protocol_mode"}
+_PROTOCOLS = frozenset({"app", "web"})
 _RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"{p}{i}" for p in ("COM", "LPT") for i in range(1, 10))}
 
 
@@ -28,10 +33,75 @@ _RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"{p}{i}" for p in ("COM", "LPT") for
 class ManagedAccount:
     alias: str
     identity: str
-    pkey: str | None = field(repr=False)
     config: dict
     revision: str
+    sessions: dict[str, str] = field(default_factory=dict, repr=False)
     risk_token: str | None = field(default=None, repr=False)
+
+    def select_session(self, protocol: str | None = None) -> "SessionSelection":
+        if protocol is not None:
+            if protocol not in _PROTOCOLS:
+                raise XhhConfigError("protocol must be app or web")
+            if protocol not in self.sessions:
+                raise _missing_session(self, protocol)
+            return SessionSelection(
+                protocol=protocol,
+                explicit=True,
+                preferred=self.config.get("protocol_mode"),
+                fallback=False,
+            )
+
+        preferred = self.config.get("protocol_mode")
+        if preferred in self.sessions:
+            return SessionSelection(
+                protocol=preferred,
+                explicit=False,
+                preferred=preferred,
+                fallback=False,
+            )
+        for candidate in ("app", "web"):
+            if candidate in self.sessions:
+                return SessionSelection(
+                    protocol=candidate,
+                    explicit=False,
+                    preferred=preferred,
+                    fallback=preferred in _PROTOCOLS,
+                )
+        raise XhhSessionMissingError(
+            "Account has no stored App or Web session",
+            code="session_missing",
+            fix=(
+                f"run account login {self.alias} --method sms for App, or "
+                f"run account login {self.alias} --method creator for Web"
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class SessionSelection:
+    protocol: str
+    explicit: bool
+    preferred: str | None
+    fallback: bool
+
+    def public(self) -> dict:
+        return {
+            "protocol": self.protocol,
+            "explicit": self.explicit,
+            "preferred": self.preferred,
+            "fallback": self.fallback,
+        }
+
+
+def _missing_session(account, protocol):
+    return XhhSessionMissingError(
+        f"Account has no stored {protocol} session",
+        code=f"{protocol}_session_missing",
+        fix=(
+            f"run account login {account.alias} --method "
+            + ("sms" if protocol == "app" else "creator")
+        ),
+    )
 
 
 class _Blob(C.Structure):
@@ -98,13 +168,25 @@ def _identity(value, *, optional=False):
     if optional and value in (None, ""):
         return ""
     if not isinstance(value, str) or not re.fullmatch(r"[0-9]{1,32}", value):
-        raise XhhConfigError("Account identity must be numeric")
+        raise XhhIdentityUnboundError("Account identity must be numeric")
     return value
 
 
 def _cookie(value):
     if not isinstance(value, str) or not value.strip() or any(ord(c) < 33 or ord(c) > 126 or c == ";" for c in value):
         raise XhhConfigError("Invalid account session cookie")
+
+
+def _sessions(value):
+    if not isinstance(value, dict) or value.keys() - _PROTOCOLS:
+        raise XhhConfigError("Invalid account sessions")
+    sessions = {}
+    for protocol, cookie in value.items():
+        if cookie is None:
+            continue
+        _cookie(cookie)
+        sessions[protocol] = cookie
+    return sessions
 
 
 def _config(values):
@@ -136,8 +218,13 @@ def _object(pairs):
 def _public(account, **extra):
     identity = account.identity
     masked = identity[:2] + "*" * (len(identity) - 4) + identity[-2:] if len(identity) > 4 else "*" * len(identity)
+    sessions = {protocol: {"present": protocol in account.sessions,
+                           "state": "stored" if protocol in account.sessions else "missing"}
+                for protocol in ("app", "web")}
     return {"alias": account.alias, "identity_masked": masked,
-            "authenticated": bool(account.pkey), "state": "logged_in" if account.pkey else "needs_login",
+            "authenticated": bool(account.sessions),
+            "state": "logged_in" if account.sessions else "needs_login",
+            "sessions": sessions,
             "storage": "windows-dpapi", "protocol_mode": account.config.get("protocol_mode", "app"),
             **extra}
 
@@ -181,7 +268,11 @@ class AccountStore:
             return {}
         try:
             document = json.loads(path.read_bytes(), object_pairs_hook=_object)
-            if not isinstance(document, dict) or set(document) != {"schema_version", "accounts"} or type(document["schema_version"]) is not int or document["schema_version"] != 1 or not isinstance(document["accounts"], dict):
+            if (not isinstance(document, dict)
+                    or set(document) != {"schema_version", "accounts"}
+                    or type(document["schema_version"]) is not int
+                    or document["schema_version"] not in (1, 2)
+                    or not isinstance(document["accounts"], dict)):
                 raise ValueError()
             accounts = {}
             for key, sealed in document["accounts"].items():
@@ -189,23 +280,39 @@ class AccountStore:
                     raise ValueError()
                 raw = _dpapi(base64.b64decode(sealed["value"], validate=True), decrypt=True)
                 value = json.loads(raw, object_pairs_hook=_object)
-                account = ManagedAccount(**value)
+                if not isinstance(value, dict):
+                    raise ValueError()
+                required = {"alias", "identity", "config", "revision"}
+                if not required <= set(value):
+                    raise ValueError()
+                if "sessions" in value:
+                    sessions = _sessions(value["sessions"])
+                elif "pkey" in value:
+                    mode = (value.get("config") or {}).get("protocol_mode", "app")
+                    sessions = _sessions({mode: value["pkey"]}) if value["pkey"] is not None else {}
+                else:
+                    raise ValueError()
+                account = ManagedAccount(
+                    alias=value["alias"], identity=value["identity"],
+                    config=value["config"], revision=value["revision"],
+                    sessions=sessions, risk_token=value.get("risk_token"),
+                )
                 if key != _alias(account.alias) or not isinstance(account.identity, str) or not re.fullmatch(r"[0-9a-f]{32}", account.revision):
                     raise ValueError()
-                _identity(account.identity, optional=account.pkey is None)
+                _identity(account.identity, optional=not account.sessions)
                 _config(account.config)
-                if account.pkey is not None:
-                    _cookie(account.pkey)
                 accounts[key] = account
             return accounts
+        except XhhIdentityUnboundError:
+            raise
         except (XhhConfigError, OSError, ValueError, TypeError, KeyError):
             raise XhhConfigError("Account store is corrupt or unreadable; it was not reset") from None
 
     def _write(self, accounts):
-        document = {"schema_version": 1, "accounts": {key: {
+        document = {"schema_version": 2, "accounts": {key: {
             "protection": "windows-dpapi", "value": base64.b64encode(_dpapi(json.dumps({
-                "alias": item.alias, "identity": item.identity, "pkey": item.pkey,
-                "config": item.config, "revision": item.revision,
+                "alias": item.alias, "identity": item.identity,
+                "sessions": item.sessions, "config": item.config, "revision": item.revision,
                 "risk_token": item.risk_token}).encode())).decode()}
             for key, item in accounts.items()}}
         self.root.mkdir(parents=True, exist_ok=True)
@@ -233,7 +340,8 @@ class AccountStore:
             accounts = self._read()
             if key in accounts:
                 raise XhhConfigError("Account alias already exists")
-            account = ManagedAccount(alias, identity, None, {}, uuid.uuid4().hex)
+            account = ManagedAccount(alias=alias, identity=identity, config={},
+                                     revision=uuid.uuid4().hex)
             accounts[key] = account
             self._write(accounts)
             return _public(account, changed=True)
@@ -265,18 +373,25 @@ class AccountStore:
                    protocol_mode: str = "app") -> dict:
         _cookie(pkey)
         identity = _identity(identity)
-        mode = _config({"protocol_mode": protocol_mode})
+        if protocol_mode not in _PROTOCOLS:
+            raise XhhConfigError("protocol_mode must be app or web")
         def update(account):
             if account.revision != expected_revision:
                 raise XhhConfigError("Account changed during login; start login again")
             if account.identity and account.identity != identity:
                 raise XhhConfigError("Login identity does not match the bound account")
-            account.identity, account.pkey = identity, pkey
-            account.config.update(mode)
+            account.identity = identity
+            account.sessions[protocol_mode] = pkey
         return self._change(alias, update)
 
-    def logout(self, alias: str) -> dict:
-        return self._change(alias, lambda account: setattr(account, "pkey", None))
+    def logout(self, alias: str, *, protocol: str | None = None) -> dict:
+        def update(account):
+            selected = account.select_session(protocol).protocol
+            account.sessions.pop(selected, None)
+        return self._change(alias, update)
+
+    def logout_all(self, alias: str) -> dict:
+        return self._change(alias, lambda account: account.sessions.clear())
 
     def set_risk_token(self, alias: str, token: str) -> dict:
         """Store the device anti-fraud token (sent as the x_xhh_tokenid cookie)."""
@@ -293,13 +408,21 @@ class AccountStore:
             self._write(accounts)
             return {"alias": account.alias, "changed": True, "removed": True}
 
-    def get_config(self, alias: str) -> XhhConfig:
+    def get_config(self, alias: str, *, protocol: str | None = None) -> XhhConfig:
         account = self.get(alias)
-        if not account.pkey:
-            raise XhhConfigError("Account is not logged in; run account login")
+        selection = account.select_session(protocol)
+        selected = selection.protocol
+        pkey = account.sessions[selected]
+        if not pkey:
+            raise _missing_session(account, selected)
+        _identity(account.identity)
         try:
-            config = XhhConfig(pkey=account.pkey, heybox_id=account.identity, **account.config)
+            config = XhhConfig(pkey=pkey, heybox_id=account.identity,
+                               **{**account.config, "protocol_mode": selected},
+                               extra={"session_revision": account.revision})
             config.validate()
             return config
+        except XhhIdentityUnboundError:
+            raise
         except (XhhConfigError, TypeError, ValueError):
             raise XhhConfigError("Invalid managed account configuration") from None

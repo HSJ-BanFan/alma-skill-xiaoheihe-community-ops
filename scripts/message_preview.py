@@ -1,4 +1,3 @@
-"""Self-contained HTML previews using the official native sprite geometry."""
 from __future__ import annotations
 
 import base64

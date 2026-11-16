@@ -1,4 +1,3 @@
-"""Account-scoped public browsing snapshots and conservative differences."""
 from __future__ import annotations
 
 import hashlib
@@ -24,7 +23,9 @@ class SnapshotConflict(XhhConfigError):
 def stable(value):
     if isinstance(value, dict):
         return {key: stable(item) for key, item in value.items()
-                if key not in {"source", "raw", "raw_pages", "observed_at", "budget", "content_sha256", "interaction"}}
+                if key not in {"source", "raw", "raw_pages", "raw_responses",
+                               "observed_at", "budget", "content_sha256",
+                               "interaction"}}
     if isinstance(value, list):
         return [stable(item) for item in value]
     return value
@@ -138,9 +139,64 @@ class Store:
             exists = connection.execute("SELECT 1 FROM snapshots WHERE uid=? AND name=?", (uid, name)).fetchone()
         return self.get(uid, name) if exists else None
 
-    def delivered(self, uid, name, revision):
+    def pending_by_name(self, name):
+        if not isinstance(name, str) or not re.fullmatch(
+                r"[A-Za-z0-9_-]{1,64}", name):
+            raise XhhConfigError(
+                "snapshot name must use 1-64 letters, digits, underscores or hyphens")
+        if not self.path.exists():
+            raise XhhConfigError("snapshot not found")
         with self.connect() as connection:
-            connection.execute("UPDATE snapshots SET pending_response=NULL WHERE uid=? AND name=? AND revision=?", (uid, name, revision))
+            rows = connection.execute(
+                "SELECT uid FROM snapshots "
+                "WHERE name=? AND pending_response IS NOT NULL",
+                (name,),
+            ).fetchall()
+        if not rows:
+            raise XhhConfigError("pending snapshot not found")
+        if len(rows) != 1:
+            raise XhhConfigError(
+                "pending snapshot name belongs to more than one account",
+                code="snapshot_account_required",
+                fix="select --account or --config before resuming this snapshot",
+            )
+        uid = rows[0]["uid"]
+        return uid, self.get(uid, name)
+
+    def delivered(self, uid, name, revision, *, coverage=None):
+        if coverage is not None and not isinstance(coverage, dict):
+            raise XhhConfigError("snapshot coverage must be an object")
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT revision FROM snapshots WHERE uid=? AND name=?",
+                (uid, name),
+            ).fetchone()
+            if row is None or row["revision"] != revision:
+                return 0
+            next_revision = revision + 1
+            if coverage is None:
+                cursor = connection.execute(
+                    "UPDATE snapshots SET pending_response=NULL, revision=?, "
+                    "updated_at=? "
+                    "WHERE uid=? AND name=? AND revision=?",
+                    (next_revision, time.time(), uid, name, revision),
+                )
+            else:
+                cursor = connection.execute(
+                    "UPDATE snapshots SET coverage=?, pending_response=NULL, "
+                    "revision=?, updated_at=? "
+                    "WHERE uid=? AND name=? AND revision=?",
+                    (
+                        json.dumps(coverage, ensure_ascii=False),
+                        next_revision,
+                        time.time(),
+                        uid,
+                        name,
+                        revision,
+                    ),
+                )
+            return next_revision if cursor.rowcount == 1 else 0
 
     def list(self, uid):
         if not self.path.exists():

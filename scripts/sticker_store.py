@@ -1,4 +1,3 @@
-"""Caller-provided image stickers with content-addressed local storage."""
 from __future__ import annotations
 
 import hashlib

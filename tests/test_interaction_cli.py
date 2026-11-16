@@ -6,9 +6,9 @@ import hashlib
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -22,7 +22,6 @@ from interaction_history import InteractionHistory, Scope, database
 from paging import decode_resume, encode_resume
 import test_tools
 from test_tools import PlatformFixture, Response
-from xhh_sdk.exceptions import XhhConfigError
 
 
 class InteractionFixture(PlatformFixture):
@@ -33,6 +32,7 @@ class InteractionFixture(PlatformFixture):
         self.wrong_own = False
         self.bad_second_page = False
         self.stop_path = None
+        self.stop_response = {"status": "show_captcha"}
         self.incoming = {"message_id": "event-one", "comment_a_id": "602", "comment_b_id": "601", "root_comment_id": "601",
             "linkid": "501", "comment_a_userid": "202", "comment_b_userid": "101",
             "comment_a_text": "  full incoming\n" * 500, "comment_b_text": "  own prior\n" * 500}
@@ -44,7 +44,7 @@ class InteractionFixture(PlatformFixture):
         if value.get("status") != "ok":
             return Response(value)
         if self.stop_path == path:
-            return Response({"status": "show_captcha"})
+            return Response(self.stop_response)
         if path == "/bbs/app/user/message":
             value["result"] = {"entries": [self.incoming], "message_unread_num": {"comment": 1}, "has_more": False}
         elif path == "/bbs/app/profile/bbs/comment/list":
@@ -219,7 +219,7 @@ class InteractionCLITest(unittest.TestCase):
             before = len(self.fixture.calls)
             code, value = self.run_cli("interaction", "sync", *arguments, "--resume", token)
             self.assertEqual(code, 1)
-            self.assertEqual(value["error"]["code"], "XhhConfigError")
+            self.assertEqual(value["error"]["code"], "configuration_error")
             self.assertEqual(len(self.fixture.calls), before)
         original = json.loads(self.config.read_text())
         for field, value in (("heybox_id", "102"), ("protocol_mode", "app")):
@@ -242,7 +242,7 @@ class InteractionCLITest(unittest.TestCase):
             before = len(self.fixture.calls)
             code, value = self.run_cli("interaction", "sync", "501", "--resume", forged)
             self.assertEqual(code, 1)
-            self.assertEqual(value["error"]["code"], "XhhConfigError")
+            self.assertEqual(value["error"]["code"], "configuration_error")
             self.assertEqual(len(self.fixture.calls), before)
 
     def test_sync_reaches_target_post_before_exhausting_large_private_lists(self):
@@ -280,7 +280,7 @@ class InteractionCLITest(unittest.TestCase):
         before = len(self.fixture.calls)
         code, value = self.run_cli("interaction", "sync", "501", "--root", "601", "--resume", forged)
         self.assertEqual(code, 1)
-        self.assertEqual(value["error"]["code"], "XhhConfigError")
+        self.assertEqual(value["error"]["code"], "configuration_error")
         self.assertEqual(len(self.fixture.calls), before)
 
     def test_sync_malformed_later_page_retains_imported_facts_and_failed_position(self):
@@ -292,7 +292,7 @@ class InteractionCLITest(unittest.TestCase):
         self.assertEqual(value["coverage"]["continuation"]["phase"], "comments")
         self.assertEqual(value["coverage"]["continuation"]["page"], 2)
         self.assertEqual(value["data"]["status"]["completed_round_count"], 1)
-        self.assertIsNotNone(value["coverage"]["resume"])
+        self.assertIsNone(value["coverage"]["resume"])
         self.assertEqual(self.sends(), [])
 
     def test_sync_captcha_retains_pages_and_does_not_switch_protocol(self):
@@ -303,7 +303,43 @@ class InteractionCLITest(unittest.TestCase):
         self.assertEqual(value["coverage"]["stop_reason"], "platform_error")
         self.assertEqual(value["data"]["status"]["my_known_comment_count"], 2)
         self.assertEqual(value["coverage"]["continuation"]["phase"], "comments")
+        self.assertIsNone(value["coverage"]["resume"])
         self.assertEqual(self.sends(), [])
+
+    def test_sync_hard_blocks_never_return_a_resume_token(self):
+        cases = (
+            ({"status": "show_captcha"}, "captcha_required"),
+            ({"status": "HTTP_429"}, "rate_limited"),
+            (
+                {"status": "login", "msg": "login required"},
+                "session_expired",
+            ),
+        )
+        for response, expected_code in cases:
+            with self.subTest(code=expected_code):
+                self.fixture_for_interactions()
+                self.fixture.stop_path = "/bbs/app/link/tree"
+                self.fixture.stop_response = response
+
+                code, value = self.run_cli(
+                    "interaction", "sync", "501",
+                )
+
+                self.assertEqual(code, 1)
+                self.assertEqual(
+                    value["coverage"]["error"]["code"],
+                    expected_code,
+                )
+                self.assertIsNone(value["coverage"]["resume"])
+                self.assertEqual(
+                    value["coverage"]["continuation"]["phase"],
+                    "comments",
+                )
+                self.assertEqual(
+                    value["data"]["status"]["my_known_comment_count"],
+                    2,
+                )
+                self.assertEqual(self.sends(), [])
 
     def test_sync_request_one_page_and_time_budget_stop_without_post(self):
         self.fixture_for_interactions()
@@ -372,15 +408,19 @@ class InteractionCLITest(unittest.TestCase):
         self.assertEqual([call[0] for call in self.fixture.calls], ["/account/restore_login"])
         self.assertFalse((self.folder / "data").exists())
 
-    def test_sync_resume_login_failure_keeps_prior_facts_and_exact_continuation(self):
+    def test_sync_resume_login_failure_drops_resume_and_keeps_continuation(self):
         self.fixture_for_interactions()
         first = self.run_cli("interaction", "sync", "501", "--requests", "3")[1]
+        previous_state = decode_resume(
+            first["coverage"]["resume"], "interaction-sync", "101",
+        )["state"]
         self.fixture.identity = "999"
         before = len(self.fixture.calls)
         code, value = self.run_cli("interaction", "sync", "501", "--resume", first["coverage"]["resume"])
         self.assertEqual(code, 1)
         self.assertEqual(value["error"]["code"], "account_identity_not_verified")
-        self.assertEqual(value["coverage"]["resume"], first["coverage"]["resume"])
+        self.assertIsNone(value["coverage"]["resume"])
+        self.assertEqual(value["coverage"]["continuation"], previous_state)
         self.assertEqual(value["data"]["status"]["my_known_comment_count"], first["data"]["status"]["my_known_comment_count"])
         self.assertFalse(value["data"]["identity_verified_this_read"])
         self.assertEqual(len(self.fixture.calls) - before, 1)
@@ -395,6 +435,41 @@ class InteractionCLITest(unittest.TestCase):
         self.assertEqual(value["data"]["unpersisted_page"]["entries"], [self.fixture.incoming])
         self.assertEqual(value["coverage"]["continuation"]["offset"], 0)
         self.assertIsNotNone(value["coverage"]["resume"])
+        self.assertEqual(self.sends(), [])
+
+    def test_sync_known_root_storage_failure_keeps_retry_position(self):
+        self.fixture_for_interactions()
+        first = self.run_cli(
+            "interaction", "sync", "501", "--requests", "3", "--pages", "10",
+        )[1]
+        before = len(self.fixture.calls)
+        with patch.object(
+            InteractionHistory,
+            "root_reference_valid",
+            side_effect=[
+                True,
+                sqlite3.OperationalError("database is locked"),
+            ],
+        ):
+            code, value = self.run_cli(
+                "interaction", "sync", "501",
+                "--requests", "10", "--pages", "10",
+                "--resume", first["coverage"]["resume"],
+            )
+
+        self.assertEqual(code, 1)
+        self.assertEqual(value["coverage"]["stop_reason"], "storage_error")
+        self.assertEqual(
+            value["coverage"]["error"]["code"],
+            "interaction_cache_incomplete",
+        )
+        self.assertEqual(
+            value["coverage"]["continuation"]["phase"],
+            "known_replies",
+        )
+        self.assertIsNotNone(value["coverage"]["resume"])
+        self.assertIn("status", value["data"])
+        self.assertEqual(len(self.fixture.calls) - before, 1)
         self.assertEqual(self.sends(), [])
 
     def test_packaged_cli_local_recovery_uses_stdlib_and_cannot_contact_a_server(self):

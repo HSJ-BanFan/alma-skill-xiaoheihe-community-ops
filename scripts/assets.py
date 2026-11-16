@@ -1,4 +1,3 @@
-"""Credential-free platform media downloads and local first-frame previews."""
 from __future__ import annotations
 
 import hashlib

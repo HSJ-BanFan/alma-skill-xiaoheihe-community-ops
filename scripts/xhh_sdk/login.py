@@ -8,9 +8,11 @@ from __future__ import annotations
 import re
 import sys
 import time
+import http.client
 import http.cookiejar
 import json
 import urllib.parse
+import urllib.error
 import urllib.request
 import webbrowser
 from collections.abc import Iterable, Mapping
@@ -18,7 +20,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from .exceptions import XhhConfigError
+from .exceptions import (
+    XhhAPIError,
+    XhhCaptchaError,
+    XhhConfigError,
+    XhhRateLimitError,
+    XhhTransportError,
+)
 
 SSO = "https://api.xiaoheihe.cn/account/wechat/login/v2/web_sso/"
 CALLBACK = "https://api.xiaoheihe.cn/account/wechat/login_redirect/v2/web_sso/"
@@ -210,7 +218,7 @@ def _show_qr(url: str) -> None:
     print(f"QR image for this login: {url}", file=sys.stderr)
     try:
         webbrowser.open(url)
-    except Exception:  # noqa: BLE001 - the user can still open the URL manually
+    except (webbrowser.Error, OSError):
         pass
 
 
@@ -263,7 +271,7 @@ def login_wechat_qr(*, expected_identity: str = "", timeout: float = 180) -> Log
     while time.monotonic() < deadline:
         try:
             poll = _poll_once(uuid)
-        except Exception:  # noqa: BLE001 - transient long-poll errors are retried
+        except (urllib.error.URLError, http.client.HTTPException, OSError):
             time.sleep(2)
             continue
         if "window.wx_errcode=405" in poll:
@@ -363,7 +371,7 @@ def _signed_post(path: str, *, form: dict, query: dict | None = None, identity: 
                  risk_token: str | None = None) -> tuple[dict, dict[str, str]]:
     """Signed form POST without a session cookie; returns (body, cookies)."""
     from .config import DEFAULT_DEVICE, XhhConfig
-    from .transport import Transport
+    from .transport import Transport, _retry_after_seconds
 
     config = XhhConfig(pkey=_NO_SESSION, heybox_id=str(identity),
                        imei=imei or DEFAULT_DEVICE,
@@ -383,8 +391,25 @@ def _signed_post(path: str, *, form: dict, query: dict | None = None, identity: 
         request.add_header("Cookie", f"x_xhh_tokenid={risk_token}")
     jar = http.cookiejar.CookieJar()
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-    with opener.open(request, timeout=timeout) as response:
-        body = json.loads(response.read().decode("utf-8"))
+    try:
+        with opener.open(request, timeout=timeout) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        if error.code == 429:
+            raise XhhRateLimitError(
+                "platform throttled the login request",
+                code="rate_limited",
+                retry_after_seconds=_retry_after_seconds(error.headers),
+            ) from error
+        raise XhhAPIError(
+            f"login endpoint rejected the request: HTTP {error.code}",
+            status=f"HTTP_{error.code}",
+            path=path,
+        ) from error
+    except (urllib.error.URLError, http.client.HTTPException, OSError) as error:
+        raise XhhTransportError(
+            "login endpoint transport failed",
+        ) from error
     if not isinstance(body, dict):
         raise XhhConfigError("login endpoint returned an unexpected payload")
     return body, {cookie.name: cookie.value for cookie in jar if cookie.value}
@@ -395,6 +420,17 @@ def _require_ok(body: dict) -> None:
     if status in ("ok", "success"):
         return
     message = re.sub(r"\s+", " ", str(body.get("msg") or ""))[:120]
+    normalized = status.casefold()
+    if normalized in {"show_captcha", "captcha", "verify_captcha"}:
+        raise XhhCaptchaError(
+            "platform requires interactive captcha verification",
+            code="captcha_required",
+        )
+    if normalized in {"http_429", "429"} or "发帖频率过快" in message:
+        raise XhhRateLimitError(
+            "platform throttled the login request",
+            code="rate_limited",
+        )
     raise XhhConfigError(f"platform refused the login request (status={status!r} msg={message!r})")
 
 

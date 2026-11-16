@@ -91,16 +91,29 @@ class Journal:
         try:
             receipt = send()
         except Exception as error:
+            operation = {
+                "operation_id": operation_id,
+                "status": "uncertain",
+                "error_type": type(error).__name__,
+                "uncertainty_persisted": False,
+            }
             try:
                 self.settle(uid, operation_id, "uncertain", None)
-            except Exception:
-                pass
+            except Exception as persistence_error:
+                operation.update(
+                    status="unknown",
+                    persistence_error_type=type(persistence_error).__name__,
+                )
+            else:
+                operation["uncertainty_persisted"] = True
             diagnostic = error.diagnostic if isinstance(error, XhhAPIError) else None
             if not isinstance(diagnostic, SDKDiagnostic):
                 diagnostic = None
-            raise OperationError("write_uncertain", operation={"operation_id": operation_id,
-                                 "status": "uncertain", "error_type": type(error).__name__},
-                                 diagnostic=diagnostic) from None
+            raise OperationError(
+                "write_uncertain",
+                operation=operation,
+                diagnostic=diagnostic,
+            ) from None
         try:
             self.settle(uid, operation_id, "returned", receipt)
         except Exception:
@@ -175,8 +188,6 @@ def read(client, kind: str, args) -> tuple[object, dict]:
             raise OperationError("invalid_inbox_response")
         return result, {**coverage, "offset": args.offset, "limit": args.limit,
                         "next_offset": args.offset + len(messages)}
-    elif kind == "emojis":
-        return client.emojis(), coverage
     elif kind == "creator-options":
         return client.topic_index(link_id=args.link_id), coverage
     elif kind == "drafts":
@@ -195,7 +206,6 @@ def read(client, kind: str, args) -> tuple[object, dict]:
                         "next_offset": args.offset + len(result)}
     else:
         raise XhhConfigError("unknown read operation")
-    return data, {**coverage, "offset": args.offset, "limit": args.limit}
 
 
 def prepare_write(client, kind: str, args, *, before_post=None):

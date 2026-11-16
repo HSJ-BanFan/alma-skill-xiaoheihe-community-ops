@@ -1,4 +1,3 @@
-"""Local previews of official native emojis, cropped from the fetched sprite source."""
 from __future__ import annotations
 
 import io

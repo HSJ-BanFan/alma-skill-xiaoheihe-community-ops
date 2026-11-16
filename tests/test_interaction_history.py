@@ -3,7 +3,6 @@ from __future__ import annotations
 import concurrent.futures
 from contextlib import closing, contextmanager
 import hashlib
-import json
 import os
 import sqlite3
 import sys
@@ -15,7 +14,7 @@ from unittest.mock import patch
 ROOT = Path(os.environ.get("XHH_TEST_SKILL_ROOT") or Path(__file__).resolve().parents[1])
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from interaction_history import InteractionHistory, Scope, database, observe
+from interaction_history import InteractionHistory, Scope, database
 from operations import Journal, OperationError, json_text
 from xhh_sdk.exceptions import XhhConfigError
 

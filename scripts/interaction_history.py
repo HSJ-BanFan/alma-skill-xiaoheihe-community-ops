@@ -1,4 +1,3 @@
-"""UID-scoped interaction facts in the canonical operation database."""
 from __future__ import annotations
 
 import hashlib

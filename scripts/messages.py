@@ -1,4 +1,3 @@
-"""Typed message preparation and evidence-based delivery verification."""
 from __future__ import annotations
 
 import hashlib
