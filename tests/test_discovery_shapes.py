@@ -468,6 +468,32 @@ class DiscoveryShapeTests(CommandTests):
                 self.assertEqual(code, 0, value)
                 self.assertEqual(len(value["data"]["items"]), len(top) + len(subscribed))
 
+    def test_banner_limit_is_a_safe_partial_without_fake_resume(self):
+        code, value, _ = self.run_cli(
+            ["banners", "--limit", "1", "--requests", "1"],
+            lambda *args: {
+                "result": {"topic_banner": {
+                    "top_topics": [
+                        {"topic_id": "721", "name": "first"},
+                        {"topic_id": "722", "name": "second"},
+                        {"topic_id": "723", "name": "third"},
+                    ],
+                    "subscribed_topics": [],
+                }},
+            },
+        )
+        self.assertEqual(code, 0, value)
+        self.assertEqual([item["id"] for item in value["data"]["items"]], ["top:721"])
+        self.assertEqual(value["coverage"]["status"], "partial")
+        self.assertEqual(value["coverage"]["stop_reason"], "item_budget")
+        self.assertEqual(
+            (value["coverage"]["matched_total"], value["coverage"]["selected"]),
+            (3, 1),
+        )
+        self.assertIn("single_response_truncated", value["coverage"]["gaps"])
+        self.assertIsNone(value["coverage"]["resume"])
+        self.assertIsNone(value["error"])
+
     def test_banner_all_communities_is_navigation_not_a_fake_topic(self):
         code, value, _ = self.run_cli(["banners"], lambda *args: {
             "result": {"topic_banner": {
