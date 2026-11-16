@@ -152,14 +152,24 @@ def _identity_matches(data: dict, expected: str) -> bool:
 
 
 def _manage_account(args) -> int:
-    if args.account or args.config or args.env:
-        print("account commands take their own alias; do not combine credential selectors", file=sys.stderr)
-        return 2
     action = args.account_action
-    if action in {"login", "logout", "remove", "configure", "risk-token"} and not args.confirm:
-        print("refusing account change without --confirm", file=sys.stderr)
-        return 2
     try:
+        if args.account or args.config or args.env:
+            raise XhhConfigError(
+                "account commands take their own alias; do not combine credential selectors",
+                code="account_selector_conflict",
+            )
+        if (
+            action in {
+                "login", "logout", "remove", "configure", "risk-token",
+            }
+            and not args.confirm
+        ):
+            raise XhhConfigError(
+                "refusing account change without --confirm",
+                code="confirmation_required",
+                fix="repeat the account change with --confirm",
+            )
         store = _account_store(args)
         if action == "list":
             _print({"accounts": store.list(), "session_valid": "not_checked"})
@@ -305,7 +315,11 @@ def _manage_account(args) -> int:
             _print(report)
         return 0
     except XhhError as exc:
-        print(f"account error: {exc}", file=sys.stderr)
+        _print({
+            "ok": False,
+            "command": "account",
+            "error": exc.public(),
+        })
         return 1
 
 

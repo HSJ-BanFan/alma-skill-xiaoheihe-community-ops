@@ -17,7 +17,11 @@ import tempfile
 import uuid
 
 from .config import XhhConfig
-from .exceptions import XhhConfigError, XhhSessionMissingError
+from .exceptions import (
+    XhhConfigError,
+    XhhIdentityUnboundError,
+    XhhSessionMissingError,
+)
 
 _CONFIG_KEYS = {"java", "signer_jar", "signer_bundle", "imei", "device_info",
                 "app_version", "os_version", "timeout", "protocol_mode"}
@@ -164,7 +168,7 @@ def _identity(value, *, optional=False):
     if optional and value in (None, ""):
         return ""
     if not isinstance(value, str) or not re.fullmatch(r"[0-9]{1,32}", value):
-        raise XhhConfigError("Account identity must be numeric")
+        raise XhhIdentityUnboundError("Account identity must be numeric")
     return value
 
 
@@ -299,6 +303,8 @@ class AccountStore:
                 _config(account.config)
                 accounts[key] = account
             return accounts
+        except XhhIdentityUnboundError:
+            raise
         except (XhhConfigError, OSError, ValueError, TypeError, KeyError):
             raise XhhConfigError("Account store is corrupt or unreadable; it was not reset") from None
 
@@ -409,11 +415,14 @@ class AccountStore:
         pkey = account.sessions[selected]
         if not pkey:
             raise _missing_session(account, selected)
+        _identity(account.identity)
         try:
             config = XhhConfig(pkey=pkey, heybox_id=account.identity,
                                **{**account.config, "protocol_mode": selected},
                                extra={"session_revision": account.revision})
             config.validate()
             return config
+        except XhhIdentityUnboundError:
+            raise
         except (XhhConfigError, TypeError, ValueError):
             raise XhhConfigError("Invalid managed account configuration") from None

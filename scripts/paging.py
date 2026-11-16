@@ -29,6 +29,9 @@ def _classify_block(value, *, stop_reason=None):
     error = dict(value) if isinstance(value, dict) else {}
     code = error.get("code")
     status = str(error.get("status") or "").casefold()
+    retry_after = error.get("retry_after_seconds")
+    if type(retry_after) is not int or retry_after < 0:
+        retry_after = None
     budget = stop_reason in _BUDGET_CODES or code in _BUDGET_CODES.values()
     blocked = (
         error.get("retry_allowed") is False
@@ -41,9 +44,13 @@ def _classify_block(value, *, stop_reason=None):
     if status in _CAPTCHA_STATUSES or code == "captcha_required":
         error["code"] = "captcha_required"
         error["retry_allowed"] = False
+        error["cooldown_required"] = True
+        error["retry_after_seconds"] = retry_after
     elif status in _RATE_STATUSES or code == "rate_limited":
         error["code"] = "rate_limited"
         error["retry_allowed"] = False
+        error["cooldown_required"] = True
+        error["retry_after_seconds"] = retry_after
     return blocked, error
 
 

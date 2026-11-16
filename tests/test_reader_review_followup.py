@@ -26,6 +26,7 @@ from xhh_sdk.exceptions import (
     XhhCaptchaError,
     XhhConfigError,
     XhhError,
+    XhhRateLimitError,
     XhhTransportError,
 )
 from xhh_sdk.transport import Transport
@@ -205,6 +206,85 @@ class WireBoundaryTests(unittest.TestCase):
         self.assertFalse(error.retry_allowed)
         self.assertEqual(xhh.public_error(error, "web")["code"],
                          "http_access_denied")
+
+    def test_bounded_worker_preserves_retry_after_seconds(self):
+        response = subprocess_result({
+            "ok": False,
+            "kind": "XhhRateLimitError",
+            "status": None,
+            "code": "rate_limited",
+            "retry_allowed": False,
+            "retry_after_seconds": 23,
+            "wire_requests": 1,
+        })
+        request = Request("https://api.xiaoheihe.cn/bbs/app/link/tree")
+        with patch("network_io.subprocess.run", return_value=response):
+            with self.assertRaises(XhhRateLimitError) as raised:
+                network_io.read_http(request, 1)
+
+        public = raised.exception.public()
+        self.assertEqual(public["code"], "rate_limited")
+        self.assertTrue(public["cooldown_required"])
+        self.assertEqual(public["retry_after_seconds"], 23)
+
+    def test_network_worker_serializes_retry_after_seconds(self):
+        payload = {
+            "url": "https://api.xiaoheihe.cn/bbs/app/link/tree",
+            "headers": {},
+            "timeout": 1,
+            "http_timeout": 1,
+            "profile": "api",
+            "wire_limit": 1,
+        }
+        output = io.StringIO()
+        reader = lambda self, request: (_ for _ in ()).throw(
+            XhhRateLimitError(
+                "platform throttled the request",
+                retry_after_seconds=19,
+            )
+        )
+        with patch(
+                "network_io.sys.stdin",
+                SimpleNamespace(
+                    buffer=io.BytesIO(json.dumps(payload).encode())
+                ),
+        ), patch("network_io.sys.stdout", output), patch(
+            "xhh_sdk.transport.Transport._open",
+            reader,
+        ):
+            network_io.worker()
+
+        value = json.loads(output.getvalue())
+        self.assertEqual(value["retry_after_seconds"], 19)
+
+    def test_projected_cooldowns_normalize_retry_after_seconds(self):
+        cases = (
+            ("17", None),
+            (-1, None),
+            (True, None),
+            (0, 0),
+            (23, 23),
+        )
+        for raw, expected in cases:
+            with self.subTest(raw=raw):
+                projected = project_coverage({
+                    "status": "partial",
+                    "stop_reason": "platform_error",
+                    "resume": "unsafe-token",
+                    "error": {
+                        "code": "rate_limited",
+                        "retry_allowed": False,
+                        "retry_after_seconds": raw,
+                    },
+                })
+
+                self.assertEqual(projected["status"], "blocked")
+                self.assertIsNone(projected["resume"])
+                self.assertTrue(projected["error"]["cooldown_required"])
+                self.assertEqual(
+                    projected["error"]["retry_after_seconds"],
+                    expected,
+                )
 
     def test_public_body_over_four_mib_is_rejected(self):
         body = b"x" * (4 * 1024 * 1024 + 1)
@@ -623,6 +703,8 @@ class SnapshotAndStatusTests(unittest.TestCase):
         self.assertFalse(value["ok"])
         self.assertEqual(value["coverage"]["status"], "blocked")
         self.assertEqual(value["error"]["code"], "captcha_required")
+        self.assertTrue(value["error"]["cooldown_required"])
+        self.assertIsNone(value["error"]["retry_after_seconds"])
         self.assertIsNone(value["coverage"]["resume"])
         self.assertIsNone(saved["pending_response"])
         self.assertEqual(saved["coverage"]["status"], "blocked")

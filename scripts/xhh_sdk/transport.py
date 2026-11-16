@@ -12,12 +12,15 @@ import hashlib
 import hmac
 import http.client
 import json
+import math
 import re
 import socket
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import timezone
+from email.utils import parsedate_to_datetime
 
 from .config import XhhConfig
 from .exceptions import (
@@ -38,6 +41,22 @@ _WEB_PROTECTED_QUERY = _SESSION_FIELDS | frozenset({
     "_time", "nonce", "hkey", "_rnd", "version", "os_type", "x_os_type",
     "app", "x_app", "x_client_type", "x_client_version", "channel", "imei", "device_info",
 })
+
+
+def _retry_after_seconds(headers) -> int | None:
+    raw = headers.get("Retry-After") if headers is not None else None
+    if raw is None:
+        return None
+    value = str(raw).strip()
+    if value.isdigit():
+        return int(value)
+    try:
+        deadline = parsedate_to_datetime(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if deadline.tzinfo is None:
+        deadline = deadline.replace(tzinfo=timezone.utc)
+    return max(0, math.ceil(deadline.timestamp() - time.time()))
 
 
 def _hmac_sha1(key: bytes, message: bytes) -> bytes:
@@ -115,6 +134,7 @@ class Transport:
                 raise XhhRateLimitError(
                     "platform throttled the request",
                     code="rate_limited",
+                    retry_after_seconds=_retry_after_seconds(exc.headers),
                 ) from exc
             if exc.code in (401, 403):
                 raise XhhAuthError(
@@ -145,10 +165,16 @@ class Transport:
         msg = str(data.get("msg") or "")
         if status in ("ok", "success"):
             return
-        if str(status).casefold() in {"show_captcha", "captcha", "verify_captcha"}:
+        normalized_status = str(status).casefold()
+        if normalized_status in {"show_captcha", "captcha", "verify_captcha"}:
             raise XhhCaptchaError(
                 "platform requires interactive captcha verification",
                 code="captcha_required",
+            )
+        if normalized_status in {"http_429", "429"}:
+            raise XhhRateLimitError(
+                "platform throttled the request",
+                code="rate_limited",
             )
         if status in ("login", "relogin"):
             raise XhhAuthError(

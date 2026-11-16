@@ -15,7 +15,14 @@ from operations import Journal, OperationError, numeric_id, prepare_write, read,
 from xhh_sdk.accounts import AccountStore
 from xhh_sdk.client import XhhClient
 from xhh_sdk.config import XhhConfig
-from xhh_sdk.exceptions import XhhError, XhhConfigError
+from xhh_sdk.exceptions import (
+    XhhAPIError,
+    XhhAuthError,
+    XhhCaptchaError,
+    XhhConfigError,
+    XhhError,
+    XhhRateLimitError,
+)
 from paging import delivery_ok, project_coverage
 import browser
 from corpus_cli import dispatch as dispatch_corpus
@@ -308,6 +315,75 @@ def merge_resumed_coverage(snapshot, coverage, delta):
     coverage["duplicates_removed_since_snapshot"] = len(delta["unchanged"])
 
 
+def is_platform_block(error):
+    return (
+        isinstance(error, (
+            XhhAPIError,
+            XhhAuthError,
+            XhhCaptchaError,
+            XhhRateLimitError,
+        ))
+        or error.code == "http_access_denied"
+    )
+
+
+def persist_blocked_snapshot(
+        store,
+        uid,
+        name,
+        query_key,
+        saved,
+        request,
+        protocol_mode,
+        error,
+        command,
+        *,
+        secret="",
+):
+    from observations import SnapshotConflict
+
+    public = public_error(error, protocol_mode)
+    blocked = project_coverage({
+        "status": "blocked",
+        "stop_reason": "platform_error",
+        "error": public,
+        "resume": None,
+    })
+    try:
+        store.save(
+            uid,
+            name,
+            query_key,
+            saved["data"],
+            blocked,
+            request,
+            expected_revision=saved["revision"],
+            pending_response=None,
+        )
+    except SnapshotConflict as conflict:
+        emit(
+            False,
+            command,
+            None,
+            coverage=blocked,
+            error={
+                "code": "snapshot_conflict",
+                "current_revision": conflict.revision,
+            },
+            secret=secret,
+        )
+        return 1
+    emit(
+        False,
+        command,
+        saved["data"],
+        coverage=blocked,
+        error=public,
+        secret=secret,
+    )
+    return 1
+
+
 def main(argv=None, *, client_factory=XhhClient):
     argv = list(sys.argv[1:] if argv is None else argv)
     root_parser = parser()
@@ -374,9 +450,29 @@ def main(argv=None, *, client_factory=XhhClient):
             resumed = parser().parse_args([*saved["request"], "--resume", token, "--snapshot", args.name])
             resumed_clients = load_clients(resumed, config, client_factory)
             resumed_client = next(iter(resumed_clients.values()))
-            data, coverage = browser.Browser(
-                resumed_client, clients=resumed_clients).execute(
-                    resumed, verify_account=True, prior_data=saved["data"])
+            try:
+                data, coverage = browser.Browser(
+                    resumed_client, clients=resumed_clients
+                ).execute(
+                    resumed,
+                    verify_account=True,
+                    prior_data=saved["data"],
+                )
+            except XhhError as error:
+                if is_platform_block(error):
+                    return persist_blocked_snapshot(
+                        store,
+                        config.heybox_id,
+                        args.name,
+                        saved["query_key"],
+                        saved,
+                        saved["request"],
+                        resumed_client.config.protocol_mode,
+                        error,
+                        args.command,
+                        secret=secret,
+                    )
+                raise
             delta = difference(saved["data"], data)
             combined = merge(saved["data"], data)
             merge_resumed_coverage(saved, coverage, delta)
@@ -424,9 +520,37 @@ def main(argv=None, *, client_factory=XhhClient):
                     args.command, secret=secret)
             if args.resume and existing is not None and existing["query_key"] != key:
                 raise XhhConfigError("resumed snapshot belongs to a different query")
-            data, coverage = browser.Browser(client, clients=clients).execute(
-                args, verify_account=bool(args.snapshot or args.since),
-                prior_data=existing["data"] if args.resume and existing else None)
+            try:
+                data, coverage = browser.Browser(
+                    client, clients=clients
+                ).execute(
+                    args,
+                    verify_account=bool(args.snapshot or args.since),
+                    prior_data=(
+                        existing["data"]
+                        if args.resume and existing else None
+                    ),
+                )
+            except XhhError as error:
+                if (
+                    args.snapshot
+                    and existing is not None
+                    and existing["query_key"] == key
+                    and is_platform_block(error)
+                ):
+                    return persist_blocked_snapshot(
+                        store,
+                        config.heybox_id,
+                        args.snapshot,
+                        key,
+                        existing,
+                        browser.request_arguments(args),
+                        config.protocol_mode,
+                        error,
+                        args.command,
+                        secret=secret,
+                    )
+                raise
             if data is None:
                 coverage, stopped, ok = project_delivery(coverage)
                 emit(ok, args.command, None, coverage=coverage,

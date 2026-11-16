@@ -8,6 +8,7 @@ import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
@@ -16,7 +17,7 @@ import xhh
 from browser import Browser
 from observations import Store
 from paging import ReadLimit, decode_resume
-from xhh_sdk import accounts
+from xhh_sdk import accounts, cli, login
 from xhh_sdk.config import XhhConfig
 from xhh_sdk.exceptions import (
     XhhAPIError,
@@ -30,6 +31,7 @@ from xhh_sdk.exceptions import (
     XhhSignerError,
     XhhTransportError,
 )
+from xhh_sdk.login import _require_ok
 from xhh_sdk.transport import Transport
 
 
@@ -105,6 +107,22 @@ class AccountSessionTests(unittest.TestCase):
         self.assertNotIn("app", store.get("same").sessions)
         self.assertIn("web", store.get("same").sessions)
         self.assertEqual(store.get_config("same", protocol="web").pkey, "web-session")
+
+    def test_bound_account_with_empty_identity_keeps_specific_error_code(self):
+        store = accounts.AccountStore(self.root)
+        store.add("broken")
+        account = store.get("broken")
+        account.identity = ""
+        account.sessions["app"] = "fixture-session"
+        store._write({"broken": account})
+
+        with self.assertRaises(XhhIdentityUnboundError) as raised:
+            store.get_config("broken", protocol="app")
+
+        self.assertEqual(
+            raised.exception.public()["code"],
+            "account_identity_unbound",
+        )
 
     def test_version_one_single_session_is_migrated_without_loss(self):
         legacy = {
@@ -320,6 +338,33 @@ class ErrorContractTests(unittest.TestCase):
         self.assertTrue(public["cooldown_required"])
         self.assertEqual(public["retry_after_seconds"], 17)
 
+    def test_http_429_accepts_an_http_date_retry_after(self):
+        client = ClientFixture(
+            "app",
+            lambda path, query, protocol: self.fail("handler must not run"),
+        )
+        request = urllib.request.Request(
+            "https://api.xiaoheihe.cn/example")
+        now = 1445412480.0
+        with patch.object(
+                urllib.request,
+                "urlopen",
+                side_effect=urllib.error.HTTPError(
+                    request.full_url,
+                    429,
+                    "Too Many Requests",
+                    {"Retry-After": "Wed, 21 Oct 2015 07:29:00 GMT"},
+                    None,
+                ),
+        ), patch("xhh_sdk.transport.time.time", return_value=now):
+            with self.assertRaises(XhhRateLimitError) as raised:
+                Transport(client.config)._open(request)
+
+        self.assertEqual(
+            raised.exception.public()["retry_after_seconds"],
+            60,
+        )
+
     def test_platform_429_uses_the_same_cooldown_contract(self):
         with self.assertRaises(XhhRateLimitError) as raised:
             Transport._check_status({"status": "HTTP_429"})
@@ -343,6 +388,103 @@ class ErrorContractTests(unittest.TestCase):
                     "app" if expected == "app_session_expired" else None,
                 )
                 self.assertEqual(public["code"], expected)
+
+    def test_account_errors_are_structured_and_identity_is_specific(self):
+        arguments = SimpleNamespace(
+            account=None,
+            config=None,
+            env=False,
+            account_action="status",
+        )
+        output = io.StringIO()
+        with patch.object(
+                cli,
+                "_account_store",
+                side_effect=XhhRiskTokenError("missing risk token"),
+        ), contextlib.redirect_stdout(output):
+            code = cli._manage_account(arguments)
+
+        value = json.loads(output.getvalue())
+        self.assertEqual(code, 1)
+        self.assertEqual(value["error"]["code"], "risk_token_missing")
+        with self.assertRaises(XhhIdentityUnboundError):
+            accounts._identity("")
+
+    def test_sms_login_blocks_are_structured(self):
+        for body, error_type, code in (
+            (
+                {"status": "show_captcha", "msg": "verify"},
+                XhhCaptchaError,
+                "captcha_required",
+            ),
+            (
+                {"status": "HTTP_429", "msg": "slow down"},
+                XhhRateLimitError,
+                "rate_limited",
+            ),
+        ):
+            with self.subTest(code=code):
+                with self.assertRaises(error_type) as raised:
+                    _require_ok(body)
+                public = raised.exception.public()
+                self.assertEqual(public["code"], code)
+                self.assertTrue(public["cooldown_required"])
+
+    def test_sms_http_rate_limit_is_structured_and_keeps_retry_after(self):
+        request = urllib.request.Request(
+            "https://api.xiaoheihe.cn/account/get_login_code/")
+        error = urllib.error.HTTPError(
+            request.full_url,
+            429,
+            "Too Many Requests",
+            {"Retry-After": "17"},
+            None,
+        )
+
+        class Opener:
+            def open(self, *args, **kwargs):
+                raise error
+
+        with patch.object(Transport, "_app_query", return_value={}), \
+                patch(
+                    "xhh_sdk.login.urllib.request.build_opener",
+                    return_value=Opener(),
+                ):
+            with self.assertRaises(XhhRateLimitError) as raised:
+                login._signed_post(
+                    "/account/get_login_code/",
+                    form={},
+                    identity="101",
+                )
+
+        public = raised.exception.public()
+        self.assertEqual(public["code"], "rate_limited")
+        self.assertFalse(public["retry_allowed"])
+        self.assertTrue(public["cooldown_required"])
+        self.assertEqual(public["retry_after_seconds"], 17)
+
+    def test_account_preflight_errors_are_structured(self):
+        output = io.StringIO()
+        errors = io.StringIO()
+        with tempfile.TemporaryDirectory() as temporary, \
+                contextlib.redirect_stdout(output), \
+                contextlib.redirect_stderr(errors):
+            code = cli.main([
+                "--data-dir",
+                temporary,
+                "account",
+                "login",
+                "demo",
+                "--method",
+                "creator",
+            ])
+
+        value = json.loads(output.getvalue())
+        self.assertEqual(code, 1)
+        self.assertEqual(errors.getvalue(), "")
+        self.assertFalse(value["ok"])
+        self.assertEqual(value["command"], "account")
+        self.assertEqual(value["error"]["code"], "confirmation_required")
 
 
 class ReaderAndBudgetTests(unittest.TestCase):
@@ -399,7 +541,7 @@ class ReaderAndBudgetTests(unittest.TestCase):
         )
         self.assertEqual(
             data["body_candidates"][1]["block_types"],
-            ["html"],
+            ["text"],
         )
         self.assertRegex(
             data["body_candidates"][1]["body_sha256"],
@@ -411,6 +553,45 @@ class ReaderAndBudgetTests(unittest.TestCase):
             self.assertIn("session_revision", attempt)
         self.assertEqual(len(app.calls), 1)
         self.assertEqual(len(web.calls), 1)
+
+    def test_app_profile_relationship_is_directional_and_conservative(self):
+        cases = (
+            ("app", "202", 1, True),
+            ("app", "202", 0, False),
+            ("app", "202", "1", None),
+            ("app", "202", True, None),
+            ("app", "101", 1, None),
+            ("web", "202", 1, None),
+        )
+        for protocol, target, raw, expected in cases:
+            with self.subTest(protocol=protocol, target=target, raw=raw):
+                client = ClientFixture(
+                    protocol,
+                    lambda path, query, mode, raw=raw, target=target: {
+                        "post_links": [],
+                        "total_page": 1,
+                        "user": {
+                            "userid": target,
+                            "username": "target",
+                            "follow_status": raw,
+                        },
+                    },
+                )
+                data, _ = Browser(client).execute(
+                    xhh.parser().parse_args([
+                        "user", target, "--view", "profile",
+                        "--requests", "1",
+                    ])
+                )
+                self.assertEqual(
+                    data["relationship"]["current_user_follows_target"],
+                    expected,
+                )
+                self.assertIsNone(
+                    data["relationship"]["target_follows_current"]
+                )
+                self.assertIsNone(data["relationship"]["mutual"])
+                self.assertNotIn("follow_status_raw", data["relationship"])
 
     def test_explicit_native_never_falls_back(self):
         app = ClientFixture("app", lambda path, query, protocol:
@@ -1036,6 +1217,140 @@ class StopAndSnapshotProjectionTests(unittest.TestCase):
                 self.assertEqual(saved["coverage"]["status"], "blocked")
                 self.assertIsNone(saved["coverage"]["resume"])
                 self.assertIsNone(saved["pending_response"])
+
+    def test_first_page_block_clears_resume_on_an_existing_snapshot(self):
+        class PartialFixture(ClientFixture):
+            def account_info(self):
+                self.calls.append(("/account/info", {}))
+                return {"userid": self.config.heybox_id}
+
+        class FirstPageBlockFixture(ClientFixture):
+            def signed_request(self, path, query=None):
+                self.calls.append((path, query))
+                raise XhhCaptchaError("platform requires captcha")
+
+            def account_info(self):
+                self.calls.append(("/account/info", {}))
+                return {"userid": self.config.heybox_id}
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            first_result = {
+                "result": {
+                    "comments": [
+                        {"comment": [{"commentid": "1", "text": "first"}]}
+                    ],
+                    "total_page": 3,
+                },
+            }
+            first = PartialFixture(
+                "web",
+                lambda path, query, protocol: first_result,
+            )
+            first_code, first_value = self.run_cli(
+                root,
+                ["comments", "123", "--pages", "1",
+                 "--snapshot", "first-page-block"],
+                factory=lambda config: first,
+            )
+            saved_before = Store(root).get("101", "first-page-block")
+            second_code, second_value = self.run_cli(
+                root,
+                [
+                    "comments", "123", "--pages", "3",
+                    "--snapshot", "first-page-block",
+                    "--resume", saved_before["coverage"]["resume"],
+                ],
+                factory=lambda config: FirstPageBlockFixture(
+                    "web",
+                    lambda *args: self.fail(
+                        "a blocked first page must not parse a response"
+                    ),
+                ),
+            )
+            saved_after = Store(root).get("101", "first-page-block")
+
+        self.assertEqual(first_code, 0, first_value)
+        self.assertEqual(second_code, 1, second_value)
+        self.assertEqual(second_value["error"]["code"], "captcha_required")
+        self.assertEqual(second_value["coverage"]["status"], "blocked")
+        self.assertIsNone(second_value["coverage"]["resume"])
+        self.assertEqual(saved_after["data"], saved_before["data"])
+        self.assertEqual(saved_after["coverage"]["status"], "blocked")
+        self.assertIsNone(saved_after["coverage"]["resume"])
+        self.assertIsNone(saved_after["pending_response"])
+        self.assertGreater(saved_after["revision"], saved_before["revision"])
+
+    def test_platform_block_does_not_retag_an_unrelated_snapshot(self):
+        class BlockBeforePage(ClientFixture):
+            def signed_request(self, path, query=None):
+                self.calls.append((path, query))
+                raise XhhCaptchaError("platform requires captcha")
+
+            def account_info(self):
+                self.calls.append(("/account/info", {}))
+                return {"userid": self.config.heybox_id}
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            first = self.StopFixture(
+                lambda: self.fail("the first page must not fail")
+            )
+            first_code, first_value = self.run_cli(
+                root,
+                ["comments", "123", "--pages", "1",
+                 "--snapshot", "unrelated-block"],
+                factory=lambda config: first,
+            )
+            saved_before = Store(root).get("101", "unrelated-block")
+            second_code, second_value = self.run_cli(
+                root,
+                ["comments", "456", "--pages", "1",
+                 "--snapshot", "unrelated-block"],
+                factory=lambda config: BlockBeforePage(
+                    "web",
+                    lambda *args: self.fail(
+                        "a blocked first page must not parse a response"
+                    ),
+                ),
+            )
+            saved_after = Store(root).get("101", "unrelated-block")
+
+        self.assertEqual(first_code, 0, first_value)
+        self.assertEqual(second_code, 1, second_value)
+        self.assertEqual(second_value["error"]["code"], "captcha_required")
+        self.assertEqual(saved_after, saved_before)
+
+    def test_local_request_error_does_not_rewrite_existing_snapshot(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            first = self.StopFixture(
+                lambda: self.fail("the first page must not fail")
+            )
+            first_code, first_value = self.run_cli(
+                root,
+                ["comments", "123", "--pages", "1",
+                 "--snapshot", "local-error"],
+                factory=lambda config: first,
+            )
+            saved_before = Store(root).get("101", "local-error")
+            second_code, second_value = self.run_cli(
+                root,
+                [
+                    "comments", "123", "--pages", "3", "--requests", "1",
+                    "--snapshot", "local-error",
+                    "--resume", saved_before["coverage"]["resume"],
+                ],
+                factory=lambda config: self.StopFixture(
+                    lambda: self.fail("the local request check must fail first")
+                ),
+            )
+            saved_after = Store(root).get("101", "local-error")
+
+        self.assertEqual(first_code, 0, first_value)
+        self.assertEqual(second_code, 1, second_value)
+        self.assertEqual(second_value["error"]["code"], "configuration_error")
+        self.assertEqual(saved_after, saved_before)
 
     def run_cli(self, root, arguments, *, factory):
         config = root / "fixture.json"

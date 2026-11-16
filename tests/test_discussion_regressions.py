@@ -232,8 +232,7 @@ class DiscussionRegressionTests(unittest.TestCase):
         value = self.assert_success(self.run_cli("user", "303"))
         self.assertEqual((value["data"]["uid"], value["data"]["name"]), ("303", "fixture author"))
         self.assertEqual(value["data"]["relationship"], {
-            "current_user_follows_target": True,
-            "follow_status_raw": 1,
+            "current_user_follows_target": None,
             "target_follows_current": None,
             "mutual": None,
             "evidence": "profile.user.follow_status",

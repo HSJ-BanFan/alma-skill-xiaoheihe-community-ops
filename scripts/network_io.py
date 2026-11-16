@@ -129,7 +129,14 @@ def read_http(request, timeout, *, profile="api", http_timeout=None,
     except (ValueError, KeyError, TypeError):
         raise XhhTransportError("bounded reader protocol failed") from None
     if kind == "XhhRateLimitError" or status.upper() == "HTTP_429":
-        raise XhhRateLimitError("platform throttled the request")
+        retry_after_seconds = value.get("retry_after_seconds")
+        if (type(retry_after_seconds) is not int
+                or retry_after_seconds < 0):
+            retry_after_seconds = None
+        raise XhhRateLimitError(
+            "platform throttled the request",
+            retry_after_seconds=retry_after_seconds,
+        )
     if (kind == "XhhAuthError"
             or status.upper() in {"HTTP_401", "HTTP_403"}):
         if profile == "public":
@@ -218,7 +225,7 @@ def worker():
         if status is None and hasattr(error, "code"):
             status = "HTTP_" + str(error.code)
         result = {"ok": False, "kind": type(error).__name__, "status": status}
-        for name in ("code", "retry_allowed"):
+        for name in ("code", "retry_allowed", "retry_after_seconds"):
             value = getattr(error, name, None)
             if value is not None:
                 result[name] = value

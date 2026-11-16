@@ -1443,6 +1443,57 @@ class Browser:
         }
 
     @staticmethod
+    def _body_candidate(attempt, value):
+        body = value["body"]
+        blocks = body.get("blocks") or []
+        content = {
+            "text": body.get("text"),
+            "blocks": blocks,
+        }
+        return {
+            "reader": attempt["reader"],
+            "protocol": attempt["protocol"],
+            "route": attempt["route"],
+            "session_revision": attempt["session_revision"],
+            "body_status": body.get("status"),
+            "completeness": body.get("completeness"),
+            "text_characters": len(body.get("text") or ""),
+            "block_count": len(blocks),
+            "block_types": sorted({
+                block.get("type")
+                for block in blocks
+                if isinstance(block, dict) and isinstance(block.get("type"), str)
+            }),
+            "body_gaps": list(body.get("gaps") or []),
+            "body_sha256": hashlib.sha256(json.dumps(
+                content, sort_keys=True, ensure_ascii=False
+            ).encode()).hexdigest(),
+        }
+
+    def _profile_relationship(self, user_id, user):
+        follow_status = user.get("follow_status")
+        current_user_follows_target = (
+            follow_status
+            if (
+                self.client.config.protocol_mode == "app"
+                and user_id != str(self.client.config.heybox_id)
+                and type(follow_status) is int
+                and follow_status in (0, 1)
+            )
+            else None
+        )
+        return {
+            "current_user_follows_target": (
+                bool(current_user_follows_target)
+                if current_user_follows_target is not None
+                else None
+            ),
+            "target_follows_current": None,
+            "mutual": None,
+            "evidence": "profile.user.follow_status",
+        }
+
+    @staticmethod
     def _document_has_body(value):
         body = value.get("body") if isinstance(value, dict) else None
         return (
@@ -1602,6 +1653,10 @@ class Browser:
         )
         data["reader_attempts"] = attempts
         data["selected_reader"] = data["source"]["reader"]
+        data["body_candidates"] = [
+            self._body_candidate(attempt, value)
+            for attempt, value in zip(successful, documents)
+        ]
         metadata_gaps = sorted({
             gap
             for value in documents
@@ -1644,7 +1699,8 @@ class Browser:
         elif args.section == "body":
             keys = [
                 "id", "url", "body", "source", "content_sha256",
-                "reader_attempts", "selected_reader", "provenance",
+                "reader_attempts", "body_candidates", "selected_reader",
+                "provenance",
             ]
             if args.raw:
                 keys.append("raw_responses")
@@ -1688,7 +1744,9 @@ class Browser:
                     user = returned_user
                     data = {**author({"user": user}), "bio": user.get("signature") or user.get("description"), "source": evidence,
                             "statistics": {"followers": integer(user.get("fan_num")), "following": integer(user.get("follow_num")),
-                                           "posts": integer(user.get("post_link_num")), "articles": integer(user.get("post_article_num"))}}
+                                           "posts": integer(user.get("post_link_num")), "articles": integer(user.get("post_article_num"))},
+                            "relationship": self._profile_relationship(
+                                args.user_id, user)}
                     scope = {"completion": "unknown", "gaps": [], "full_history": False}
             elif args.view == "relations":
                 raw, result, evidence = self.fetch(

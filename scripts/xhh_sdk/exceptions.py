@@ -12,14 +12,22 @@ class XhhError(Exception):
     code = "xhh_error"
     default_fix = ""
     retry_allowed = True
+    cooldown_required = False
 
     def __init__(self, message: str, *, code: str | None = None,
-                 fix: str | None = None, retry_allowed: bool | None = None):
+                 fix: str | None = None, retry_allowed: bool | None = None,
+                 cooldown_required: bool | None = None,
+                 retry_after_seconds: int | None = None):
         super().__init__(message)
         self.code = code or self.code
         self.fix = fix if fix is not None else self.default_fix
         self.retry_allowed = (self.retry_allowed
                               if retry_allowed is None else retry_allowed)
+        self.cooldown_required = (
+            self.cooldown_required
+            if cooldown_required is None else cooldown_required
+        )
+        self.retry_after_seconds = retry_after_seconds
 
     def public(self) -> dict:
         value = {"code": self.code, "message": str(self),
@@ -27,6 +35,9 @@ class XhhError(Exception):
                  "retry_allowed": self.retry_allowed}
         if self.fix:
             value["fix"] = self.fix
+        if self.cooldown_required:
+            value["cooldown_required"] = True
+            value["retry_after_seconds"] = self.retry_after_seconds
         return value
 
 
@@ -66,6 +77,7 @@ class XhhRateLimitError(XhhError):
     code = "rate_limited"
     default_fix = "stop the current task and wait for the platform limit to clear"
     retry_allowed = False
+    cooldown_required = True
 
 
 class XhhCaptchaError(XhhError):
@@ -74,6 +86,7 @@ class XhhCaptchaError(XhhError):
     code = "captcha_required"
     default_fix = "stop all requests; wait for the platform cooldown and complete verification interactively"
     retry_allowed = False
+    cooldown_required = True
 
 
 class XhhRiskTokenError(XhhConfigError):
