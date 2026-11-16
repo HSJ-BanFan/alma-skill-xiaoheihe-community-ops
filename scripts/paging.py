@@ -309,6 +309,16 @@ def project_coverage(value):
         coverage["status"] = "partial"
         coverage.pop("error", None)
         return coverage
+    if source_error and status in {"complete", "partial"}:
+        coverage["status"] = (
+            "retryable_failure"
+            if source_error.get("retry_allowed") is True
+            else "blocked"
+        )
+        coverage.setdefault("stop_reason", "platform_error")
+        if coverage["status"] == "blocked":
+            coverage["resume"] = None
+        return coverage
     if status in {
             "complete", "partial", "blocked", "retryable_failure",
             "failed", "cursor_stalled"}:

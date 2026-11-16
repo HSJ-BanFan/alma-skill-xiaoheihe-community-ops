@@ -671,6 +671,50 @@ class SnapshotAndStatusTests(unittest.TestCase):
                 self.assertIsNone(value["coverage"]["resume"])
                 self.assertIsNone(saved["pending_response"])
 
+    def test_pending_retryable_error_without_stop_reason_keeps_safe_resume(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            store = Store(root)
+            error = {
+                "code": "transport_error",
+                "message": "temporary network failure",
+                "retry_allowed": True,
+            }
+            store.save(
+                "101", "retryable", "query",
+                {"items": [{"id": "1"}]},
+                {"status": "partial", "resume": "safe-token"},
+                ["comments", "123"],
+                pending_response={
+                    "ok": True,
+                    "data": {"items": [{"id": "1"}]},
+                    "coverage": {
+                        "status": "partial",
+                        "resume": "safe-token",
+                    },
+                    "error": error,
+                },
+            )
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                exit_code = xhh.main(
+                    [
+                        "--data-dir", str(root),
+                        "snapshot", "resume", "retryable",
+                    ],
+                    client_factory=lambda config: self.fail(
+                        "offline replay requested a client"),
+                )
+            value = json.loads(output.getvalue())
+            saved = Store(root).get("101", "retryable")
+
+        self.assertEqual(exit_code, 1, value)
+        self.assertFalse(value["ok"])
+        self.assertEqual(value["coverage"]["status"], "retryable_failure")
+        self.assertEqual(value["error"]["code"], "transport_error")
+        self.assertEqual(value["coverage"]["resume"], "safe-token")
+        self.assertIsNone(saved["pending_response"])
+
     def test_pending_snapshot_replays_before_config_selection(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
