@@ -270,6 +270,71 @@ class AccountSessionTests(unittest.TestCase):
         )
         self.assertIsNone(resumed["pending_response"])
 
+    def test_malformed_resumed_platform_response_blocks_existing_snapshot(self):
+        store = accounts.AccountStore(self.root)
+        store.add("dual", identity="101")
+        current = store.get("dual")
+        store.save_login(
+            "dual", pkey="app-session", identity="101",
+            expected_revision=current.revision, protocol_mode="app",
+        )
+        current = store.get("dual")
+        store.save_login(
+            "dual", pkey="web-session", identity="101",
+            expected_revision=current.revision, protocol_mode="web",
+        )
+
+        class DualClient(ClientFixture):
+            def account_info(self):
+                self.calls.append(("/account/info", {}))
+                return {"userid": self.config.heybox_id}
+
+        empty_app = {
+            "result": {
+                "link": {"id": "123", "text": "", "is_summary": 1},
+                "comments": [],
+            },
+        }
+        malformed_web = {"result": {}}
+        app = DualClient(
+            "app", lambda path, query, protocol: empty_app)
+        web = DualClient(
+            "web", lambda path, query, protocol: malformed_web)
+        clients = {"app": app, "web": web}
+
+        first_output = io.StringIO()
+        with contextlib.redirect_stdout(first_output):
+            first_code = xhh.main([
+                "--data-dir", str(self.root),
+                "--account", "dual",
+                "post", "123", "--reader", "auto",
+                "--requests", "2", "--snapshot", "malformed",
+            ], client_factory=lambda config: clients[config.protocol_mode])
+        first = json.loads(first_output.getvalue())
+        saved_before = Store(self.root).get("101", "malformed")
+
+        self.assertEqual(first_code, 0, first)
+        self.assertIsNotNone(saved_before["coverage"]["resume"])
+
+        second_output = io.StringIO()
+        with contextlib.redirect_stdout(second_output):
+            second_code = xhh.main([
+                "--data-dir", str(self.root),
+                "--account", "dual",
+                "snapshot", "resume", "malformed",
+            ], client_factory=lambda config: clients[config.protocol_mode])
+        second = json.loads(second_output.getvalue())
+        saved_after = Store(self.root).get("101", "malformed")
+
+        self.assertEqual(second_code, 1, second)
+        self.assertEqual(second["coverage"]["status"], "blocked")
+        self.assertIsNone(second["coverage"]["resume"])
+        self.assertEqual(saved_after["data"], saved_before["data"])
+        self.assertEqual(saved_after["coverage"]["status"], "blocked")
+        self.assertIsNone(saved_after["coverage"]["resume"])
+        self.assertIsNone(saved_after["pending_response"])
+        self.assertGreater(saved_after["revision"], saved_before["revision"])
+
     def test_bound_account_with_empty_identity_keeps_specific_error_code(self):
         store = accounts.AccountStore(self.root)
         store.add("broken")
@@ -1034,6 +1099,7 @@ class ReaderAndBudgetTests(unittest.TestCase):
         first, first_scope = browser.execute(
             xhh.parser().parse_args([
                 "post", "123", "--reader", "auto", "--requests", "1",
+                "--section", "body",
             ])
         )
 
@@ -1045,6 +1111,7 @@ class ReaderAndBudgetTests(unittest.TestCase):
             resumed, resumed_scope = browser.execute(
                 xhh.parser().parse_args([
                     "post", "123", "--reader", "auto", "--requests", "2",
+                    "--section", "body",
                     "--resume", first_scope["resume"],
                 ]),
                 prior_data=legacy,

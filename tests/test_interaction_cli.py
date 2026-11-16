@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 import unittest
@@ -434,6 +435,41 @@ class InteractionCLITest(unittest.TestCase):
         self.assertEqual(value["data"]["unpersisted_page"]["entries"], [self.fixture.incoming])
         self.assertEqual(value["coverage"]["continuation"]["offset"], 0)
         self.assertIsNotNone(value["coverage"]["resume"])
+        self.assertEqual(self.sends(), [])
+
+    def test_sync_known_root_storage_failure_keeps_retry_position(self):
+        self.fixture_for_interactions()
+        first = self.run_cli(
+            "interaction", "sync", "501", "--requests", "3", "--pages", "10",
+        )[1]
+        before = len(self.fixture.calls)
+        with patch.object(
+            InteractionHistory,
+            "root_reference_valid",
+            side_effect=[
+                True,
+                sqlite3.OperationalError("database is locked"),
+            ],
+        ):
+            code, value = self.run_cli(
+                "interaction", "sync", "501",
+                "--requests", "10", "--pages", "10",
+                "--resume", first["coverage"]["resume"],
+            )
+
+        self.assertEqual(code, 1)
+        self.assertEqual(value["coverage"]["stop_reason"], "storage_error")
+        self.assertEqual(
+            value["coverage"]["error"]["code"],
+            "interaction_cache_incomplete",
+        )
+        self.assertEqual(
+            value["coverage"]["continuation"]["phase"],
+            "known_replies",
+        )
+        self.assertIsNotNone(value["coverage"]["resume"])
+        self.assertIn("status", value["data"])
+        self.assertEqual(len(self.fixture.calls) - before, 1)
         self.assertEqual(self.sends(), [])
 
     def test_packaged_cli_local_recovery_uses_stdlib_and_cannot_contact_a_server(self):
