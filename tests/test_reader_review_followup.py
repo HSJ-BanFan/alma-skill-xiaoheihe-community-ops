@@ -625,6 +625,9 @@ class SnapshotAndStatusTests(unittest.TestCase):
         self.assertEqual(value["error"]["code"], "captcha_required")
         self.assertIsNone(value["coverage"]["resume"])
         self.assertIsNone(saved["pending_response"])
+        self.assertEqual(saved["coverage"]["status"], "blocked")
+        self.assertIsNone(saved["coverage"]["resume"])
+        self.assertEqual(saved["revision"], 2)
 
     def test_pending_nonretryable_error_without_stop_reason_blocks_replay(self):
         for code in ("session_expired", "signer_error", "platform_error"):
@@ -670,6 +673,9 @@ class SnapshotAndStatusTests(unittest.TestCase):
                 self.assertEqual(value["error"]["code"], code)
                 self.assertIsNone(value["coverage"]["resume"])
                 self.assertIsNone(saved["pending_response"])
+                self.assertEqual(saved["coverage"]["status"], "blocked")
+                self.assertIsNone(saved["coverage"]["resume"])
+                self.assertEqual(saved["revision"], 2)
 
     def test_pending_retryable_error_without_stop_reason_keeps_safe_resume(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -714,6 +720,109 @@ class SnapshotAndStatusTests(unittest.TestCase):
         self.assertEqual(value["error"]["code"], "transport_error")
         self.assertEqual(value["coverage"]["resume"], "safe-token")
         self.assertIsNone(saved["pending_response"])
+        self.assertEqual(saved["coverage"]["status"], "retryable_failure")
+        self.assertEqual(saved["coverage"]["resume"], "safe-token")
+        self.assertEqual(saved["revision"], 2)
+
+    def test_account_scoped_pending_block_updates_persisted_coverage(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config_path = root / "config.json"
+            config_path.write_text(json.dumps({
+                "pkey": "fixture",
+                "heybox_id": "101",
+                "protocol_mode": "app",
+            }), encoding="utf-8")
+            store = Store(root)
+            error = {
+                "code": "session_expired",
+                "message": "expired",
+                "retry_allowed": False,
+            }
+            store.save(
+                "101", "blocked", "query",
+                {"items": [{"id": "1"}]},
+                {"status": "partial", "resume": "unsafe-token"},
+                ["comments", "123"],
+                pending_response={
+                    "ok": True,
+                    "data": {"items": [{"id": "1"}]},
+                    "coverage": {
+                        "status": "partial",
+                        "resume": "unsafe-token",
+                    },
+                    "error": error,
+                },
+            )
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                exit_code = xhh.main([
+                    "--data-dir", str(root),
+                    "--config", str(config_path),
+                    "snapshot", "resume", "blocked",
+                ], client_factory=lambda config: self.fail(
+                    "offline replay requested a client"))
+            value = json.loads(output.getvalue())
+            saved = Store(root).get("101", "blocked")
+
+        self.assertEqual(exit_code, 1, value)
+        self.assertFalse(value["ok"])
+        self.assertEqual(saved["coverage"]["status"], "blocked")
+        self.assertIsNone(saved["coverage"]["resume"])
+        self.assertIsNone(saved["pending_response"])
+        self.assertEqual(saved["revision"], 2)
+
+    def test_browsing_pending_block_updates_persisted_coverage(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config_path = root / "config.json"
+            config_path.write_text(json.dumps({
+                "pkey": "fixture",
+                "heybox_id": "101",
+                "protocol_mode": "app",
+            }), encoding="utf-8")
+            store = Store(root)
+            arguments = xhh.parser().parse_args([
+                "comments", "123", "--snapshot", "blocked",
+            ])
+            query_key = browser.query_key(arguments) + ":app"
+            error = {
+                "code": "signer_error",
+                "message": "signing failed",
+                "retry_allowed": False,
+            }
+            store.save(
+                "101", "blocked", query_key,
+                {"items": [{"id": "1"}]},
+                {"status": "partial", "resume": "unsafe-token"},
+                ["comments", "123"],
+                pending_response={
+                    "ok": True,
+                    "data": {"items": [{"id": "1"}]},
+                    "coverage": {
+                        "status": "partial",
+                        "resume": "unsafe-token",
+                    },
+                    "error": error,
+                },
+            )
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                exit_code = xhh.main([
+                    "--data-dir", str(root),
+                    "--config", str(config_path),
+                    "comments", "123",
+                    "--snapshot", "blocked",
+                ], client_factory=lambda config: SimpleNamespace(config=config))
+            value = json.loads(output.getvalue())
+            saved = Store(root).get("101", "blocked")
+
+        self.assertEqual(exit_code, 1, value)
+        self.assertFalse(value["ok"])
+        self.assertEqual(saved["coverage"]["status"], "blocked")
+        self.assertIsNone(saved["coverage"]["resume"])
+        self.assertIsNone(saved["pending_response"])
+        self.assertEqual(saved["revision"], 2)
 
     def test_pending_snapshot_replays_before_config_selection(self):
         with tempfile.TemporaryDirectory() as temporary:
