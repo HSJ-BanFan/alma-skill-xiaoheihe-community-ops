@@ -7,7 +7,7 @@
 ### 离线验证
 
 - 完整 `unittest` 为 `299/299` 通过。新增回归使用真实 App 响应外层形状覆盖 `follow_list`、`follow_cnt`、关注列表忽略请求页大小、同页 remainder、`relations` 的 `count/users` 集合，以及单资源被 `--limit` 截断时的安全部分结果。
-- 粉丝和关注视图兼容真实顶层 `follow_list` 与旧 `result.users`、`result.followers` 形状。平台总数的对应字段决定 `has_more`，硬条目上限仍优先。
+- 粉丝和关注视图兼容真实顶层 `follow_list` 与旧 `result.users`、`result.followers` 形状。平台返回 `has_more` 或 `has_more_floors` 时以其续读证据为准；两者都缺失时才由对应总数推导 `has_more`。硬条目上限仍优先。
 - `relations` 不再因缺少 `items` 产生 traceback，也不推断当前账号与目标用户的关注或互关状态。集合数量大于可交付记录时返回 `partial/relation_collection_partial` 和 `missing_count`。
 - 除 `user --view relations` 外，单资源完整列表大于 `--limit` 时返回 `partial/item_budget`、`single_response_truncated` 和 `omitted`，不再误报 `unsafe_item_continuation`，也不伪造 resume。`relations` 使用单独的 `partial/relation_collection_partial` 和 `missing_count`。
 - 定向 `test_discussion_regressions.py` 为 `23/23`，`test_discovery_shapes.py` 为 `36/36`。Ruff F 和 `git diff --check` 通过。
