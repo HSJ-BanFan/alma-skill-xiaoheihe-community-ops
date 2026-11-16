@@ -130,6 +130,14 @@ class WebPostContractTests(unittest.TestCase):
         Transport(self.config).web_signed_request(POST_ROUTE + "/", method="POST")
         self.assert_wire(self.requests[-1], POST_ROUTE + "/", "POST", {**WEB_QUERY, "_rnd": QUAD["_rnd"]})
 
+    def test_recognized_failure_preserves_sdk_status(self):
+        for message in ("缺失参数", "发布功能暂不可用"):
+            with self.subTest(message=message):
+                self.response = {"status": "failed", "msg": message}
+                with self.assertRaises(XhhAPIError) as caught:
+                    Transport(self.config).web_signed_request(POST_ROUTE, payload={"draft": "1"})
+                self.assertEqual(caught.exception.status, "failed")
+
     def test_recognized_failed_posts_report_fixed_cli_diagnostics_without_resending_or_persisting_text(self):
         for index, (message, token) in enumerate([
                 ("缺失参数", "web_post_missing_parameter"),
