@@ -6,11 +6,11 @@
 
 ### 离线验证
 
-- 完整 `unittest` 为 `297/297` 通过。新增回归使用真实 App 响应外层形状覆盖 `follow_list`、`follow_cnt`、关注列表忽略请求页大小、同页 remainder、`relations` 的 `count/users` 集合，以及单资源被 `--limit` 截断时的安全部分结果。
+- 完整 `unittest` 为 `299/299` 通过。新增回归使用真实 App 响应外层形状覆盖 `follow_list`、`follow_cnt`、关注列表忽略请求页大小、同页 remainder、`relations` 的 `count/users` 集合，以及单资源被 `--limit` 截断时的安全部分结果。
 - 粉丝和关注视图兼容真实顶层 `follow_list` 与旧 `result.users`、`result.followers` 形状。平台总数的对应字段决定 `has_more`，硬条目上限仍优先。
 - `relations` 不再因缺少 `items` 产生 traceback，也不推断当前账号与目标用户的关注或互关状态。集合数量大于可交付记录时返回 `partial/relation_collection_partial` 和 `missing_count`。
 - 除 `user --view relations` 外，单资源完整列表大于 `--limit` 时返回 `partial/item_budget`、`single_response_truncated` 和 `omitted`，不再误报 `unsafe_item_continuation`，也不伪造 resume。`relations` 使用单独的 `partial/relation_collection_partial` 和 `missing_count`。
-- 定向 `test_discussion_regressions.py` 为 `22/22`，`test_discovery_shapes.py` 为 `35/35`。Ruff F 和 `git diff --check` 通过。
+- 定向 `test_discussion_regressions.py` 为 `23/23`，`test_discovery_shapes.py` 为 `36/36`。Ruff F 和 `git diff --check` 通过。
 - `scripts/` 与 `tests/` 通过 `compileall`。`tests/verify_portable.py` 验证 21 个 SDK 文件摘要，输出 `ok=true`、`offline_state_writes=0`、`fixture_tests=passed` 和 `live_platform=not_tested`。Skill 官方验证器返回 `Skill is valid!`。
 
 ### 真实只读观察
@@ -23,6 +23,8 @@
 - `relations` 返回 `count=0/users=[]` 的成功集合。这个结果只证明该次平台的集合为空，不证明当前账号与目标用户没有关注、粉丝或互关关系。
 - `feed 549999 --order create --requests 1 --pages 1 --limit 1` 返回 1 条，coverage 为 `partial/item_budget`，保留平台排序键 `create/hot-rank/reply` 和 1 个过滤器。
 - `banners --requests 1 --pages 1 --limit 5` 从 13 条平台记录交付 5 条，退出码为 0，coverage 为 `partial/item_budget`，`omitted=8`，缺口为 `single_response_truncated`，resume 为 `null`。
+- `topics 存钱 --limit 1` 从平台返回的 10 条记录交付 1 条，退出码为 0，coverage 为 `partial/item_budget`，缺口为 `single_response_truncated`，resume 为 `null`。
+- 同一用户的 `followers --limit 10` 交付 10 条并保留总数 12、`completion=more` 和安全 resume；显式 `has_more` 与计数冲突的两种方向由离线回归覆盖。
 - 本轮没有出现 `show_captcha` 或限流响应。
 
 ### 仍未验证
