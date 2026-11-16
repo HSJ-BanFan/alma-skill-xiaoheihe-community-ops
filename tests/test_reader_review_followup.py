@@ -626,6 +626,51 @@ class SnapshotAndStatusTests(unittest.TestCase):
         self.assertIsNone(value["coverage"]["resume"])
         self.assertIsNone(saved["pending_response"])
 
+    def test_pending_nonretryable_error_without_stop_reason_blocks_replay(self):
+        for code in ("session_expired", "signer_error", "platform_error"):
+            with self.subTest(code=code), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                store = Store(root)
+                error = {
+                    "code": code,
+                    "message": "pending read failed",
+                    "retry_allowed": False,
+                }
+                store.save(
+                    "101", "blocked", "query",
+                    {"items": [{"id": "1"}]},
+                    {"status": "partial", "resume": "unsafe-token"},
+                    ["comments", "123"],
+                    pending_response={
+                        "ok": True,
+                        "data": {"items": [{"id": "1"}]},
+                        "coverage": {
+                            "status": "partial",
+                            "resume": "unsafe-token",
+                        },
+                        "error": error,
+                    },
+                )
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    exit_code = xhh.main(
+                        [
+                            "--data-dir", str(root),
+                            "snapshot", "resume", "blocked",
+                        ],
+                        client_factory=lambda config: self.fail(
+                            "offline replay requested a client"),
+                    )
+                value = json.loads(output.getvalue())
+                saved = Store(root).get("101", "blocked")
+
+                self.assertEqual(exit_code, 1, value)
+                self.assertFalse(value["ok"])
+                self.assertEqual(value["coverage"]["status"], "blocked")
+                self.assertEqual(value["error"]["code"], code)
+                self.assertIsNone(value["coverage"]["resume"])
+                self.assertIsNone(saved["pending_response"])
+
     def test_pending_snapshot_replays_before_config_selection(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
