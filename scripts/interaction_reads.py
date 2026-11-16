@@ -7,8 +7,40 @@ from types import SimpleNamespace
 from documents import author, comment, floors, identifier, integer, result_object, source
 from interaction_history import database
 from operations import OperationError, read, verify_identity
-from paging import Budget, ReadLimit, coverage, decode_resume, encode_resume
+from paging import (
+    Budget,
+    ReadLimit,
+    StopState,
+    coverage,
+    decode_resume,
+    encode_resume,
+)
 from xhh_sdk.exceptions import XhhConfigError, XhhError
+
+
+def diagnostic_error(error):
+    if isinstance(error, XhhError):
+        public = StopState.from_error(error).error or {}
+        return {**public, "status": getattr(error, "status", None)}
+    return {
+        "type": type(error).__name__,
+        "code": getattr(error, "code", None),
+        "status": getattr(error, "status", None),
+        "retry_allowed": False,
+    }
+
+
+def resumable_stop(stop, state, last_error):
+    if state["phase"] == "done":
+        return False
+    if stop in {
+            "request_budget", "time_budget", "page_budget", "storage_error",
+    }:
+        return True
+    return (
+        stop == "platform_error"
+        and bool((last_error or {}).get("retry_allowed"))
+    )
 
 
 def private_nodes(kind, data, uid):
@@ -141,7 +173,7 @@ def synchronize(store, client, scope, args, *, sanitize=lambda value: value):
         stop = error.reason
     except (XhhError, OperationError) as error:
         stop = "platform_error"
-        last_error = {"type": type(error).__name__, "code": getattr(error, "code", None), "status": getattr(error, "status", None)}
+        last_error = diagnostic_error(error)
     if stop is None:
         try:
             store.establish(scope.account_uid, {"source": "sync_identity_check", "protocol": client.config.protocol_mode})
@@ -254,14 +286,22 @@ def synchronize(store, client, scope, args, *, sanitize=lambda value: value):
             stop = error.reason
         except (XhhError, OperationError) as error:
             stop = "platform_error"
-            last_error = {"type": type(error).__name__, "code": getattr(error, "code", None), "status": getattr(error, "status", None)}
+            last_error = diagnostic_error(error)
         except (sqlite3.Error, OSError) as error:
             stop = "storage_error"
             last_error = {"type": type(error).__name__, "code": "interaction_cache_incomplete"}
             unpersisted_page = sanitize(read_page)
     if stop is None and state["phase"] != "done":
         stop = "page_budget"
-    token = encode_resume("interaction-sync", scope.account_uid, {"binding": binding, "state": state}) if state["phase"] != "done" else None
+    token = (
+        encode_resume(
+            "interaction-sync",
+            scope.account_uid,
+            {"binding": binding, "state": state},
+        )
+        if resumable_stop(stop, state, last_error)
+        else None
+    )
     scope_coverage = {"history_complete": False, "scope": "bounded_sources", "completion": "unknown", "scan_finished": state["phase"] == "done",
                       "stop_reason": stop, "gaps": sorted(set(gaps)), "resume": token, "continuation": state,
                       "pages_read": pages, "budget": budget.view(), "error": last_error,

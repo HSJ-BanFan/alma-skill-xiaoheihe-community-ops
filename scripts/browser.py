@@ -881,6 +881,13 @@ def request_arguments(args):
         value = getattr(args, action.dest, None)
         if value is None:
             continue
+        if action.dest == "platform_filters":
+            for key, selected in value:
+                result.extend([
+                    action.option_strings[0],
+                    f"{key}={selected}",
+                ])
+            continue
         if action.option_strings:
             if action.nargs == 0:
                 if value:
@@ -983,7 +990,8 @@ class Browser:
             identity_source.update(identity_verified=True, identity_verified_this_read=True)
             self.record([], identity_source, None, None, {"scope": "identity_check", "completion": "unknown"})
         if args.command == "post":
-            return self.post(args, budget, plan=post_plan)
+            return self.post(
+                args, budget, plan=post_plan, prior_data=prior_data)
         if args.command == "thread":
             return self.thread(args, budget, prior_data)
         paged = (args.command in ("comments", "replies", "feed", "hot", "stories",
@@ -1552,7 +1560,54 @@ class Browser:
             and bool(body.get("text") or body.get("blocks"))
         )
 
-    def post(self, args, budget, *, plan=None):
+    @staticmethod
+    def _prior_post_body(prior_data, post_id):
+        if (
+                not isinstance(prior_data, dict)
+                or identifier(prior_data.get("id")) != post_id
+                or not Browser._document_has_body(prior_data)):
+            return None
+        return prior_data
+
+    @staticmethod
+    def _saved_body_attempt(saved):
+        provenance = saved.get("provenance")
+        attempt = (
+            provenance.get("body")
+            if isinstance(provenance, dict)
+            else None
+        )
+        if isinstance(attempt, dict):
+            return dict(attempt)
+        body = saved.get("body") or {}
+        evidence = saved.get("source") or {}
+        return {
+            "reader": evidence.get("reader"),
+            "protocol": evidence.get("protocol"),
+            "status": "ok",
+            "body_status": body.get("status"),
+            "completeness": body.get("completeness"),
+            "body_characters": len(body.get("text") or ""),
+            "route": evidence.get("route"),
+            "session_revision": evidence.get("session_revision"),
+            "reader_offset": None,
+            "identity_verified": evidence.get("identity_verified"),
+        }
+
+    @staticmethod
+    def _merge_body_candidates(previous, current):
+        result = []
+        seen = set()
+        for candidate in [*(previous or []), *current]:
+            if not isinstance(candidate, dict):
+                continue
+            key = json.dumps(candidate, sort_keys=True, ensure_ascii=False)
+            if key not in seen:
+                seen.add(key)
+                result.append(candidate)
+        return result
+
+    def post(self, args, budget, *, plan=None, prior_data=None):
         attempts, documents, errors, raw_responses = [], [], [], []
         binding = query_key(args)
         plan = plan or self._reader_plan(args)
@@ -1691,14 +1746,32 @@ class Browser:
             enumerate(documents),
             key=lambda pair: (self._reader_score(pair[1]), -pair[0]),
         )
-        data, metadata_source = self._merge_post_documents(
-            documents, selected)
         successful = [
             attempt for attempt in attempts if attempt["status"] == "ok"
         ]
-        selected_attempt = successful[selected_index]
-        if args.section != "metadata" and not self._document_has_body(selected):
+        retained_body = (
+            self._prior_post_body(prior_data, args.link_id)
+            if args.resume and not self._document_has_body(selected)
+            else None
+        )
+        if retained_body is not None:
+            data, metadata_source = self._merge_post_documents(
+                [*documents, retained_body], retained_body)
+            selected_attempt = self._saved_body_attempt(retained_body)
+            body_gaps = data["body"].setdefault("gaps", [])
+            if "reader_body_missing_after_resume" not in body_gaps:
+                body_gaps.append("reader_body_missing_after_resume")
             if stop is None:
+                stop = StopState(
+                    StopKind.DATA_GAP,
+                    reason="reader_body_missing_after_resume",
+                )
+        else:
+            data, metadata_source = self._merge_post_documents(
+                documents, selected)
+            selected_attempt = successful[selected_index]
+        if args.section != "metadata" and not self._document_has_body(selected):
+            if stop is None and retained_body is None:
                 public = XhhConfigError(
                     "reader returned no post body",
                     code="body_missing",
@@ -1715,23 +1788,42 @@ class Browser:
                     reason="reader_order_exhausted",
                 )
             )
-        metadata_attempt = next(
-            (
-                attempt for attempt in successful
-                if attempt["protocol"] == metadata_source["source"]["protocol"]
-                and attempt["route"] == metadata_source["source"]["route"]
-            ),
-            selected_attempt,
+        saved_metadata = (
+            metadata_source.get("provenance", {}).get("metadata")
+            if metadata_source is retained_body
+            else None
+        )
+        metadata_attempt = (
+            dict(saved_metadata)
+            if isinstance(saved_metadata, dict)
+            else next(
+                (
+                    attempt for attempt in successful
+                    if attempt["protocol"] == metadata_source["source"]["protocol"]
+                    and attempt["route"] == metadata_source["source"]["route"]
+                ),
+                selected_attempt,
+            )
         )
         data["reader_attempts"] = attempts
         data["selected_reader"] = data["source"]["reader"]
-        data["body_candidates"] = [
+        current_candidates = [
             self._body_candidate(attempt, value)
             for attempt, value in zip(successful, documents)
         ]
+        data["body_candidates"] = self._merge_body_candidates(
+            retained_body.get("body_candidates", [])
+            if retained_body is not None
+            else [],
+            current_candidates,
+        )
         metadata_gaps = sorted({
             gap
-            for value in documents
+            for value in (
+                [*documents, retained_body]
+                if retained_body is not None
+                else documents
+            )
             for gap in value.get("metadata_gaps", [])
         })
         if metadata_gaps:

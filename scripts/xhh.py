@@ -501,7 +501,10 @@ def main(argv=None, *, client_factory=XhhClient):
             failure = coverage.get("error") or {}
             error_code = failure.get("code") if not data.get("identity_verified_this_read", True) or coverage.get("stop_reason") == "storage_error" else None
             emit(ok, args.command, data, coverage=coverage,
-                 error=None if ok else {"code": error_code or "platform_read_stopped", "retry_allowed": False}, secret=secret)
+                 error=None if ok else {
+                     "code": error_code or "platform_read_stopped",
+                     "retry_allowed": bool(failure.get("retry_allowed")),
+                 }, secret=secret)
             return 0 if ok else 1
         if args.command == "snapshot":
             from observations import Store, difference, merge, record_key, SnapshotConflict
@@ -527,6 +530,8 @@ def main(argv=None, *, client_factory=XhhClient):
             if not token:
                 raise XhhConfigError("snapshot has no resumable continuation")
             resumed = parser().parse_args([*saved["request"], "--resume", token, "--snapshot", args.name])
+            for name in ("account", "config", "env", "protocol", "data_dir"):
+                setattr(resumed, name, getattr(args, name))
             resumed_clients = load_clients(resumed, config, client_factory)
             resumed_client = next(iter(resumed_clients.values()))
             try:
