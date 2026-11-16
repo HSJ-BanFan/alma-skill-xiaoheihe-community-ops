@@ -6,7 +6,7 @@
 
 ### 离线验证
 
-- 完整 `unittest` 为 `293/293` 通过。新增回归覆盖自动 reader 在验证码或 HTTP 429 后停止、无正文文档时仍保留稳定阻断码、旧 pending 状态中的阻断错误优先于 `partial`、公开 HTML 在 void 元素后结束文章边界、显式 HTML 账号别名先于网络校验，以及旧 App-only 配置上的显式 website 读取返回 `web_session_missing`。
+- 完整 `unittest` 为 `294/294` 通过。新增回归覆盖自动 reader 在验证码或 HTTP 429 后停止、无正文文档时仍保留稳定阻断码、旧 pending 状态中的阻断错误优先于 `partial`、公开 HTML 在 void 元素后结束文章边界、显式 HTML 账号别名先于网络校验，以及旧 App-only 配置上的显式 website 读取返回 `web_session_missing`。
 - 旧 pending 的独立非预算错误现在按 `retry_allowed` 重新投影。不可重试错误转为 `blocked` 并清除 resume；可重试错误转为 `retryable_failure` 并保留已有安全 resume。回放在同一事务中写入投影后的 coverage、清除 pending 并递增 revision，后续账号范围续读不会重新取得旧危险令牌。
 - `scripts/` 与 `tests/` 通过 `compileall`，Ruff F 检查和 `git diff --check` 无错误。
 - `tests/verify_portable.py` 验证 21 个 SDK 文件摘要，输出 `ok=true`、`offline_state_writes=0`、`fixture_tests=passed` 和 `live_platform=not_tested`。
