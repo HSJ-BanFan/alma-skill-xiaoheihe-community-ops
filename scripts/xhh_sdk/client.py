@@ -212,12 +212,18 @@ class XhhClient(GroupMixin, InteractionMixin, BrowseMixin):
             post = Post(**{**post.__dict__, "images": resolved})
         payload = post.build()
         response = self.transport.signed_request("/bbs/app/api/link/post", payload=payload)
-        result = response.get("result", response if self.config.protocol_mode == "web" else {})
-        link_id = result.get("link_id") if isinstance(result, dict) else None
-        if (type(link_id) not in (int, str)
-                or not re.fullmatch(r"[1-9][0-9]{0,29}", str(link_id))):
+        result = response.get("result", {})
+        identifiers = [result.get("link_id") if isinstance(result, dict) else None]
+        if self.config.protocol_mode == "web":
+            identifiers = [container["link_id"] for container in (response, result)
+                           if isinstance(container, dict) and container.get("link_id") is not None]
+        if (not identifiers or any(type(identifier) not in (int, str)
+                or not re.fullmatch(r"[1-9][0-9]{0,29}", str(identifier))
+                for identifier in identifiers)):
             raise XhhAPIError("link/post returned no valid link_id")
-        link_id = str(link_id)
+        if len({str(identifier) for identifier in identifiers}) != 1:
+            raise XhhAPIError("link/post returned conflicting link_ids")
+        link_id = str(identifiers[0])
         return {"link_id": link_id,
                 "url": f"https://www.xiaoheihe.cn/app/bbs/link/{link_id}",
                 "draft": post.draft, "payload": payload}
