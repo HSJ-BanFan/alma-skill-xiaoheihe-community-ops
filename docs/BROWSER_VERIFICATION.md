@@ -6,7 +6,7 @@
 
 ### 离线验证
 
-- 完整 `unittest` 为 `314/314` 通过。新增回归覆盖 HTTP-date `Retry-After`、bounded worker 的等待时间传递、短信登录验证码与平台 HTTP 429、结构化账号错误、未绑定身份、正文候选摘要、App 资料的单向关注状态，以及已有快照在首轮续读被不可重试错误阻断后保留数据、清除 resume 与 pending、递增 revision。同名但属于另一查询的快照在平台阻断后保持不变。
+- 完整 `unittest` 为 `315/315` 通过。新增回归覆盖 HTTP-date `Retry-After`、bounded worker 的等待时间传递、短信登录验证码与平台 HTTP 429、结构化账号错误、未绑定身份、正文候选摘要、App 资料的单向关注状态，以及已有快照在首轮续读被不可重试错误阻断后保留数据、清除 resume 与 pending、递增 revision。可重试平台错误与属于另一查询的同名快照都保持不变。
 - `scripts/` 与 `tests/` 通过 `compileall`。Ruff F 检查和 `git diff --check` 无错误。更新的 `SNAPSHOT.json` 通过 portable verifier，验证随包 SDK 摘要和隔离目录下的夹具测试。Skill 官方验证器返回 `Skill is valid!`。
 - 回归把 `body_candidates` 限制为每个成功 reader 的摘要，不复制正文。`reader_attempts` 仍记录失败、预算停止、协议和 session revision。
 - 回归只在 App、目标非本人且原值为整数 `0` 或 `1` 时设置 `current_user_follows_target`。字符串、布尔值、Web 响应和本人资料保持 `null`；反向关注与互关没有证据时也保持 `null`。

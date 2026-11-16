@@ -211,7 +211,7 @@ python -I -X utf8 "<skill>/scripts/xhh.py" asset "https://imgheybox.max-c.com/�
 
 快照使用递增修订号拒绝并发陈旧更新，冲突时保留数据库与本次已读结果。续读既可以用 `snapshot resume`，也可以用原命令的 `--resume --snapshot`，均保留先前页。`snapshot resume NAME` 会先按名称查找未交付响应；仅当一个账号拥有该 pending 快照时，无需先加载账号配置即可离线重放。名称存在于多个账号时要求先用 `--account` 或 `--config` 选择账号。响应与下一断点在同一事务持久化，stdout 成功写出并刷新后才确认已交付；中断时下次调用先离线重放未交付响应，不跳过数据。原型期旧 `browsing.sqlite3` 路径不自动导入。
 
-同一查询的已有快照在续读或取得新页之前遇到不可重试错误时，工具保留原数据，将 coverage 原子更新为 `blocked`，清除 resume 和 pending，并递增 revision。该状态不会被误当作空结果，也不会保留下一次调用可复用的旧 token。同名快照属于另一查询时保持原快照不变。首次读取失败且没有快照时不创建空快照。
+同一查询的已有快照在续读或取得新页之前遇到不可重试错误时，工具保留原数据，将 coverage 原子更新为 `blocked`，清除 resume 和 pending，并递增 revision。该状态不会被误当作空结果，也不会保留下一次调用可复用的旧 token。可重试的传输或平台错误不修改已有快照，调用方可继续使用原续读状态。同名快照属于另一查询时保持原快照不变。首次读取失败且没有快照时不创建空快照。
 
 ```console
 python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> comments <link-id> --pages 3 --requests 2 --snapshot discussion
