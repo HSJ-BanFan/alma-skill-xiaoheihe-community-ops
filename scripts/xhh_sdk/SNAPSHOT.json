@@ -22,14 +22,14 @@
     "signer.py": "584ac2e79207fc29b11b17720d344e64ba290073cbad257e7901b4b1f1b17c90",
     "signer_bundle.py": "29dca5149792a44f89379fcab5aa1cd31518d86a69a420e3125dc354c198b6fd",
     "signer_resources.py": "2c13da12b28dc71f14214c692725d531f305b2e528ef18bc5aab42ad7a5f7599",
-    "transport.py": "91cf51a26053680d48e72af053a6168a02d8a6b8360396fc3369937492e3cabd",
+    "transport.py": "3905d94e856a627c052ef5b4b81e78f2bd03c53a6a7c75de4bcea6a949ebe26b",
     "web_signer.py": "684793405b16818a0866305afcf27e43c455a5d4e1643b6b35dc9dd9028a24e7"
   },
   "downstream_patches": {
     "client.py": "Reject a missing or non-object emoji catalog result; accept valid top-level or nested Web post IDs, ignore null alternate slots, and reject malformed or conflicting non-null IDs while preserving App nested-only receipts. Accept PNG, JPEG, and GIF by file magic with matching MIME; carry real upload dimensions; use the 10 MiB skill limit; select the configured post wire protocol.",
     "payload.py": "Use separate current Creator Web and legacy App form builders. Preserve native data-emoji spans, image-only bodies, real image metadata, covers, declarations, and the independent content and plan axes.",
     "config.py": "Preserve Web-only user session cookie names, carry the optional selected-account device cookie only on Web, and validate its header-safe characters.",
-    "transport.py": "Use the observed Creator RFC3986 form encoder and UTF-8 content type on Web POST. Include the existing signer quadruple _rnd only on normalized Web post, classify exact recognized failures into closed diagnostics, and protect bound device and session cookies from override.",
+    "transport.py": "Use the observed Creator RFC3986 form encoder and UTF-8 content type on the normalized Web post route, while preserving the established encoding for other Web POSTs. Include the existing signer quadruple _rnd only on web post, classify exact recognized failures into closed diagnostics, and protect bound device and session cookies from override.",
     "accounts.py": "Carry the selected managed account device token into runtime configuration without changing the encrypted account record or session-selection contract.",
     "cli.py": "Redact both session and bound device credentials from CLI output and error text.",
     "exceptions.py": "Add optional SDKDiagnostic values with fixed public Web post diagnostics and no upstream message."

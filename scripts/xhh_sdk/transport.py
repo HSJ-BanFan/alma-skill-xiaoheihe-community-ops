@@ -325,9 +325,11 @@ class Transport:
             "Cookie": cookie,
             "Accept": "application/json, text/plain, */*",
         }
-        data = urllib.parse.urlencode(payload, quote_via=urllib.parse.quote).encode("utf-8") if payload is not None else None
+        quote_via = urllib.parse.quote if is_web_post else urllib.parse.quote_plus
+        data = urllib.parse.urlencode(payload, quote_via=quote_via).encode("utf-8") if payload is not None else None
         if req_method == "POST":
-            headers["Content-Type"] = "application/x-www-form-urlencoded;charset=UTF-8"
+            headers["Content-Type"] = ("application/x-www-form-urlencoded;charset=UTF-8"
+                                       if is_web_post else "application/x-www-form-urlencoded")
         body = self._open(urllib.request.Request(url, data=data, headers=headers, method=req_method))
         parsed = self._decode(body)
         if is_web_post and parsed.get("status") == "failed" and type(parsed.get("msg")) is str:

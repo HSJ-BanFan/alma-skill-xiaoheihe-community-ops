@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
-from urllib.parse import parse_qs, urlencode, urlsplit
+from urllib.parse import parse_qs, quote, urlencode, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -73,13 +73,21 @@ class WebPostContractTests(unittest.TestCase):
         self.assertEqual(request.get_method(), method)
         self.assertEqual(parse_qs(urlsplit(request.full_url).query, keep_blank_values=True),
                          {key: [str(value)] for key, value in query.items()})
-        self.assertEqual(request.data, urlencode(payload).encode("utf-8") if payload is not None else None)
+        is_web_post = path.rstrip("/") == POST_ROUTE and method == "POST"
+        expected_encoder = {"quote_via": quote} if is_web_post else {}
+        self.assertEqual(request.data,
+                         urlencode(payload, **expected_encoder).encode("utf-8")
+                         if payload is not None else None)
         self.assertEqual(request.get_header("Cookie"), self.config.cookie_web)
         self.assertEqual(request.get_header("Origin"), self.config.web_origin)
         self.assertEqual(request.get_header("Referer"), self.config.web_origin + "/")
         self.assertEqual(request.get_header("User-agent"), self.config.user_agent_web)
+        expected_content_type = (
+            "application/x-www-form-urlencoded;charset=UTF-8"
+            if is_web_post else "application/x-www-form-urlencoded"
+        )
         self.assertEqual(request.get_header("Content-type"),
-                         "application/x-www-form-urlencoded" if method == "POST" else None)
+                         expected_content_type if method == "POST" else None)
 
     def cli(self, data, *args):
         output, errors = io.StringIO(), io.StringIO()
@@ -115,10 +123,11 @@ class WebPostContractTests(unittest.TestCase):
         for edit_id in (None, "801"):
             with self.subTest(edit_id=edit_id):
                 post = Post(content="<p>native <span data-emoji=\"cube_笑cry\"></span></p>",
-                            images=["https://example.invalid/synthetic-sticker.png"], edit_link_id=edit_id)
-                payload = post.build()
-                self.assertEqual(payload["link_tag"], "1")
-                self.assertEqual(payload.get("edit"), "1" if edit_id else None)
+                            images=["https://example.invalid/synthetic-sticker.png"],
+                            edit_link_id=edit_id, post_format="article", content_format="html")
+                payload = post.build(protocol="web")
+                self.assertEqual(payload["link_tag"], "11")
+                self.assertEqual(payload.get("link_id"), edit_id)
                 client.publish(post, upload_local=False)
                 query = parse_qs(urlsplit(self.requests[-1].full_url).query)
                 self.assertEqual(query.get("_rnd"), [QUAD["_rnd"]])
@@ -266,7 +275,7 @@ class WebPostContractTests(unittest.TestCase):
 
     def test_web_receipts_accept_top_or_nested_and_reject_invalid_or_conflicting_ids(self):
         client = XhhClient(self.config)
-        post = Post(content="synthetic")
+        post = Post(content="synthetic", content_format="text")
         for response in ({"status": "ok", "link_id": 801, "result": {}},
                          {"status": "success", "link_id": "801"},
                          {"status": "ok", "result": {"link_id": 801}},
