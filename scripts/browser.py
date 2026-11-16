@@ -1169,16 +1169,12 @@ class Browser:
         elif (data is not None and isinstance(data.get("items"), list)
               and hasattr(args, "limit")):
             if _fit_items(data, args, scope, matched=len(data["items"])):
-                public = XhhConfigError(
-                    "output limit truncated a response without a safe continuation",
-                    code="unsafe_item_continuation",
-                    fix="increase --limit before repeating this read",
-                ).public()
-                stop = StopState(
-                    StopKind.FATAL,
-                    reason="unsafe_item_continuation",
-                    error=public,
+                scope["completion"] = "complete"
+                scope["gaps"].append("single_response_truncated")
+                scope["omitted"] = (
+                    scope["matched_total"] - scope["selected"]
                 )
+                stop = StopState.budget_pause("item_budget")
         if args.raw:
             if data is None and raw_pages:
                 data = {"raw_pages": raw_pages}
