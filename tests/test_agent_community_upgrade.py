@@ -295,7 +295,7 @@ class AccountSessionTests(unittest.TestCase):
                 "comments": [],
             },
         }
-        malformed_web = {"result": {}}
+        malformed_web = {"result": {"link": {}}}
         app = DualClient(
             "app", lambda path, query, protocol: empty_app)
         web = DualClient(
