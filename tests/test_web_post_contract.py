@@ -270,15 +270,20 @@ class WebPostContractTests(unittest.TestCase):
         for response in ({"status": "ok", "link_id": 801, "result": {}},
                          {"status": "success", "link_id": "801"},
                          {"status": "ok", "result": {"link_id": 801}},
-                         {"status": "ok", "link_id": "801", "result": {"link_id": 801}}):
+                         {"status": "ok", "link_id": "801", "result": {"link_id": 801}},
+                         {"status": "ok", "link_id": None, "result": {"link_id": "801"}},
+                         {"status": "ok", "link_id": "801", "result": {"link_id": None}}):
             with self.subTest(response=response):
                 self.response = response
                 receipt = client.publish(post, upload_local=False)
                 self.assertEqual(receipt["link_id"], "801")
                 self.assertEqual(receipt["url"], "https://www.xiaoheihe.cn/app/bbs/link/801")
                 self.assertTrue(receipt["draft"])
-        invalid = [None, True, False, 0, -1, 1.5, "", "01", "801x", "9" * 31, [], {}]
+        invalid = [True, False, 0, -1, 1.5, "", "01", "801x", "9" * 31, [], {}]
         responses = [{"status": "ok", "result": {}},
+                     {"status": "ok", "link_id": None, "result": {}},
+                     {"status": "ok", "result": {"link_id": None}},
+                     {"status": "ok", "link_id": None, "result": {"link_id": None}},
                      {"status": "ok", "link_id": "801", "result": {"link_id": "802"}}]
         for value in invalid:
             responses.extend([{"status": "ok", "link_id": value, "result": {}},
