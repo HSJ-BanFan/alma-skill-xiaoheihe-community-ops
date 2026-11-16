@@ -1,4 +1,3 @@
-"""Structural checks for the packaged skill documentation."""
 from __future__ import annotations
 
 import json

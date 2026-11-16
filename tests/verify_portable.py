@@ -1,4 +1,3 @@
-"""Run a portable skill copy outside its checkout with isolated Python."""
 from __future__ import annotations
 
 import hashlib
