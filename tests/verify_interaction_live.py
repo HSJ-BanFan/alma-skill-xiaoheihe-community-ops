@@ -21,7 +21,7 @@ from xhh_sdk.accounts import AccountStore
 from xhh_sdk.client import XhhClient
 
 READ_ROUTES = {"/account/restore_login", "/bbs/app/profile/bbs/comment/list",
-               "/bbs/app/user/message", "/bbs/app/link/tree"}
+               "/bbs/app/user/message", "/bbs/app/link/tree", "/bbs/app/comment/sub/comments"}
 CONTENT_COLUMNS = {"text", "raw_text", "body", "media_json", "payload_json", "raw_json",
                    "submitted_request", "request_context", "image_url"}
 

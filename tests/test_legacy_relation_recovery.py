@@ -45,6 +45,62 @@ class LegacyRelationRecoveryTest(unittest.TestCase):
         self.store().capture("101", [{"id": "701", "post_id": "501", "root_id": "601", "author": {"uid": "101"}, "created_at": 30}],
             "own_list", {"route": "/bbs/app/profile/bbs/comment/list", "observed_at": 100, "identity_verified_this_read": True})
 
+    def test_legacy_zero_is_an_explicit_incomplete_lower_bound(self):
+        self.seed_old_comment()
+        state = self.store().status(Scope("101", "501"))
+        self.assertEqual(state["completed_round_count"], 0)
+        self.assertEqual(state.get("count_semantics"), "public_verified_lower_bound")
+        self.assertEqual(state.get("discussion_status"), "unknown")
+        self.assertEqual(state.get("relation_completeness"), "partial")
+        self.assertEqual(state.get("unattributed_own_comment_count"), 1)
+        self.assertIs(state.get("own_reply_relations_complete"), False)
+        self.assertFalse(state["history_complete"])
+
+    def test_peer_query_keeps_unknown_own_relation_warning(self):
+        self.seed_old_comment()
+        state = self.store().status(Scope("101", "501", "202"))
+        self.assertEqual(state["completed_round_count"], 0)
+        self.assertEqual(state.get("unattributed_own_comment_ids"), ["701"])
+        self.assertEqual(state.get("relation_completeness"), "partial")
+        self.assertEqual(state.get("discussion_status"), "unknown")
+
+    def test_lightweight_summaries_carry_relation_uncertainty(self):
+        self.seed_old_comment()
+        summaries = self.store().summaries("101", ["501", "999"])
+        self.assertEqual(summaries["501"].get("count_semantics"), "public_verified_lower_bound")
+        self.assertEqual(summaries["501"].get("relation_completeness"), "partial")
+        self.assertEqual(summaries["501"].get("unattributed_own_comment_count"), 1)
+        self.assertEqual(summaries["999"].get("discussion_status"), "unknown")
+        self.assertEqual(summaries["999"].get("relation_completeness"), "unknown")
+        self.assertEqual(self.fixture.calls, [])
+
+    def test_sync_reference_does_not_become_public_root_membership(self):
+        self.seed_old_comment()
+        scope = Scope("101", "501")
+        self.assertTrue(self.store().root_reference_valid(scope, "601"))
+        self.assertIsNone(self.store().root_post("101", "601"))
+        self.assertEqual(self.store().root_candidates(scope)["root_ids"], ["601"])
+        self.assertFalse(self.store().root_reference_valid(Scope("101", "999"), "601"))
+        self.assertFalse(self.store().root_reference_valid(Scope("101", "501", root_id="609"), "601"))
+
+    def test_foreign_observed_root_blocks_private_reference(self):
+        self.seed_old_comment()
+        self.store().capture("101", [{"id": "601", "post_id": "999", "root_id": "601", "author": {"uid": "303"}}],
+            "public", {"route": "/bbs/app/link/tree", "observed_at": 200, "identity_verified_this_read": True})
+        scope = Scope("101", "501")
+        self.assertFalse(self.store().root_reference_valid(scope, "601"))
+        self.assertEqual(self.store().root_candidates(scope)["root_ids"], [])
+        self.assertIn("root_reference_conflict:601", self.store().root_candidates(scope)["gaps"])
+
+    def test_caller_only_public_reference_cannot_seed_recovery(self):
+        self.fixture = LegacyRootFixture()
+        self.store().capture("101", [{"id": "701", "post_id": "501", "root_id": "601", "author": {"uid": "101"}}],
+            "public", {"route": "/bbs/app/comment/sub/comments", "post_id_source": "caller", "observed_at": 100,
+                       "identity_verified_this_read": True})
+        scope = Scope("101", "501")
+        self.assertFalse(self.store().root_reference_valid(scope, "601"))
+        self.assertEqual(self.store().root_candidates(scope)["root_ids"], [])
+
     def test_sync_reads_known_legacy_root_before_unrelated_post_pages(self):
         self.seed_old_comment()
         before = self.store().status(Scope("101", "501"))
@@ -53,6 +109,7 @@ class LegacyRelationRecoveryTest(unittest.TestCase):
         code, result = self.run_cli("interaction", "sync", "501", "--root", "601", "--requests", "2", "--pages", "1")
         self.assertEqual(code, 0)
         self.assertEqual(result["data"]["status"]["completed_round_count"], 1)
+        self.assertIs(result["data"]["status"].get("own_reply_relations_complete"), True)
         self.assertEqual([call[0] for call in self.fixture.calls], ["/account/restore_login", "/bbs/app/comment/sub/comments"])
         self.assertEqual(self.sends(), [])
 

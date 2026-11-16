@@ -33,6 +33,11 @@ peer 筛选保留自己的开场评论和已知祖先的关系记录。仅为说
 | `my_known_comment_count` | 该范围内具有自己 UID 的不同 CID，包含回执派生记录 |
 | `my_publicly_observed_comment_count` | 公开读取明确观察到自己作者 UID 的不同 CID |
 | `completed_round_count` | 不同对方 CID 被自己的公开精确回复覆盖的数量，公开证据须包含自己的 UID 和直接回复关系 |
+| `count_semantics` | 固定为 `public_verified_lower_bound`，完成轮数是当前公开证据的下界 |
+| `discussion_status` | `confirmed` 表示有与其他 UID 的明确直接互动，`unknown` 表示证据不足 |
+| `relation_completeness` | `partial` 表示关系仍有缺口，`complete_for_known_comments` 只覆盖已知评论，`unknown` 表示缺少可判定记录 |
+| `own_reply_relations_complete` | 已知自己的回复是否都有明确直接 CID 和目标 UID；没有已知回复时为 null |
+| `unattributed_own_comment_count` | 目标 UID 未知的已知自己的评论数，peer 查询也保留这些可能相关的记录数量 |
 | `awaiting_my_reply` | 结构化来信或明确目标尚无自己的回复或在途操作 |
 | `awaiting_public_readback` | 已有提交回执，精确作者和回复关系的公开读回未确认 |
 | `replied_visibility_unverified` | 自己的评论列表已给出回复，公开证据不足 |
@@ -45,7 +50,13 @@ peer 筛选保留自己的开场评论和已知祖先的关系记录。仅为说
 
 一条对方输入收到多个自己的回复，仍只计一个完成回合。重复页、变化的通知 ID、重复操作和旧快照不会增加计数。root 筛选要求对方输入属于该根楼；peer 筛选要求对方作者是该 UID。缺少作者、父节点或一致根楼时保留缺口，`ancestry_complete` 与 `history_complete` 分别描述关系及历史范围。
 
+旧评论可以同时返回 `participation=confirmed`、`completed_round_count=0` 和 `own_reply_relations_complete=false`。这表示已经参与，当前缺少足以验证完成回合的直接关系。`unattributed_own_comment_ids` 列出尚不能分配给具体 peer 的自己的评论，peer 查询仍保留这个不确定集合。明确的 `reply_to_uid` 可以说明互动对象，公开轮数仍要求现有严格证据。
+
+子评论接口可能返回完整直接回复链，却没有根楼本身。此时自己的直接关系可以完整，`own_reply_relations_complete=true`，同时 `ancestry_complete=false`。完成轮数继续保持下界标签，`history_complete=false`；读取根楼原文时再通过 `thread` 定位上下文。
+
 `public_seen_at` 表示曾在公开帖子评论入口观察到该 CID，不保证当前仍可见，也不证明匿名访客可见。有限分页中未再出现某个 CID 不推断删除。
+
+`discussion_status=confirmed` 可以来自已验证个人接口中的明确直接关系。它确认互动对象，公开读回和完成轮数分别由 `public_seen_at` 与 `completed_round_count` 给出。
 
 完成轮数与 answered 还要求自己回复和对方输入具有一致的已知根楼。祖先完整性会逐个核对中间节点及最终根楼的归属；根楼筛选不会隐藏矛盾关系。矛盾根楼或循环祖先保留关系缺口，不作为已完成证据。
 
@@ -67,7 +78,7 @@ peer 筛选保留自己的开场评论和已知祖先的关系记录。仅为说
 
 每个有效读取页先保存事实，再推进网络续读。普通浏览的 `coverage.interaction_capture` 报告保存结果，失败时标记 `interaction_cache_incomplete` 并保留读取内容。旧快照离线展示或未交付输出重放不把旧观察当作新平台事件。快照平台差异计算排除本地参与摘要。
 
-`post.data.interaction` 与 `feed`、`hot` 每个条目的 `interaction` 只包含轻量参与及计数，不展开 peer 关系记录或待处理集合。信息流使用批量本地查找，不额外发 HTTP。已知零条与 unknown 都不能作为从未评论的依据。
+`post.data.interaction` 与 `feed`、`hot` 每个条目的 `interaction` 包含轻量参与、计数及上述下界和完整性标记，不展开 peer 关系记录或待处理集合。信息流使用批量本地查找，不额外发 HTTP。已知零条与 unknown 都不能作为从未评论的依据。
 
 本地参与摘要读取失败时，保留成功取得的帖子或信息流正文。摘要标记 `cache_incomplete=true`、计数为 null，不能据此断言尚未参与。同步的身份保存失败则返回 storage_error，保留原续读位置和此前本地状态。
 
@@ -78,7 +89,7 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> --data-dir <dir> in
 python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> --data-dir <dir> interaction sync <post-id> --requests 10 --seconds 30 --pages 10 --resume <coverage.resume>
 ```
 
-`sync` 按所选协议先核验 UID，先各读一页最新收件箱和自己的评论，再读取目标帖子的根楼与必要深楼。目标读取完成后，用保存的私有 offset 交替补读旧收件箱与评论页，避免大量旧通知挤占目标帖子读取。个人接口是账号级列表，导入筛选到指定帖子；peer 与 root 缩小查询摘要，root 还限制需要深读的讨论分支。每次同步只读取，不发送评论、不修改已读状态，也不切换协议或账号。
+`sync` 按所选协议先核验 UID。已有已验证评论列表记录时，优先读取这些记录指向且仍需关系或公开证据的根楼。工具保留直接缺少 peer 的候选，不因 `--peer` 提前排除它们。没有候选时，先各读一页最新收件箱和自己的评论，再读取目标帖子的根楼与必要深楼；新评论列表发现的候选也先于无关帖子页处理。目标读取完成后，用保存的私有 offset 交替补读旧收件箱与评论页。个人接口是账号级列表，导入筛选到指定帖子；peer 与 root 缩小查询摘要，root 还限制需要深读的讨论分支。每次同步只读取，不发送评论、不修改已读状态，也不切换协议或账号。
 
 | 参数 | 默认与范围 |
 | --- | --- |
@@ -90,7 +101,11 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> --data-dir <dir> in
 | `--peer`、`--root` | 可选 UID 或 CID |
 | `--resume` | 同一账号与查询的续读令牌 |
 
-续读绑定 UID、协议、帖子、peer、root、limit 和 sort。请求、时间及总页数预算可以改变。非法或错配令牌在 HTTP 之前拒绝，待深读根楼还必须已有该 UID 下与目标帖子的可靠本地归属。断点包含当前来源、offset、根楼页号、待深读根楼和输入游标；已读事实及下一位置在同一事务保存。
+续读绑定 UID、协议、帖子、peer、root、limit 和 sort。请求、时间及总页数预算可以改变。非法或错配令牌在 HTTP 之前拒绝。公开根楼续读要求已有根楼记录；`known_replies` 续读可以使用该 UID 已验证评论列表中的明确根楼引用。引用必须属于所选帖子与根楼范围，已观察到冲突帖子归属时拒绝。引用只授权有界补读，不生成根楼记录，也不扩大独立 `replies --post-id` 的导入权限。断点保留来源、offset、根楼页号、待补读根楼和输入游标；每页事实先保存，再推进下一位置。
+
+候选与本轮已检查根楼各保留最多 100 个 ID。达到上限时 `gaps` 返回 `known_root_candidates_truncated` 或 `known_roots_truncated`；可以用 `history` 取得需要的根楼 ID，再通过 `--root` 缩小后续补读。`known_done` 只记录本轮已经检查的根楼，用于续读去重。新的独立同步会重新检查需要补全的记录。
+
+引用的依据消失或出现冲突时，旧续读令牌在 HTTP 之前返回 `XhhConfigError`。现有事实保留，重新运行不带 `--resume` 的同步会按当前有效依据重新选择候选。
 
 达到预算时保留 `request_budget`、`time_budget` 或 `page_budget` 停止原因及令牌。验证码、平台错误、登录失效或畸形后续页产生 `ok=false`、`platform_error`，保留此前已读数据和失败位置的续读令牌。重复游标产生 `cursor_stalled`，已经取得的节点仍保留。
 

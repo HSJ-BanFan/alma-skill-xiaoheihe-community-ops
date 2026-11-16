@@ -29,6 +29,8 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
 
 准备继续既有讨论、核对来信处置或恢复发送结果时，读取 [互动参考](docs/INTERACTION.md)。`interaction status <post-id>` 查询参与、轮数和待处理状态，`interaction history <post-id>` 返回评论 ID、作者、回复关系和时间；`--peer <uid>`、`--root <cid>` 缩小讨论范围。互动存储只保存结构化事实，原文和配图按需要用 `post`、`thread` 当前读取取得。`interaction sync <post-id>` 在预算内核验账号并补录事实，调用方决定是否回复及回复风格。
 
+`completed_round_count` 是 `public_verified_lower_bound`，零轮表示当前尚无已验证完成回合。`own_reply_relations_complete=false` 或 `unattributed_own_comment_count>0` 表示自己的旧回复还缺直接关系；运行 `interaction sync <post-id>`，工具优先补读已验证评论列表指向的根楼，预算不足时使用 `coverage.resume`。`discussion_status=confirmed` 表示已知与其他 UID 有直接互动。根楼上下文和全量历史的完整性分别读取 `ancestry_complete` 与 `history_complete`。
+
 ## 原生表情与图片贴纸
 
 选择表情、创建带表情的帖子或使用自制贴纸时，读取 [表情内容流程](references/EMOJIS.md)。按表达意图调用 `emojis search`，用返回的 ID 查详情和预览。目录中的含义说明标记来源与核验状态，排名分数是关键词匹配结果。
