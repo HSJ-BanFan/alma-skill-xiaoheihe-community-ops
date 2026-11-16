@@ -23,7 +23,8 @@ COMMENT_FIELDS = ("root_id", "author_uid", "reply_to_id", "reply_to_uid", "platf
 SOURCE_RANK = {"receipt": 0, "inbox": 1, "own_list": 2, "public": 3}
 SOURCE_ROUTES = {"/account/restore_login", "/bbs/app/link/tree", "/bbs/app/comment/sub/comments",
                  "/bbs/app/user/message", "/bbs/app/profile/bbs/comment/list", "operation_receipt"}
-SYNC_FIELDS = ("phase", "offset", "page", "roots", "cursor", "comments_done", "inbox_offset", "own_list_offset")
+SYNC_FIELDS = ("phase", "offset", "page", "roots", "cursor", "comments_done", "inbox_offset", "own_list_offset",
+               "known_roots", "known_done", "return_phase")
 SHA256 = re.compile(r"[a-f0-9]{64}")
 NATIVE_EMOJI_ID = re.compile(r"[a-z][a-z0-9]*:[0-9]{1,6}")
 TABLES = (
@@ -105,7 +106,7 @@ def source_evidence(value):
     result = {}
     choices = {"route": SOURCE_ROUTES, "protocol": ("app", "web"), "reader": ("native", "website"),
                "actor_origin": ("explicit_user_fields", "verified_own_comment_endpoint"),
-               "post_id_source": ("caller", "unknown")}
+        "post_id_source": ("caller", "unknown", "verified_own_list_reference")}
     for key, allowed in choices.items():
         if isinstance(value.get(key), str) and value[key] in allowed:
             result[key] = value[key]
@@ -152,20 +153,38 @@ def field_evidence(value):
             continue
         result[key] = {"source": evidence["source"], "observed_at": evidence["observed_at"],
                        "platform_updated_at": timestamp(evidence.get("platform_updated_at"))}
+        if key == "root_id" and type(evidence.get("caller_context")) is bool:
+            result[key]["caller_context"] = evidence["caller_context"]
     return result
+
+
+def caller_root_evidence(field, sources):
+    if not field or field.get("source") != "public":
+        return False
+    if type(field.get("caller_context")) is bool:
+        return field["caller_context"]
+    return any(source.get("kind") == "public" and source.get("post_id_source") == "caller" and
+               source.get("last_observed_at") == field.get("observed_at") for source in sources)
 
 
 def sync_continuation(value):
     if not isinstance(value, dict):
         return None
     result = {}
-    if value.get("phase") in ("inbox", "own_list", "comments", "replies", "done"):
+    if value.get("phase") in ("inbox", "own_list", "comments", "replies", "known_replies", "done"):
         result["phase"] = value["phase"]
     for key in ("offset", "page", "inbox_offset", "own_list_offset"):
         if type(value.get(key)) is int and value[key] >= (1 if key == "page" else 0) or key in ("inbox_offset", "own_list_offset") and value.get(key) is None:
             result[key] = value.get(key)
     if isinstance(value.get("roots"), list):
         result["roots"] = [identifier(cid) for cid in value["roots"][:100] if identifier(cid)]
+    for key in ("known_roots", "known_done"):
+        items = value.get(key, [])
+        if isinstance(items, list):
+            result[key] = [identifier(cid) for cid in items[:100] if identifier(cid)]
+    fallback_phase = value.get("phase") if value.get("phase") in ("inbox", "own_list", "comments", "done") else "inbox"
+    if value.get("return_phase", fallback_phase) in ("inbox", "own_list", "comments", "done"):
+        result["return_phase"] = value.get("return_phase", fallback_phase)
     if "cursor" in value:
         result["cursor"] = position(value["cursor"])
     if type(value.get("comments_done")) is bool:
@@ -210,10 +229,12 @@ def coverage_metadata(value, scope):
             result[key] = position(value[key])
     known_gaps = {"own_comment_post_unknown", "incoming_cid_invalid", "incoming_post_unknown", "inbox_endpoint_unknown",
                   "own_list_endpoint_unknown", "repeated_continuation", "comment_continuation_unknown",
-                  "requested_root_not_observed", "conflicting_page_markers", "continuation_missing", "comments_not_returned"}
+                  "requested_root_not_observed", "conflicting_page_markers", "continuation_missing", "comments_not_returned",
+                  "known_root_candidates_truncated", "known_roots_truncated"}
     if isinstance(value.get("gaps"), list):
         result["gaps"] = [gap for gap in value["gaps"] if isinstance(gap, str) and (gap in known_gaps or
-            gap.split(":", 1)[0] in ("root_children_markers_conflict", "reply_continuation_missing") and identifier(gap.split(":", 1)[-1]))]
+            gap.split(":", 1)[0] in ("root_children_markers_conflict", "reply_continuation_missing", "root_reference_conflict",
+                                    "unsupported_known_root") and identifier(gap.split(":", 1)[-1]))]
     if isinstance(value.get("budget"), dict):
         result["budget"] = {key: value["budget"][key] for key in ("used_requests", "request_limit", "seconds_remaining")
                             if timestamp(value["budget"].get(key)) is not None and value["budget"][key] >= 0}
@@ -541,9 +562,18 @@ def observe(connection, uid, node, source_kind, evidence):
             newer = (version >= old_version if version is not None and old_version is not None else now >= old["observed_at"])
             if field == "platform_created_at":
                 newer = False
+        if field == "root_id":
+            old_caller = caller_root_evidence(old, sources.values())
+            incoming_caller = source_kind == "public" and evidence.get("post_id_source") in ("caller", "unknown")
+            if old and incoming_caller and not old_caller:
+                newer = False
+            elif old_caller and not incoming_caller:
+                newer = True
         if newer:
             values[field] = value
             fields[field] = {"source": source_kind, "observed_at": now, "platform_updated_at": version}
+            if field == "root_id" and source_kind == "public":
+                fields[field]["caller_context"] = incoming_caller
     key = source_kind + ":" + str(evidence.get("route", ""))
     previous = sources.get(key)
     if previous is None or now >= previous["last_observed_at"]:
@@ -625,6 +655,65 @@ class InteractionHistory:
             row = connection.execute("SELECT post_id FROM interaction_comments WHERE uid=? AND comment_id=? AND root_id=?",
                                      (uid, root_id, root_id)).fetchone()
             return row["post_id"] if row else None
+
+    def root_reference_valid(self, scope, root_id):
+        if not self.path.exists() or scope.root_id and scope.root_id != root_id:
+            return False
+        with database(self.path) as connection:
+            connection.execute("BEGIN")
+            if not has_schema(connection):
+                return False
+            root = connection.execute("SELECT post_id FROM interaction_comments WHERE uid=? AND comment_id=? AND root_id=?",
+                                      (scope.account_uid, root_id, root_id)).fetchone()
+            if root and root["post_id"] != scope.post_id:
+                return False
+            references = connection.execute("""SELECT post_id,field_evidence_json,source_json FROM interaction_comments
+                WHERE uid=? AND root_id=? AND author_uid=? AND own_list_seen_at IS NOT NULL""",
+                (scope.account_uid, root_id, scope.account_uid)).fetchall()
+            posts = set()
+            for row in references:
+                field = json.loads(row["field_evidence_json"]).get("root_id", {})
+                sources = json.loads(row["source_json"]).values()
+                if field.get("source") not in ("own_list", "public"):
+                    continue
+                if caller_root_evidence(field, sources):
+                    continue
+                posts.add(row["post_id"])
+            return posts == {scope.post_id}
+
+    def root_candidates(self, scope, *, limit=100):
+        if not 1 <= limit <= 100:
+            raise XhhConfigError("root candidate limit must be within 1..100")
+        if not self.path.exists():
+            return {"root_ids": [], "truncated": False, "gaps": []}
+        with database(self.path) as connection:
+            connection.execute("BEGIN")
+            if not has_schema(connection):
+                return {"root_ids": [], "truncated": False, "gaps": []}
+            comments, _, _, _ = self._records(connection, scope)
+        by_id = {row["comment_id"]: row for row in comments}
+        roots = set()
+        gaps = []
+        for row in comments:
+            root = identifier(row["root_id"])
+            if row["author_uid"] != scope.account_uid or row["own_list_seen_at"] is None or not root:
+                continue
+            if scope.root_id and root != scope.root_id:
+                continue
+            parent = by_id.get(row["reply_to_id"]) or {}
+            peer = parent.get("author_uid") or row["reply_to_uid"]
+            if scope.peer_uid and peer is not None and peer != scope.peer_uid:
+                continue
+            incomplete = not public_fields(row, "author_uid") or row["comment_id"] != root and (
+                not public_fields(row, "reply_to_id") or parent.get("author_uid") is None or not consistent_reply(row, by_id))
+            if not scope.root_id and not incomplete:
+                continue
+            if self.root_reference_valid(scope, root):
+                roots.add(root)
+            else:
+                gaps.append("root_reference_conflict:" + root)
+        ordered = sorted(roots, key=lambda value: (len(value), value))
+        return {"root_ids": ordered[:limit], "truncated": len(ordered) > limit, "gaps": sorted(set(gaps))}
 
     def establish(self, uid, evidence):
         with database(self.path, write=True) as connection:
@@ -745,7 +834,8 @@ class InteractionHistory:
         for post, records in grouped.items():
             status = summarize(Scope(uid, post), *records, recovery)
             result[post] = {key: status[key] for key in ("account_uid", "participation", "my_known_comment_count",
-                "my_publicly_observed_comment_count", "completed_round_count", "history_complete")}
+                "my_publicly_observed_comment_count", "completed_round_count", "count_semantics", "discussion_status",
+                "relation_completeness", "own_reply_relations_complete", "unattributed_own_comment_count", "history_complete")}
             result[post]["projection_complete"] = recovery["projection_complete"]
             result[post]["identity_established"] = recovery["identity_established"]
         return result
@@ -876,12 +966,6 @@ def summarize(scope, comments, operations, events, coverage, recovery):
                         "operation_ids": [op["operation_id"] for op in related], "state": state,
                         "peer_uid": known_peer, "root_id": known_root,
                         "unresolved_operation_ids": [op["operation_id"] for op in uncertain]})
-    peers = sorted({row["author_uid"] for row in selected if row["author_uid"] not in (None, uid)})
-    peer_summaries = [{"peer_uid": peer, "known_comment_count": sum(row["author_uid"] == peer for row in selected),
-        "my_known_reply_count": sum((by_id.get(row["reply_to_id"]) or {}).get("author_uid", row["reply_to_uid"]) == peer for row in mine),
-        "my_publicly_observed_reply_count": sum(public_fields(row, "reply_to_id") and
-            (by_id.get(row["reply_to_id"]) or {}).get("author_uid") == peer for row in public),
-        "completed_round_count": sum(by_id[cid]["author_uid"] == peer for cid in rounds)} for peer in peers]
     missing = {row["reply_to_id"] for row in selected if row["reply_to_id"] and row["reply_to_id"] not in by_id}
     unknown = {row["comment_id"] for row in selected if not row["root_id"] or row["comment_id"] != row["root_id"] and not row["reply_to_id"]}
     cyclic, root_mismatches = set(), set()
@@ -908,12 +992,48 @@ def summarize(scope, comments, operations, events, coverage, recovery):
             current = by_id.get(current["reply_to_id"])
     participation = "confirmed" if public or any(row["own_list_seen_at"] is not None for row in mine) else \
         "submitted" if mine or any(op["status"] == "returned" for op in scoped_ops) else "uncertain" if unresolved else "unknown"
+    unattributed, contacts = set(), set()
+    invalid_relations = cyclic | root_mismatches
+    for row in comments:
+        parent = by_id.get(row["reply_to_id"]) or {}
+        root = row["root_id"] or parent.get("root_id")
+        if scope.root_id and root not in (None, scope.root_id):
+            continue
+        target_uid = parent.get("author_uid") or row["reply_to_uid"]
+        if row["author_uid"] == uid:
+            if row["comment_id"] != row["root_id"] and target_uid is None:
+                unattributed.add(row["comment_id"])
+            peer = target_uid
+        else:
+            peer = row["author_uid"] if target_uid == uid else None
+        if peer not in (None, uid) and (not scope.peer_uid or peer == scope.peer_uid) and \
+                row["comment_id"] not in invalid_relations:
+            contacts.add(peer)
+    unknown_authors = [row["comment_id"] for row in selected if row["author_uid"] is None]
+    incomplete = bool(missing or unknown or cyclic or root_mismatches or unknown_authors or unattributed)
+    relation_completeness = "partial" if incomplete else "complete_for_known_comments" if selected else "unknown"
+    own_ids = {row["comment_id"] for row in mine} | unattributed
+    own_replies = [row for row in comments if row["comment_id"] in own_ids and row["comment_id"] != row["root_id"]]
+    own_relations_complete = all(row["reply_to_id"] and
+        ((by_id.get(row["reply_to_id"]) or {}).get("author_uid") or row["reply_to_uid"]) is not None and
+        row["comment_id"] not in invalid_relations for row in own_replies) if own_replies else None
+    peers = sorted({row["author_uid"] for row in selected if row["author_uid"] not in (None, uid)} | contacts)
+    peer_summaries = [{"peer_uid": peer, "known_comment_count": sum(row["author_uid"] == peer for row in selected),
+        "my_known_reply_count": sum(((by_id.get(row["reply_to_id"]) or {}).get("author_uid") or row["reply_to_uid"]) == peer for row in mine),
+        "my_publicly_observed_reply_count": sum(public_fields(row, "reply_to_id") and
+            (by_id.get(row["reply_to_id"]) or {}).get("author_uid") == peer for row in public),
+        "completed_round_count": sum(by_id[cid]["author_uid"] == peer for cid in rounds),
+        "count_semantics": "public_verified_lower_bound", "discussion_status": "confirmed" if peer in contacts else "unknown"} for peer in peers]
     return {"account_uid": uid, **scope.binding(), "participation": participation,
             "known_actions": known_actions,
             "my_known_comment_count": len(mine), "my_publicly_observed_comment_count": len(public),
-            "completed_round_count": len(rounds), "pending": pending, "unresolved_operations": unresolved,
+            "completed_round_count": len(rounds), "count_semantics": "public_verified_lower_bound",
+            "discussion_status": "confirmed" if contacts else "unknown", "relation_completeness": relation_completeness,
+            "own_reply_relations_complete": own_relations_complete,
+            "unattributed_own_comment_count": len(unattributed), "unattributed_own_comment_ids": sorted(unattributed),
+            "pending": pending, "unresolved_operations": unresolved,
             "peer_summaries": peer_summaries, "missing_ancestor_ids": sorted(missing), "unknown_parent_ids": sorted(unknown),
-            "cyclic_reply_ids": sorted(cyclic), "unknown_author_ids": [row["comment_id"] for row in selected if row["author_uid"] is None],
+            "cyclic_reply_ids": sorted(cyclic), "unknown_author_ids": unknown_authors,
             "root_mismatch_ids": sorted(root_mismatches),
             "ancestry_complete": bool(selected) and not missing and not unknown and not cyclic and not root_mismatches,
             "history_complete": False, "coverage": {"history_complete": False, "scope": "known_records",
