@@ -187,7 +187,7 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 
 分页命令用页级 continuation 续读。除 `user --view relations` 外，单资源命令一次返回的完整列表超过 `--limit` 时使用 `partial/item_budget`，在 `coverage.gaps` 中报告 `single_response_truncated`，在 `coverage.omitted` 中给出省略条数；这类结果没有平台 continuation，因此 `coverage.resume` 为 `null`。`user --view relations` 使用上一段的 `relation_collection_partial` 契约。
 
-正文读取的 `reader_attempts` 和 `provenance` 分别记录每次读取及最终元数据、正文来源。`body_candidates` 对每个成功 reader 返回 `text_characters`、`block_count`、排序后的 `block_types`、`body_gaps` 和 `body_sha256`，不复制正文或块内容。`identity_verified` 属于实际完成会话核对的读取器；公开 HTML 不发送凭据，也不会继承 App/Web 的核验结果。显式 `--reader html` 如果同时传入 `--account`，工具会先验证该别名，只把账号的 UID 用作快照命名空间；GET 仍不携带账号凭据或签名器。公开 HTML 只从结构化元数据、文章标题或非通用页面标题提取标题，只从结构化作者或作者元数据提取作者；缺失时分别报告 `html_title_not_found` 和 `html_author_not_found`。公开 HTTP 401/403 返回 `http_access_denied`，超过 4 MiB 返回 `public_response_too_large`。除 `--section metadata` 外，所需正文为空会以 `body_missing` 失败，不会返回 `complete`。
+正文读取的 `reader_attempts` 和 `provenance` 分别记录每次读取及最终元数据、正文来源。`body_candidates` 对每个成功 reader 返回 `text_characters`、`block_count`、排序后的 `block_types`、`body_gaps` 和 `body_sha256`，不复制正文或块内容。`identity_verified` 属于实际完成会话核对的读取器；公开 HTML 不发送凭据，也不会继承 App/Web 的核验结果。显式 `--reader html` 如果同时传入 `--account`，工具会先验证该别名，只把账号的 UID 用作快照命名空间；GET 仍不携带账号凭据或签名器。公开 HTML 只从结构化元数据、文章标题或非通用页面标题提取标题，只从结构化作者或作者元数据提取作者；缺失时分别报告 `html_title_not_found` 和 `html_author_not_found`。公开 HTTP 401/403 返回 `http_access_denied`，超过 4 MiB 返回 `public_response_too_large`。除 `--section metadata` 外，所需正文为空会以 `body_missing` 失败，不会返回 `complete`。已有正文快照续读时，如果新一轮成功 reader 都没有可交付正文，工具保留旧正文、正文来源和候选摘要，并报告 `reader_body_missing_after_resume`。预算暂停仍返回安全 resume；reader 已耗尽时返回 `partial` 且不返回 resume。
 
 `thread.data.reply_location` 给出该次指定目标的回复位置，字段为 `page`、`limit`、`sort`、`cursor`。`page` 是根楼被观察到的绝对页号；`cursor` 是实际包含目标的子评论页的输入游标，首屏和根楼预览为 `null`。读取更多页后，该位置仍对应目标，独立于最后一页的 `coverage.next`。未观察到目标时位置为 `null`。保存的已观察目标位置可随快照续读保留；旧快照缺少位置时，需重新观察目标。位置仅用于定位，发送前仍核验目标。
 
@@ -220,7 +220,7 @@ python -I -X utf8 "<skill>/scripts/xhh.py" asset "https://imgheybox.max-c.com/�
 
 `identity_verified_this_read` 明确描述当前读取，兼容字段 `identity_verified` 保持同一含义。曾经核验的互动命名空间由 `interaction.identity_established` 表示，普通公开读取的当前身份标签仍为 false。快照差异比较排除本地 `interaction` 摘要，参与状态变化不会被当作平台帖子编辑。
 
-快照使用递增修订号拒绝并发陈旧更新，冲突时保留数据库与本次已读结果。续读既可以用 `snapshot resume`，也可以用原命令的 `--resume --snapshot`，均保留先前页。`snapshot resume NAME` 会先按名称查找未交付响应；仅当一个账号拥有该 pending 快照时，无需先加载账号配置即可离线重放。名称存在于多个账号时要求先用 `--account` 或 `--config` 选择账号。响应与下一断点在同一事务持久化，stdout 成功写出并刷新后才确认已交付；中断时下次调用先离线重放未交付响应，不跳过数据。原型期旧 `browsing.sqlite3` 路径不自动导入。
+快照使用递增修订号拒绝并发陈旧更新，冲突时保留数据库与本次已读结果。续读既可以用 `snapshot resume`，也可以用原命令的 `--resume --snapshot`，均保留先前页。`snapshot resume NAME` 会先按名称查找未交付响应；仅当一个账号拥有该 pending 快照时，无需先加载账号配置即可离线重放。名称存在于多个账号时要求先用 `--account` 或 `--config` 选择账号。网络续读使用本次调用者选择的账号、配置、环境、协议和数据目录，不把凭据写入保存的请求参数。保存的请求参数逐项保留重复的 `--platform-filter KEY=VALUE`，值中可以包含另一个 `=`。响应与下一断点在同一事务持久化，stdout 成功写出并刷新后才确认已交付；中断时下次调用先离线重放未交付响应，不跳过数据。原型期旧 `browsing.sqlite3` 路径不自动导入。
 
 同一查询的已有快照在续读或取得新页之前遇到不可重试错误时，工具保留原数据，将 coverage 原子更新为 `blocked`，清除 resume 和 pending，并递增 revision。该状态不会被误当作空结果，也不会保留下一次调用可复用的旧 token。可重试的传输或平台错误不修改已有快照，调用方可继续使用原续读状态。同名快照属于另一查询时保持原快照不变。首次读取失败且没有快照时不创建空快照。
 

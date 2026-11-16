@@ -92,9 +92,9 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> --data-dir <dir> in
 
 续读绑定 UID、协议、帖子、peer、root、limit 和 sort。请求、时间及总页数预算可以改变。非法或错配令牌在 HTTP 之前拒绝，待深读根楼还必须已有该 UID 下与目标帖子的可靠本地归属。断点包含当前来源、offset、根楼页号、待深读根楼和输入游标；已读事实及下一位置在同一事务保存。
 
-达到预算时保留 `request_budget`、`time_budget` 或 `page_budget` 停止原因及令牌。验证码、平台错误、登录失效或畸形后续页产生 `ok=false`、`platform_error`，保留此前已读数据和失败位置的续读令牌。重复游标产生 `cursor_stalled`，已经取得的节点仍保留。
+达到预算时保留 `request_budget`、`time_budget` 或 `page_budget` 停止原因及令牌。HTTP 408、5xx、DNS、TLS、超时和连接重置等可重试错误保留此前已读数据及安全续读令牌。验证码、限流、登录失效、畸形后续页和其他不可重试错误产生 `ok=false`、`platform_error`，保留此前已读数据和 `coverage.continuation` 诊断，但不返回续读令牌。重复游标产生 `cursor_stalled`，已经取得的节点仍保留。
 
-保存失败产生 `storage_error` 和 `interaction_cache_incomplete`，`data.unpersisted_page` 在本次响应中保留未能导入事实的完整页，续读位置保持在该页；该原始页不进入互动数据库。当前登录在续读前失效时，同样保留已有本地事实和原查询令牌，当前身份标记为未核验。
+保存失败产生 `storage_error` 和 `interaction_cache_incomplete`，`data.unpersisted_page` 在本次响应中保留未能导入事实的完整页，续读位置保持在该页；该原始页不进入互动数据库。当前登录在续读前失效时，保留已有本地事实和断点诊断，但不返回原查询令牌，当前身份标记为未核验。
 
 `coverage.scan_finished=true` 表示本次来源遍历已走到可取得的终点，不表示全量历史已覆盖。没有续读位置、空数组和 own-comment 列表的终点证据不足时仍保留 gaps。第一版的 `history_complete` 始终为 false，`completion=unknown`。新一轮检查最新通知从 offset 0 开始，而不是把旧历史游标作为最新消息检查。
 

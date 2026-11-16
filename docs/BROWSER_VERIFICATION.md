@@ -6,12 +6,15 @@
 
 ### 离线验证
 
-- 完整 `unittest` 为 `460/460` 通过。新增回归覆盖 HTTP-date `Retry-After`、bounded worker 的等待时间传递、短信登录验证码与平台 HTTP 429、结构化账号错误、未绑定身份、正文候选摘要、App 资料的单向关注状态、发送与不确定状态双写失败，以及已有快照在首轮续读被不可重试错误阻断后保留数据、清除 resume 与 pending、递增 revision。可重试平台错误与属于另一查询的同名快照都保持不变。
+- 完整 `unittest` 为 `465/465` 通过。新增回归覆盖 HTTP-date `Retry-After`、bounded worker 的等待时间传递、短信登录验证码与平台 HTTP 429、结构化账号错误、未绑定身份、正文候选摘要、App 资料的单向关注状态、发送与不确定状态双写失败，以及已有快照在首轮续读被不可重试错误阻断后保留数据、清除 resume 与 pending、递增 revision。可重试平台错误与属于另一查询的同名快照都保持不变。
 - 合并主分支的最新消息与互动能力后，回归覆盖原生表情目录、搜索和预览，预发送组合、发送去重和读回核对，图片贴纸，结构化 `describe`，以及 `interaction status/history/sync`；`post`、`feed` 和 `hot` 的互动摘要与原生表情归一化不增加 HTTP 请求。
 - `scripts/` 与 `tests/` 通过 `compileall`。Ruff F 检查和 `git diff --check` 无错误。更新的 `SNAPSHOT.json` 通过 portable verifier，验证随包 SDK 摘要和隔离目录下的夹具测试。Skill 官方验证器返回 `Skill is valid!`。
 - 回归把 `body_candidates` 限制为每个成功 reader 的摘要，不复制正文。`reader_attempts` 仍记录失败、预算停止、协议和 session revision。
 - 回归只在 App、目标非本人且原值为整数 `0` 或 `1` 时设置 `current_user_follows_target`。字符串、布尔值、Web 响应和本人资料保持 `null`；反向关注与互关没有证据时也保持 `null`。
 - 回归验证 `captcha_required` 和 `rate_limited` 都清除 resume。HTTP-header 或平台 envelope 的冷却错误传播 `retry_after_seconds`，没有可信等待时间时为 `null`。
+- 回归验证正文快照续读不会用空 reader 覆盖已有可用正文。旧正文和来源保留，正文候选按摘要去重；一轮 reader 耗尽时返回 `partial` 和 `reader_body_missing_after_resume`，预算暂停时保留安全 resume。旧快照缺少 `provenance` 时从 `source` 恢复正文来源。
+- 回归验证 managed App/Web 账号的 `snapshot resume` 恢复调用者选择的账号、配置、环境、协议和数据目录。重复的 `--platform-filter` 可以往返保存，筛选值包含另一个 `=` 时只按第一个 `=` 拆分。
+- 回归验证 `interaction sync` 只有在预算停止、存储失败或可重试平台错误时返回 resume。验证码、HTTP 429、登录失效及其他不可重试错误保留已导入事实和 `coverage.continuation`，但清除 resume。
 
 ### 真实只读观察
 

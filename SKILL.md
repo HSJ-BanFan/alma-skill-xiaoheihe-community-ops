@@ -76,7 +76,7 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
 
 普通浏览的 `source.configured_uid` 是配置中的数据命名空间，`source.identity_verified=false` 只表示本次没有核验在线会话身份。需要持续浏览时用 `--snapshot <name>` 保存公开观察与断点，`--since <name>` 查看同一查询的新增、变化和未再次观察到的条目。保存、`--since` 和网络续读会先核验在线 UID。未交付的 pending 响应可以在唯一名称下先离线重放；名称跨多个账号时仍需显式选择账号。其他离线快照操作按配置 UID 隔离，不表示身份已核验。缺失条目不推断为删除。
 
-当同一查询的续读或已有快照在取得新页前遇到不可重试错误时，工具保留已有数据，原子写入 `blocked`，清除 resume 和 pending。可重试的传输或平台错误不修改已有快照。同名快照属于另一查询时保持原快照不变。没有已有数据时不会创建空快照。
+当同一查询的续读或已有快照在取得新页前遇到不可重试错误时，工具保留已有数据，原子写入 `blocked`，清除 resume 和 pending。可重试的传输或平台错误不修改已有快照。正文快照续读时，如果新一轮成功 reader 都没有可交付正文，工具保留旧正文、正文来源和候选摘要，并报告 `reader_body_missing_after_resume`。预算暂停仍返回安全 resume；reader 已耗尽时返回 `partial` 且不返回 resume。同名快照属于另一查询时保持原快照不变。没有已有数据时不会创建空快照。
 
 `coverage.full_history=false` 表示有限范围。空单页不能证明全量历史已查完。平台接口缺少预期消息字段时返回错误，不把协议异常当作空收件箱。
 
