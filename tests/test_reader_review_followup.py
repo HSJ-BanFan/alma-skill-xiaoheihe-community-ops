@@ -221,6 +221,102 @@ class WireBoundaryTests(unittest.TestCase):
 
 
 class ReaderEvidenceTests(unittest.TestCase):
+    def test_paged_delivery_keeps_invalid_record_evidence_from_every_page(self):
+        class PagedBrowser(browser.Browser):
+            def page(self, args, budget):
+                if args.offset == 0:
+                    return (
+                        {"items": [{"id": "1"}, {"id": "2"}]},
+                        {
+                            "completion": "more",
+                            "gaps": ["invalid_post_records"],
+                            "next": 1,
+                            "returned": 2,
+                            "invalid": 1,
+                            "excluded": 1,
+                        },
+                    )
+                return (
+                    {"items": [{"id": "3"}]},
+                    {
+                        "completion": "complete",
+                        "gaps": [],
+                        "next": None,
+                        "returned": 1,
+                        "invalid": 0,
+                        "excluded": 0,
+                    },
+                )
+
+        client = ClientFixture("app", lambda *args: self.fail("unused"))
+        data, scope = PagedBrowser(client).execute(
+            xhh.parser().parse_args([
+                "stories", "--pages", "2", "--limit", "10",
+            ]))
+
+        self.assertEqual([item["id"] for item in data["items"]], ["1", "2", "3"])
+        self.assertEqual(scope["gaps"], ["invalid_post_records"])
+        self.assertEqual(scope["invalid"], 1)
+        self.assertEqual(scope["excluded"], 1)
+
+    def test_auto_reader_stops_on_platform_block_even_when_retry_flag_is_true(self):
+        for status, expected in (
+            ("show_captcha", "captcha_required"),
+            ("HTTP_429", "rate_limited"),
+        ):
+            with self.subTest(status=status):
+                app = ClientFixture(
+                    "app",
+                    lambda *args: self.fail("signed App request"),
+                )
+                web = ClientFixture(
+                    "web",
+                    lambda *args: self.fail("signed Web request"),
+                )
+                calls = []
+                evidence = {
+                    "route": "/bbs/app/link/tree",
+                    "protocol": "app",
+                    "observed_at": 0,
+                    "configured_uid": "101",
+                    "identity_verified": False,
+                    "reader": "native",
+                }
+
+                def incomplete(args, budget):
+                    calls.append("native")
+                    return browser.document(
+                        {"id": "123", "text": ""}, evidence), {}
+
+                def blocked(args, budget):
+                    calls.append("website")
+                    raise XhhAPIError(
+                        f"platform stopped with {status}",
+                        status=status,
+                        retry_allowed=True,
+                    )
+
+                plan = [
+                    browser.ReaderSpec(
+                        "native", "app", "/bbs/app/link/tree", incomplete),
+                    browser.ReaderSpec(
+                        "website", "web", "/bbs/app/link/tree", blocked),
+                ]
+                data, scope = browser.Browser(
+                    app, clients={"app": app, "web": web}).post(
+                        xhh.parser().parse_args([
+                            "post", "123", "--reader", "auto",
+                        ]),
+                        Budget(requests=2),
+                        plan=plan,
+                    )
+
+                self.assertEqual(data["body"]["status"], "missing")
+                self.assertEqual(scope["status"], "blocked")
+                self.assertEqual(scope["error"]["code"], expected)
+                self.assertIsNone(scope["resume"])
+                self.assertEqual(calls, ["native", "website"])
+
     def test_later_terminal_reader_error_outranks_earlier_transport_failure(self):
         app = ClientFixture("app", lambda *args: self.fail("signed request"))
         web = ClientFixture("web", lambda *args: self.fail("signed request"))
@@ -444,8 +540,56 @@ class PublicDocumentTests(unittest.TestCase):
         self.assertNotIn("html_title_not_found", data["metadata_gaps"])
         self.assertNotIn("html_author_not_found", data["metadata_gaps"])
 
+    def test_public_html_stops_at_article_boundary_across_void_elements(self):
+        data, _ = self.run_html(
+            b"<html><body><article><p>article body</p>"
+            b"<img src=\"https://example.com/image.png\"><br>"
+            b"</article><footer>footer text</footer></body></html>"
+        )
+
+        self.assertEqual(data["body"]["text"], "article body")
+        self.assertNotIn("footer text", data["body"]["text"])
+
 
 class SnapshotAndStatusTests(unittest.TestCase):
+    def test_pending_block_error_outside_coverage_controls_replayed_delivery(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            store = Store(root)
+            error = {
+                "status": "show_captcha",
+                "message": "platform requires captcha",
+                "retry_allowed": True,
+            }
+            store.save(
+                "101", "blocked", "query",
+                {"items": [{"id": "1"}]},
+                {"status": "partial", "resume": "unsafe-token"},
+                ["comments", "123"],
+                pending_response={
+                    "ok": True,
+                    "data": {"items": [{"id": "1"}]},
+                    "coverage": {"status": "partial", "resume": "unsafe-token"},
+                    "error": error,
+                },
+            )
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                code = xhh.main([
+                    "--data-dir", str(root),
+                    "snapshot", "resume", "blocked",
+                ], client_factory=lambda config: self.fail(
+                    "offline replay requested a client"))
+            value = json.loads(output.getvalue())
+            saved = Store(root).get("101", "blocked")
+
+        self.assertEqual(code, 1, value)
+        self.assertFalse(value["ok"])
+        self.assertEqual(value["coverage"]["status"], "blocked")
+        self.assertEqual(value["error"]["code"], "captcha_required")
+        self.assertIsNone(value["coverage"]["resume"])
+        self.assertIsNone(saved["pending_response"])
+
     def test_pending_snapshot_replays_before_config_selection(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -536,6 +680,58 @@ class SnapshotAndStatusTests(unittest.TestCase):
         })
         self.assertEqual(projected["status"], "blocked")
         self.assertIsNone(projected["resume"])
+
+
+class ConfigurationBoundaryTests(unittest.TestCase):
+    def test_explicit_html_validates_an_explicit_account_alias(self):
+        class MissingAccountStore:
+            def __init__(self, root):
+                self.root = root
+
+            def get(self, alias):
+                raise XhhConfigError("Account not found")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = io.StringIO()
+            requests = []
+            with patch("xhh.AccountStore", MissingAccountStore), \
+                    patch("browser.read_http", side_effect=lambda request, *args,
+                          **kwargs: requests.append(request)
+                          or b"<article>body</article>"), \
+                    contextlib.redirect_stdout(output):
+                code = xhh.main([
+                    "--data-dir", str(root),
+                    "--account", "missing",
+                    "post", "123", "--reader", "html", "--requests", "1",
+                ])
+            value = json.loads(output.getvalue())
+
+        self.assertEqual(code, 1, value)
+        self.assertEqual(value["error"]["code"], "configuration_error")
+        self.assertEqual(requests, [])
+
+    def test_legacy_app_config_explicit_website_reports_web_session_missing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = root / "app.json"
+            config.write_text(json.dumps({
+                "pkey": "app-session",
+                "heybox_id": "101",
+                "protocol_mode": "app",
+            }), encoding="utf-8")
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                code = xhh.main([
+                    "--config", str(config),
+                    "--data-dir", str(root),
+                    "post", "123", "--reader", "website",
+                ], client_factory=lambda config: self.fail(
+                    "missing Web session created a client"))
+            value = json.loads(output.getvalue())
+
+        self.assertEqual(code, 1, value)
+        self.assertEqual(value["error"]["code"], "web_session_missing")
 
 
 if __name__ == "__main__":
