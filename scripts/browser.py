@@ -1420,29 +1420,32 @@ class Browser:
             )
         return client
 
+    def _platform_post_document(self, result, evidence, raw):
+        try:
+            link = result.get("link")
+            if not isinstance(link, dict):
+                raise XhhConfigError("post missing from platform result")
+            return document(link, evidence, self.catalog)
+        except XhhConfigError as error:
+            error.code = "platform_response_invalid"
+            error.raw_response = raw
+            raise
+
     def _read_native_post(self, args, budget):
         query = {"link_id": args.link_id, "page": str(args.page),
                  "limit": str(args.limit), "sort_filter": args.sort}
         raw, result, evidence = self.native(
             query, budget, client=self._reader_client("app"))
-        if not isinstance(result.get("link"), dict):
-            raise XhhConfigError(
-                "post missing from platform result",
-                code="platform_response_invalid",
-            )
-        return document(result["link"], evidence, self.catalog), raw
+        return self._platform_post_document(
+            result, evidence, raw), raw
 
     def _read_website_post(self, args, budget):
         query = {"link_id": args.link_id, "page": str(args.page),
                  "limit": str(args.limit), "sort_filter": args.sort}
         raw, result, evidence = self.website(
             query, budget, client=self._reader_client("web"))
-        if not isinstance(result.get("link"), dict):
-            raise XhhConfigError(
-                "post missing from platform result",
-                code="platform_response_invalid",
-            )
-        return document(result["link"], evidence, self.catalog), raw
+        return self._platform_post_document(
+            result, evidence, raw), raw
 
     def _read_html_post(self, args, budget):
         return self.public_html(args.link_id, budget)
