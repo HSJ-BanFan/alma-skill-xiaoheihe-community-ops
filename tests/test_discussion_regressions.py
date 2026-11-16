@@ -83,9 +83,34 @@ class DiscussionFixture(test_tools.PlatformFixture):
                 "text": payload["text"][0],
             }
         elif path == "/bbs/app/profile/user/link/list":
-            data["result"] = {"user": {"id": "303", "username": "fixture author"}, "links": []}
+            data.pop("result", None)
+            data.update({
+                "post_links": [],
+                "total_page": 1,
+                "user": {"userid": "303", "username": "fixture author"},
+            })
         elif path in ("/bbs/app/profile/follower/list", "/bbs/app/profile/following/list"):
-            data["result"] = {"users": [{"id": "404", "username": "fixture relation"}], "has_more": False}
+            data.pop("result", None)
+            data.update({
+                "follow_cnt": {
+                    "fan_num": 1,
+                    "follow_num": 1,
+                    "inter_follow_num": 1,
+                },
+                "follow_list": [{
+                    "userid": "404",
+                    "username": "fixture relation",
+                }],
+                "summary_url": "https://www.xiaoheihe.cn/fixture/relations",
+            })
+        elif path == "/bbs/app/profile/relations":
+            data["result"] = {
+                "count": 1,
+                "users": [{
+                    "userid": "505",
+                    "username": "fixture related user",
+                }],
+            }
         return test_tools.Response(data)
 
 
@@ -202,6 +227,13 @@ class DiscussionRegressionTests(unittest.TestCase):
             with self.subTest(view=view):
                 value = self.assert_success(self.run_cli("user", "303", "--view", view))
                 self.assertEqual(value["data"]["items"][0]["uid"], "404")
+
+    def test_relation_collection_preserves_platform_users_and_count(self):
+        value = self.assert_success(
+            self.run_cli("user", "303", "--view", "relations")
+        )
+        self.assertEqual(value["data"]["count"], 1)
+        self.assertEqual(value["data"]["items"][0]["uid"], "505")
 
     def test_inline_reply_location_matches_the_observed_root_page(self):
         self.fixture.root_page = 3
