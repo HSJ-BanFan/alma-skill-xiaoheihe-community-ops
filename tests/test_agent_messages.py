@@ -131,7 +131,7 @@ class AgentMessageTests(unittest.TestCase):
     def signed_send(self, prepared, records, operation="fixture-message"):
         def signed(transport, route, *, query=None, payload=None, extra_cookies=None):
             records.append((route, payload))
-            if route == "/account/info":
+            if route.rstrip("/") == "/account/info":
                 return {"status": "ok", "result": {"userid": "101"}}
             return {"status": "ok", "result": {"link_id": "801"}}
         output = io.StringIO()
@@ -378,7 +378,8 @@ class AgentMessageTests(unittest.TestCase):
         self.assertEqual((wire["link_tag"], wire["post_type"]), ("1", "1"))
         for absent in ("edit", "schedule_ts", "view_limit"):
             self.assertNotIn(absent, wire)
-        self.assertIn("/account/info", [route for route, _ in records])
+        self.assertTrue(any(route.rstrip("/") == "/account/info"
+                            for route, _ in records))
 
     def test_app_article_visibility_cover_and_declaration_reach_the_legacy_wire(self):
         self.use_app_config()
