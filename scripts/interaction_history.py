@@ -153,7 +153,18 @@ def field_evidence(value):
             continue
         result[key] = {"source": evidence["source"], "observed_at": evidence["observed_at"],
                        "platform_updated_at": timestamp(evidence.get("platform_updated_at"))}
+        if key == "root_id" and type(evidence.get("caller_context")) is bool:
+            result[key]["caller_context"] = evidence["caller_context"]
     return result
+
+
+def caller_root_evidence(field, sources):
+    if not field or field.get("source") != "public":
+        return False
+    if type(field.get("caller_context")) is bool:
+        return field["caller_context"]
+    return any(source.get("kind") == "public" and source.get("post_id_source") == "caller" and
+               source.get("last_observed_at") == field.get("observed_at") for source in sources)
 
 
 def sync_continuation(value):
@@ -551,9 +562,18 @@ def observe(connection, uid, node, source_kind, evidence):
             newer = (version >= old_version if version is not None and old_version is not None else now >= old["observed_at"])
             if field == "platform_created_at":
                 newer = False
+        if field == "root_id":
+            old_caller = caller_root_evidence(old, sources.values())
+            incoming_caller = source_kind == "public" and evidence.get("post_id_source") in ("caller", "unknown")
+            if old and incoming_caller and not old_caller:
+                newer = False
+            elif old_caller and not incoming_caller:
+                newer = True
         if newer:
             values[field] = value
             fields[field] = {"source": source_kind, "observed_at": now, "platform_updated_at": version}
+            if field == "root_id" and source_kind == "public":
+                fields[field]["caller_context"] = incoming_caller
     key = source_kind + ":" + str(evidence.get("route", ""))
     previous = sources.get(key)
     if previous is None or now >= previous["last_observed_at"]:
@@ -656,8 +676,7 @@ class InteractionHistory:
                 sources = json.loads(row["source_json"]).values()
                 if field.get("source") not in ("own_list", "public"):
                     continue
-                if field.get("source") == "public" and any(source.get("kind") == "public" and
-                    source.get("post_id_source") == "caller" and source.get("last_observed_at") == field.get("observed_at") for source in sources):
+                if caller_root_evidence(field, sources):
                     continue
                 posts.add(row["post_id"])
             return posts == {scope.post_id}
