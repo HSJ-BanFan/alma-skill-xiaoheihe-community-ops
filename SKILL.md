@@ -33,7 +33,7 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
 
 选择表情、创建带表情的帖子或使用自制贴纸时，读取 [表情内容流程](references/EMOJIS.md)。按表达意图调用 `emojis search`，用返回的 ID 查详情和预览。目录中的含义说明标记来源与核验状态，排名分数是关键词匹配结果。
 
-`describe --tool xhh_compose` 返回结构化内容的输入 schema。内容节点使用 `text`、`native_emoji` 或 `image_sticker`。原生表情 ID 来自目录；图片贴纸 ID 来自 `stickers import`。创建新图片使用当前宿主的绘图能力，再登记文件。
+`describe` 返回精简命令目录，`describe --command compose` 返回结构化内容的输入、输出 schema 和对应 CLI 参数。`describe --command "emojis get"` 可查询子命令。内容节点使用 `text`、`native_emoji` 或 `image_sticker`。原生表情 ID 来自目录；图片贴纸 ID 来自 `stickers import`。创建新图片使用当前宿主的绘图能力，再登记文件。
 
 `compose` 只做本地校验和准备，可用 `--out` 保存准备结果，用 `--preview-file` 生成自包含 HTML。生成图片预览需要可选 Pillow 和首次读取官方贴图。准备结果绑定内容、素材摘要、目录版本与协议。
 
@@ -55,7 +55,7 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> inbox --limit 20
 
 `asset <CDN-URL>` 下载平台图片并生成可用本地图像工具查看的 `preview_file`，需要可选 Pillow 依赖。源图与预览都有完整摘要；动画预览只展示首帧，原文件保留。`emojis list/search/get` 使用验证过的官方目录快照，`emojis refresh` 从官方创作者资源更新。缓存异常在 `saved_error` 报告，失效刷新保留原缓存。
 
-读取时原生短码、官方 `data-emoji` 标签和可唯一识别的字体标签归一化为 `native_emoji`，保留 ID、短码及位置。未知或冲突的身份保留原始数据并报告缺口。需要通过 MCP 使用同一工具集时，读取 [MCP 接入](MCP.md)。
+读取时原生短码、官方 `data-emoji` 标签和可唯一识别的字体标签归一化为 `native_emoji`，保留 ID、短码及位置。未知或冲突的身份保留原始数据并报告缺口。
 
 `post` 默认使用 `--reader auto`，Web 会话读取网站正文，App 会话读取原生正文。`--reader native` 和 `--reader website` 可显式选择身份，网站方式需要 Web 会话。每次读取选择一个入口，不在失败后切换协议。`--section` 和 `--body-format` 可减少不需要的输出，`--raw` 仅用于检查原始响应。
 

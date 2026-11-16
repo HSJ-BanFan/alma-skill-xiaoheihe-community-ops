@@ -322,6 +322,18 @@ class AgentMessageTests(unittest.TestCase):
         finally:
             connection.close()
 
+    def test_post_readback_matches_the_expected_author_as_well_as_body(self):
+        self.assertEqual(self.send(self.prepare())[0], 0)
+        post = next(iter(self.platform.posts.values()))
+        post["userid"] = "999"
+        checked = self.cli("verify", "fixture-message")[1]["data"]
+        self.assertEqual(checked["status"], "mismatch")
+        self.assertEqual(checked["reason"], "readback_author_not_verified")
+        post.pop("userid")
+        checked = self.cli("verify", "fixture-message")[1]["data"]
+        self.assertEqual(checked["status"], "unverified")
+        self.assertEqual(checked["reason"], "readback_author_not_observed")
+
 
 if __name__ == "__main__":
     unittest.main()

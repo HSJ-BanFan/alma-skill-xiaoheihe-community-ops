@@ -415,6 +415,11 @@ def verify(client, operation_id, data_dir, *, pages=3, requests=10, seconds=30):
             return {**baseline, "reason": "readback_body_has_gaps", "coverage": scope}
         if data.get("id") != str(receipt.get("link_id")):
             return {**baseline, "status": "mismatch", "reason": "readback_post_id_mismatch", "coverage": scope}
+        observed_author = (data.get("author") or {}).get("uid")
+        if observed_author is None:
+            return {**baseline, "reason": "readback_author_not_observed", "coverage": scope}
+        if observed_author != str(client.config.heybox_id):
+            return {**baseline, "status": "mismatch", "reason": "readback_author_not_verified", "coverage": scope}
         blocks = observed.get("blocks", [])
         text = observed.get("text", "")
         images = [block["url"] for block in blocks if block.get("type") == "image"]

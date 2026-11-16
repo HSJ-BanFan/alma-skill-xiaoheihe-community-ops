@@ -1,6 +1,8 @@
 # 创建和使用带表情的内容
 
-以下命令中的 `<skill>` 是当前项目目录，`<data>` 是本次任务使用的同一数据目录。用 `describe --tool <工具名>` 查询当前输入 schema。
+以下命令中的 `<skill>` 是当前项目目录，`<data>` 是本次任务使用的同一数据目录。用 `describe --command compose` 或 `describe --command "emojis get"` 查询当前命令契约。
+
+返回的 `argv` 是子命令序列，`input_schema` 与 `output_schema` 描述输入和 JSON 结果，`parameters` 给出字段对应的真实参数。`global=true` 的参数放在子命令前；`flags=[]` 的字段是位置参数，`encoding=json` 的字段传入 JSON 文本，`repeatable=true` 的参数可重复。文件内容优先保存为 UTF-8 JSON 再通过路径传入。以 `-` 开头的位置参数放在 `--` 后，选项值可使用 `--option=value`。
 
 ## 选择原生表情
 
@@ -86,6 +88,6 @@ python -I -X utf8 "<skill>/scripts/xhh.py" --data-dir "<data>" --account <alias>
 
 `--public` 只用于公开帖子，省略则保存帖子草稿。评论和回复不带此参数。准备结果被改动、目录版本或所用表情的 CSS 布局变化、文件摘要不一致或协议不同，会停止发送并提示重新准备。
 
-`returned` 只表示回执已保存。`verify.status=matched` 表示本次读取范围中的内容一致，`native_render.status=unknown` 表示还没有客户端图标显示证据，`public_visibility=not_checked` 表示未核验公开可见。目标未观察到或正文有缺口时返回 `unverified`。
+`returned` 只表示回执已保存。`verify.status=matched` 表示目标、作者和本次读取范围中的内容一致，`native_render.status=unknown` 表示还没有客户端图标显示证据，`public_visibility=not_checked` 表示未核验公开可见。目标或作者未观察到、正文有缺口时返回 `unverified`。
 
 `uncertain`、`write_uncertain` 或回执保存失败时，先读取同一操作 ID 和已记录的目标。API 可能已经发送。恢复同一次操作继续使用原 ID；不同的新用户操作才使用新 ID。

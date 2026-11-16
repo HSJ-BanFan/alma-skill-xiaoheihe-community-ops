@@ -17,7 +17,7 @@ from xhh_sdk.exceptions import XhhConfigError
 
 ROOTS = {"describe", "emojis", "stickers", "compose", "send", "verify"}
 AUTH_ROOTS = {"send", "verify"}
-READ_TOOLS = {"post", "comments", "thread", "feed", "inbox", "interaction"}
+READ_COMMANDS = {"post", "comments", "thread", "feed", "inbox", "interaction"}
 CREATOR_URL = "https://creator.xiaoheihe.cn/creator"
 
 
@@ -55,8 +55,8 @@ def _emoji_filters(parser, *, listing=False):
 
 
 def register(commands):
-    parser = commands.add_parser("describe", help="discover tools and JSON input schemas; offline, no account required")
-    parser.add_argument("--tool", help="return one tool schema by its xhh_ name")
+    parser = commands.add_parser("describe", help="discover CLI commands and JSON schemas; offline, no account required")
+    parser.add_argument("--command", dest="described_command", help="return one command schema, for example compose or 'emojis get'")
     parser.set_defaults(agent_action="describe")
     parser = commands.add_parser("emojis", help="offline native catalog, meaning notes, preview and official-source refresh")
     parser.set_defaults(agent_action="emojis.list", limit=20, usage=None, avoid=[])
@@ -189,12 +189,7 @@ def refresh_catalog(data_dir, *, seconds=30):
 def execute(args, *, client=None):
     action = args.agent_action
     if action == "describe":
-        result = describe(args.data_dir)
-        if args.tool:
-            result["tools"] = [tool for tool in result["tools"] if tool["name"] == args.tool]
-            if not result["tools"]:
-                raise XhhConfigError("tool name is not in describe output")
-        return result, {}
+        return describe(args.data_dir, command=args.described_command), {}
     if action == "emojis.refresh":
         return refresh_catalog(args.data_dir, seconds=args.seconds), {"source": "official_creator_assets", "live_post_verified": False}
     catalog = Catalog(data_dir=args.data_dir)
@@ -279,23 +274,23 @@ def output_schema(path):
                        "then": {"properties": {"data": data, "error": {"type": "null"}}}}]}
 
 
-def tool_definitions():
+def command_definitions():
     import xhh
 
     root = xhh.parser()
-    globals = [action for action in root._actions if action.dest in ("account", "config", "env", "protocol", "data_dir")]
-    tools = []
+    global_actions = [action for action in root._actions if action.dest in ("account", "config", "env", "protocol", "data_dir")]
+    commands = []
 
     def visit(parser, path, help_text=None):
         subparsers = next((action for action in parser._actions if isinstance(action, argparse._SubParsersAction)), None)
         if subparsers:
             help_by_name = {choice.dest: choice.help for choice in subparsers._choices_actions}
             for name, child in subparsers.choices.items():
-                if path or name in ROOTS | READ_TOOLS:
+                if path or name in ROOTS | READ_COMMANDS:
                     visit(child, (*path, name), help_by_name.get(name))
             return
-        auth = path[0] in AUTH_ROOTS | READ_TOOLS
-        actions = [*globals, *[action for action in parser._actions if action.dest != "help"]]
+        auth = path[0] in AUTH_ROOTS | READ_COMMANDS
+        actions = [*global_actions, *[action for action in parser._actions if action.dest != "help"]]
         actions = [action for action in actions if auth or action.dest not in ("account", "config", "env")]
         fields = {action.dest: _schema(action) for action in actions}
         required = [action.dest for action in actions if action.required or action.dest == "confirm" or
@@ -317,58 +312,32 @@ def tool_definitions():
             constraints.append({"oneOf": branches})
         if constraints:
             schema["allOf"] = constraints
-        mutating = path in (("send",), ("compose",), ("stickers", "import"), ("emojis", "refresh"), ("emojis", "get"), ("interaction", "sync"))
-        tools.append({"name": "xhh_" + "_".join(path).replace("-", "_"), "description": help_text or parser.description or "Read Xiaoheihe " + " ".join(path) + " with an explicit account.",
-                      "inputSchema": schema, "outputSchema": output_schema(path), "annotations": {"readOnlyHint": not mutating,
-                      "destructiveHint": path[0] == "send", "openWorldHint": auth or path in (("emojis", "refresh"), ("emojis", "get"))},
-                      "_path": path, "_actions": actions})
+        parameters = {action.dest: {"flags": action.option_strings,
+                      "global": action in global_actions,
+                      "encoding": "json" if getattr(action.type, "input_schema", None) else "value",
+                      "repeatable": isinstance(action, argparse._AppendAction)} for action in actions}
+        commands.append({"name": " ".join(path), "argv": list(path),
+                         "description": help_text or parser.description or "Read Xiaoheihe " + " ".join(path) + " with an explicit account.",
+                         "input_schema": schema, "output_schema": output_schema(path),
+                         "parameters": parameters, "requires_account": auth})
     visit(root, ())
-    return tools
+    return commands
 
 
-def describe(data_dir=None):
+def describe(data_dir=None, *, command=None):
     catalog = Catalog(data_dir=data_dir)
+    commands = command_definitions()
+    if command:
+        commands = [definition for definition in commands if definition["name"] == command]
+        if not commands:
+            raise XhhConfigError("command name is not in describe output")
+    else:
+        commands = [{key: definition[key] for key in ("name", "argv", "description", "requires_account")}
+                    for definition in commands]
     return {"schema_version": 1, "name": "xiaoheihe-tools", "entrypoint_file": str(Path(__file__).with_name("xhh.py").resolve()),
             "runtime": {"python": ">=3.10", "core_dependencies": [], "media_dependency": "Pillow"},
-            "catalog": catalog.info(), "tools": [{key: value for key, value in tool.items() if not key.startswith("_")} for tool in tool_definitions()],
+            "catalog": catalog.info(), "commands": commands, "schema_lookup": "describe --command <name>",
             "workflow": ["emojis search/get", "compose", "send with account and operation_id", "verify"],
             "semantics": {"native_emoji": "Official directory ID; post spans and comment/reply shortcodes are encoded by the tool.",
                           "image_sticker": "Caller-created PNG/JPEG/GIF imported locally; post image or comment attachment, not reply.",
                           "rank_score": "Keyword ranking, not a probability.", "verification": "Receipt, readback match, public visibility and client icon render are separate."}}
-
-
-def cli_arguments(tool, values):
-    if not isinstance(values, dict):
-        raise XhhConfigError("tool arguments must be an object")
-    known = {action.dest for action in tool["_actions"]}
-    if set(values) - known:
-        raise XhhConfigError("unknown tool argument")
-    global_args, options, positional = [], [], []
-    for action in tool["_actions"]:
-        if action.dest not in values:
-            continue
-        value = values[action.dest]
-        schema = _schema(action)
-        expected = schema.get("type")
-        if expected == "boolean" and type(value) is not bool or expected == "integer" and type(value) is not int:
-            raise XhhConfigError("invalid tool argument type")
-        if expected == "string" and not isinstance(value, str) or expected == "array" and not isinstance(value, list):
-            raise XhhConfigError("invalid tool argument type")
-        if expected == "object" and not isinstance(value, dict):
-            raise XhhConfigError("invalid tool argument type")
-        if schema.get("const") is True and value is not True:
-            raise XhhConfigError("confirmation and env selection must be true when supplied")
-        destination = global_args if action.dest in ("account", "config", "env", "protocol", "data_dir") else options
-        if not action.option_strings:
-            positional.append(str(value))
-        elif isinstance(action, argparse._StoreTrueAction):
-            if value:
-                destination.append(action.option_strings[0])
-        elif isinstance(action, argparse._AppendAction):
-            for entry in value:
-                if not isinstance(entry, str):
-                    raise XhhConfigError("list tool arguments must contain strings")
-                destination.extend([action.option_strings[0], entry])
-        else:
-            destination.extend([action.option_strings[0], json.dumps(value, ensure_ascii=False) if getattr(action.type, "input_schema", None) else str(value)])
-    return [*global_args, *tool["_path"], *positional, *options]
