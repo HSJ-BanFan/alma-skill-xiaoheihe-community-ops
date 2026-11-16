@@ -5,12 +5,12 @@ import os
 import sys
 import unittest
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 ROOT = Path(os.environ.get("XHH_TEST_SKILL_ROOT") or Path(__file__).resolve().parents[1])
 sys.path[:0] = [str(ROOT / "scripts"), str(Path(__file__).resolve().parent)]
 
-from interaction_history import InteractionHistory, Scope
+from interaction_history import InteractionHistory, Scope, database
 import test_interaction_cli as interaction_tests
 from test_tools import Response
 
@@ -28,6 +28,27 @@ class LegacyRootFixture(interaction_tests.InteractionFixture):
                 {"commentid": "602", "userid": "202", "replyid": "601", "replyuserid": "101", "create_at": 20},
                 {"commentid": "701", "userid": "101", "replyid": "602", "replyuserid": "202", "create_at": 30}
             ], "has_more": False}
+        return Response(value)
+
+
+class CallerPageFixture(LegacyRootFixture):
+    def __call__(self, request, timeout=None):
+        value = json.loads(super().__call__(request, timeout).read())
+        path = urlsplit(request.full_url).path
+        if path == "/bbs/app/link/tree":
+            value["result"].update(comments=[{"comment": [
+                {"commentid": "601", "userid": "202", "child_num": 2, "has_more": True}
+            ]}], total_page=1)
+        elif path == "/bbs/app/comment/sub/comments":
+            cursor = parse_qs(urlsplit(request.full_url).query).get("lastval")
+            if cursor:
+                value["result"] = {"comments": [
+                    {"commentid": "602", "userid": "202", "replyid": "601", "replyuserid": "202", "create_at": 20}
+                ], "has_more": False}
+            else:
+                value["result"] = {"comments": [
+                    {"commentid": "701", "userid": "101", "replyid": "602", "replyuserid": "202", "create_at": 30}
+                ], "has_more": True, "lastval": "cursor-one"}
         return Response(value)
 
 
@@ -100,6 +121,49 @@ class LegacyRelationRecoveryTest(unittest.TestCase):
         scope = Scope("101", "501")
         self.assertFalse(self.store().root_reference_valid(scope, "601"))
         self.assertEqual(self.store().root_candidates(scope)["root_ids"], [])
+
+    def test_caller_replies_page_preserves_verified_reference_for_followup_sync(self):
+        self.seed_old_comment()
+        self.fixture = CallerPageFixture()
+        self.assertEqual(self.run_cli("comments", "501", "--requests", "1")[0], 0)
+        self.assertEqual(self.run_cli("replies", "601", "--post-id", "501", "--requests", "1")[0], 0)
+        self.assertTrue(self.store().root_reference_valid(Scope("101", "501"), "601"))
+        self.fixture.calls.clear()
+        code, result = self.run_cli("interaction", "sync", "501", "--root", "601", "--requests", "3", "--pages", "10")
+        self.assertEqual(code, 0)
+        self.assertEqual([call[0] for call in self.fixture.calls], [
+            "/account/restore_login", "/bbs/app/comment/sub/comments", "/bbs/app/comment/sub/comments"
+        ])
+        self.assertEqual(result["data"]["status"]["completed_round_count"], 1)
+        self.assertIs(result["data"]["status"]["own_reply_relations_complete"], True)
+
+    def test_verified_own_list_repairs_an_old_caller_only_root_claim(self):
+        self.seed_old_comment()
+        with database(self.store().path, write=True) as connection:
+            row = connection.execute("SELECT field_evidence_json,source_json FROM interaction_comments WHERE uid='101' AND comment_id='701'").fetchone()
+            fields, sources = json.loads(row[0]), json.loads(row[1])
+            fields["root_id"] = {"source": "public", "observed_at": 200, "platform_updated_at": None}
+            sources["public:/bbs/app/comment/sub/comments"] = {"kind": "public", "route": "/bbs/app/comment/sub/comments",
+                "post_id_source": "caller", "observed_at": 200, "first_observed_at": 200, "last_observed_at": 200}
+            connection.execute("UPDATE interaction_comments SET root_id='901',field_evidence_json=?,source_json=? WHERE uid='101' AND comment_id='701'",
+                               (json.dumps(fields), json.dumps(sources)))
+        self.store().capture("101", [{"id": "701", "post_id": "501", "root_id": "601", "author": {"uid": "101"}}],
+            "own_list", {"route": "/bbs/app/profile/bbs/comment/list", "observed_at": 300, "identity_verified_this_read": True})
+        self.assertTrue(self.store().root_reference_valid(Scope("101", "501"), "601"))
+        self.assertFalse(self.store().root_reference_valid(Scope("101", "501"), "901"))
+
+    def test_caller_context_at_same_timestamp_keeps_stronger_root_evidence(self):
+        self.seed_old_comment()
+        node = {"id": "701", "post_id": "501", "root_id": "601", "author": {"uid": "101"}}
+        self.store().capture("101", [node], "public", {"route": "/bbs/app/comment/sub/comments",
+            "post_id_source": "verified_own_list_reference", "observed_at": 200, "identity_verified_this_read": True})
+        self.store().capture("101", [{**node, "root_id": "901"}], "public", {"route": "/bbs/app/comment/sub/comments",
+            "post_id_source": "caller", "observed_at": 200, "identity_verified_this_read": True})
+        self.assertTrue(self.store().root_reference_valid(Scope("101", "501"), "601"))
+        self.assertFalse(self.store().root_reference_valid(Scope("101", "501"), "901"))
+        item = self.store().history(Scope("101", "501"))["items"][0]
+        self.assertEqual(item["root_id"], "601")
+        self.assertIs(item["field_evidence"]["root_id"]["caller_context"], False)
 
     def test_sync_reads_known_legacy_root_before_unrelated_post_pages(self):
         self.seed_old_comment()
