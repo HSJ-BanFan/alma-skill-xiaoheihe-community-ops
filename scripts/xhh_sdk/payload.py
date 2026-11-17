@@ -20,6 +20,7 @@ def _text_to_html(text: str) -> str:
 def plain_text(markup: str) -> str:
     markup = re.sub(r'<span\b[^>]*\bdata-emoji=([\'\"])([^\'\"]+)\1[^>]*>\s*</span>',
                     lambda match: "[" + html.unescape(match.group(2)) + "]", markup, flags=re.I)
+    markup = re.sub(r"<p\b[^>]*>\s*<br\s*/?>\s*</p>", "\n", markup, flags=re.I)
     markup = re.sub(r"<br\s*/?>", "\n", markup, flags=re.I)
     markup = re.sub(r"</(?:p|h[1-6]|li|blockquote|div)>", "\n", markup, flags=re.I)
     return html.unescape(re.sub(r"<[^>]+>", "", markup))

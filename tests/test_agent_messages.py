@@ -293,6 +293,23 @@ class AgentMessageTests(unittest.TestCase):
         self.assertFalse(checked["checks"]["content_order"])
 
     @unittest.skipIf(Image is None, "Pillow is optional")
+    def test_web_image_text_compose_preserves_a_blank_paragraph_before_an_image(self):
+        image_file = self.folder / "sticker.png"
+        with Image.new("RGB", (20, 10), "blue") as image:
+            image.save(image_file)
+        sticker = register_sticker(image_file, self.data, caption="synthetic")
+        prepared = self.prepare(post_format="image_text",
+                                content=[{"type": "text", "text": "a\n\nb"},
+                                         {"type": "image_sticker", "id": sticker["id"]}])
+        code, value = self.send(prepared)
+        self.assertEqual(code, 0, value)
+        blocks = json.loads(self.platform.posts["801"]["text"])
+        self.assertEqual(blocks[0], {"type": "text", "text": "a\n\nb"})
+        self.assertEqual(len(blocks), 2)
+        self.assertEqual((blocks[1]["type"], blocks[1]["url"]),
+                         ("img", "https://imgheybox.max-c.com/fixture.png"))
+
+    @unittest.skipIf(Image is None, "Pillow is optional")
     def test_image_sticker_usage_rejects_reply_and_mid_comment_placement(self):
         image_file = self.folder / "sticker.png"
         with Image.new("RGB", (20, 10), "blue") as image:
