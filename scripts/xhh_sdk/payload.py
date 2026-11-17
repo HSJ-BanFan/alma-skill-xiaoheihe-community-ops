@@ -1,9 +1,3 @@
-"""Build one post intent into the wire form of the chosen runtime protocol.
-
-The Creator Web SPA and the legacy App SDK share a form endpoint but not a
-form contract. `Post` holds the intent; `build(protocol=...)` picks the
-builder, so Web assembly never sprouts App conditionals and vice versa.
-"""
 from __future__ import annotations
 
 import html

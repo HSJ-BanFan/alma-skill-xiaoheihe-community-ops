@@ -1,4 +1,3 @@
-"""Prepare and preview post specs without account, network or state access."""
 from __future__ import annotations
 
 import dataclasses
@@ -193,7 +192,6 @@ def _validate(spec: dict, *, protocol: str) -> dict:
 
 
 def prepare_post(spec: dict, *, draft: bool, protocol: str = "web") -> Post:
-    """Validate a spec and return the one SDK Post used by preview and publish."""
     if not isinstance(spec, dict):
         raise XhhConfigError("post spec must be a JSON object")
     values = _validate(spec, protocol=protocol)
@@ -213,7 +211,6 @@ def prepare_post(spec: dict, *, draft: bool, protocol: str = "web") -> Post:
 
 
 def preview_post(spec: dict, *, public: bool = False, protocol: str = "web") -> dict:
-    """Return the canonical spec, its exact wire payload and payload-derived media."""
     if not isinstance(spec, dict):
         raise XhhConfigError("post spec must be a JSON object")
     post = prepare_post(spec, draft=not public, protocol=protocol)

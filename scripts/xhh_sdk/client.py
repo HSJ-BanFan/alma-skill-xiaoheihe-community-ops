@@ -40,7 +40,6 @@ _SOF_MARKERS = frozenset(range(0xC0, 0xD0)) - {0xC4, 0xC8, 0xCC}
 
 
 def image_mime_type(data: bytes) -> str | None:
-    """Return the supported image type identified from the file bytes."""
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"
     if data.startswith(b"\xff\xd8"):
