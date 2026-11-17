@@ -49,6 +49,36 @@ python -I -X utf8 "<skill>/scripts/xhh.py" account status <alias> --online
 
 第一条 `account login` 请求平台发送短信。第二条用收到的验证码换取 App 会话。技能不把手机号、验证码、风险令牌或会话写入仓库输出。已保存的会话失效前不需要再次发送短信。公开 HTML 正文、媒体下载和离线快照查看都不要求账号或短信登录。
 
+### 短信登录手机号记录
+
+短信验证码登录成功、候选会话的在线 UID 核验通过后，账号库将手机号与该 UID 的登录记录一并保存。完整手机号保存在 Windows DPAPI 加密账号记录内；账号输出显示掩码。记录表示该号码曾在记录时间完成登录，不表示平台当前绑定手机号已经重新核验。
+
+```console
+python -I -X utf8 "<skill>/scripts/xhh.py" account list
+python -I -X utf8 "<skill>/scripts/xhh.py" account status <alias> --phone <phone>
+python -I -X utf8 "<skill>/scripts/xhh.py" --protocol web account status <web-alias> --online --phone <phone>
+```
+
+`--phone` 只核对明确提供的号码，省略 `--online` 时不联网，也不发短信。指定号码的核对只有在记录唯一且匹配时退出码为 0；同时使用 `--online` 时还要求当前会话 UID 核验成功。账号输出中的 `login_phone` 与会话有效性分别报告。
+
+| 字段 | 含义 |
+| --- | --- |
+| `state` | `not_recorded` 表示证据不足；`verified_at_login` 表示有唯一号码的已核验登录记录；`conflict` 表示同一 UID 下有不同号码的记录 |
+| `masked` | 已记录号码的掩码，缺少唯一记录时为 `null` |
+| `source` | 已核验短信登录记录为 `sms_login` |
+| `verified_at`、`source_alias` | 登录记录的核验时间与来源账号别名 |
+| `matches` | 明确输入号码与唯一已核验记录的精确匹配结果；未输入号码、证据不足或冲突时为 `null` |
+| `candidates` | 仅冲突时出现的候选数组；每项只有 `masked`、`source`、`verified_at`、`source_alias`，不含完整号码 |
+| `current_binding_verified` | `false`，登录历史没有替代平台当前绑定号码的核验 |
+
+同一 UID 的 Web 别名在自身身份已有核验记录、或本次 `--online` 核验成功后，可以查询 App 别名留下的手机号记录。仅配置一个 UID 不会生成这种身份关联。不同完整号码即使掩码相同，也分别保留并报告冲突。
+
+旧账号库可继续读取，缺少的手机号记录保持 `not_recorded`。仅请求验证码、登录失败或 UID 核验失败不会新增记录。非短信登录、配置修改和退出登录保留已有记录；删除账号别名会删除该别名的记录，其余来源保留。
+
+每个来源别名最多保留 16 个不同号码的登录记录。相同号码再次登录会更新其核验时间；超过容量时拒绝保存新会话和记录，保留原账号库。
+
+含有新登录核验记录的账号库使用 `schema_version=3`。旧版 SDK 不支持此格式，需要升级所有使用同一账号库的 SDK 副本后再新增记录。这防止旧版本重写账号库时丢失新增字段。升级代码不会根据现有会话或账号名称补造手机号记录。
+
 Web 不需要 Java。App 需要独立配置，技能包不附带 JAR、APK 或用户凭据。
 
 ```console
