@@ -21,6 +21,7 @@ from documents import comment, summary
 class DiscussionFixture(test_tools.PlatformFixture):
     def __init__(self):
         super().__init__()
+        self.link_owner = "101"
         self.inbox_result = None
         self.required_sort = None
         self.required_limit = None

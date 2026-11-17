@@ -91,11 +91,34 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 
 收件箱的 offset 不是稳定快照游标。分页期间有新消息插入列表前方时，后续页可能重复先前消息。调用方按 `message_id` 或来信 CID跨页、跨轮去重；下一轮最新消息检查从 offset 0 开始。完整处置流程见 [CONVERSATION.md](CONVERSATION.md)。
 
+## 本地预览与正文格式
+
+`preview-post SPEC.json [--public]` 在读取账号配置之前执行。它不读账号、不访问网络、不占用操作 ID、不写状态，不是写命令。默认使用 Web，旧 App 预览使用全局 `--protocol app`。输出的 `data` 为 `spec`、`payload`、`media`；`payload` 是相同协议发布时使用的字段，`media` 从该 payload 读回。规范 spec 可用 `Post(**spec).build(protocol=coverage["protocol"])` 重建。`coverage` 标记协议、离线、未核账号、未预留操作 ID、`public_visibility=not_checked`。
+
+```console
+python -I -X utf8 "<skill>/scripts/xhh.py" preview-post post.json
+python -I -X utf8 "<skill>/scripts/xhh.py" preview-post post.json --public
+```
+
+发帖 spec 首选 `post_format`。`image_text` 发送字面纯文本块和尾部图片块；`article` 才接受富 HTML 或 Markdown，并发射一个 HTML 块和图片元数据。`post_type` 的 `"1"`、`"3"` 是旧输入别名，新调用只用 `post_format`。当前适配器的 wire `post_type` 为 `"1"`（普通）或 `"2"`（选择了 `post_plan`）。`link_tag` 由工具派生，`article` 为 `11`、`image_text` 为 `27`；最终 `topic_ids` 字符串恰好为 `58144` 时分别为 `21`、`28`。无板块图文按当前编辑器使用动态分区 `58144`，显式选择的板块保持原值，文章不添加该默认值。
+
+`content_format` 默认 `text`，可选 `text`、`html` 或 `markdown`。`text` 在 `article` 中逐行转换为转义后的 HTML，在 `image_text` 中保留为字面文本块；`html` 原样使用调用方 HTML；`markdown` 在预览和发布时自动转换为 HTML。`image_text` 只接受 `text`。富 HTML 和 Markdown 必须显式写 `post_format: "article"`，工具不会静默切换格式。把 Markdown 写进 `text` 或 `html` 时不会转换。
+
+Markdown 转换需要可选依赖，固定版本写在 `requirements-formatting.txt`。该依赖只在 `markdown` 分支惰性导入，普通 `text`/`html` 预览、读取、帮助和 Web doctor 不需要它。
+
+```console
+python -m pip install -r "<skill>/requirements-formatting.txt"
+```
+
+Markdown 只用于 `article`。它保留作者写出的 `h1`-`h6` 层级，转义原始 HTML，解析表格和删除线，保留代码字符、缩进与换行。内联图片必须是绝对 HTTPS URL，按原位置和重复次数保留并带 `data-type="image"`、`data-original` 属性；`image_info` 可提供上传回执中的真实尺寸。工具不下载图片，也不会把内联图片复制到尾部 `images`。`article` 的 `images` 会追加到 HTML 末尾，`img` 元数据块不会重复成额外可见图片。平台编辑器再次导入可能降级格式，详见格式参考的当日观察。
+
+正文、Markdown、上传、封面和媒体字段的完整说明见 [投稿格式与媒体](references/formatting.md)。评论限制和文章/图文/热点计划规则见 [评论与投稿规则](references/platform-rules.md)。
+
 ## 写入
 
 结构化表情内容使用 `compose SPEC.json --out prepared.json`，然后用 `send prepared.json --confirm --operation-id ID`，最后用 `verify ID`。输入、输出 schema 与 CLI 参数由 `describe --command compose` 返回。素材选择、图片创建与错误恢复见 [表情内容流程](references/EMOJIS.md)。既有纯文本和 SDK 发帖命令仍可使用。
 
-所有下列命令要求 `--confirm --operation-id ID`。正文文件使用 UTF-8，评论和回复最多 1000 字符。工具在写前在线核对账号，不要求调用方提供宿主会话证明。
+所有下列命令要求 `--confirm --operation-id ID`。正文文件使用 UTF-8。评论和回复只写当前账号自己的帖子，CLI 在发送前核验帖子作者。平台评论配置当前返回 5000，本工具把评论和回复保守限制为最多 1000 个 Unicode 字符。工具在写前在线核对账号，不要求调用方提供宿主会话证明。
 
 | 命令 | 参数 |
 | --- | --- |
@@ -109,26 +132,31 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 | `delete-comment LINK CID` | 先核对评论归当前账号所有 |
 | `delete-post LINK` | 先核对帖子归当前账号所有 |
 
-回复使用纯文本。一级评论配图只依据调用方传入的文件或 URL，工具不会搜索本地图库，也不要求写出不配图的理由。上传使用小黑盒自身的 COS 流程。
+本工具的回复接受文字和原生表情短码，拒绝图片参数和图片贴纸；平台客户端是否允许楼中楼图片尚未验证。需要稳定配图时发到该帖的一级评论。一级评论配图只依据调用方传入的文件或 URL，工具不会搜索本地图库。上传使用小黑盒自身的 COS 流程。
 
 回复定位使用与读取相同的根楼页号、每页大小和排序。首个子评论页使用空的输入游标，CLI 省略 `--cursor`。显式提供游标时，精确目标必须出现在对应的子评论页；根楼预览中存在目标不能代替所选游标页的核验。
 
-发帖 JSON 使用 SDK 的 `Post` 字段。先单独上传本地图像，再把返回的 HTTPS URL 放入 `images`。下面的文件描述普通动态。
+发帖 JSON 使用 SDK 的 `Post` 字段。先单独上传本地图像，再把返回的 HTTPS URL 放入 `images`。下面的文件描述图文；需要富文本时显式写 `post_format: "article"`，再选择 `content_format: "html"` 或 `"markdown"`。
 
 ```json
 {
   "title": "标题",
   "content": "正文",
   "content_format": "text",
+  "post_format": "image_text",
   "topic_ids": ["真实板块ID"],
   "hashtags": ["相关话题"],
   "images": [],
-  "post_type": "1",
-  "original": false
+  "authorship": "original",
+  "declaration": 0
 }
 ```
 
-`topic_ids` 是板块 ID，`hashtags` 是话题文本，两者不同。Web 公开发帖至少选择一个平台板块。作者计划以平台资格为准。`--public` 决定草稿或公开状态，JSON 中的 `draft` 不覆盖该标志。通过 `edit_link_id` 修改自己的既有帖子时会先核对所有权。
+`topic_ids` 是板块 ID，`hashtags` 是话题文本，两者不同。本技能的 Web 公开发送要求调用方明确提供有效板块。作者计划以平台当前资格和审核为准。`--public` 决定草稿或公开状态，JSON 中的 `draft` 不覆盖该标志。通过 `edit_link_id` 修改自己的既有帖子时会先核对所有权。
+
+作者身份使用 `authorship`（`original` 或 `repost`）和 `declaration`（`0` 未选择，`1`、`2` 按原创或转载解释）。显式 `authorship` 优先于旧 `original`。未写 `authorship` 时，旧 `original=true` 选择原创并默认 `declaration=0`；旧 `original=false` 不作作者身份声明，不会映射成转载。`source` 是来源字符串。`extra_declaration` 为 `1` AI 辅助、`2` 剧透、`3` 虚构演绎。显式作者身份可以和 AI 辅助声明同时使用。
+
+未知字段、未知格式和错误类型在发送前拒绝。`images` 只接受已上传的绝对 HTTPS URL。Web 的 `cover_url` 两种格式都可使用，封面与正文图片分开；`visibility` 为 `"1"`、`"2"`、`"3"`，默认 `"1"`，`"0"` 无效。Web 选择计划时 wire `post_type` 为 `"2"`，否则为 `"1"`。旧 App 保留 `post_type=1/3`、HTML 与表情标签、前导 `#` 标签及原有可见性值；新作者声明字段在旧适配器中明确拒绝。预览和发送应使用相同协议，详细字段见 [投稿格式与媒体](references/formatting.md)。
 
 ## 发送状态
 
@@ -148,9 +176,11 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 
 `interaction_projection_complete=false` 表示回执已提交，但派生互动记录尚未完成。`returned` 回执仍保留并可重放，`interaction status`、`interaction history` 或相同操作的重放会尝试本地恢复，不发送 POST。旧日志的指纹不能还原未知目标；仅当当前完整请求匹配旧指纹时才绑定已知上下文，继续遵守原来的关闭或回执重放状态。
 
+SDK 返回已识别的 Web 发帖失败时，`write_uncertain` 的 `error.diagnostic` 使用闭合代码、固定路径、状态和消息。该诊断不改变未知发送状态，也不允许重新发送；保留原操作 ID，并核对平台结果。
+
 ## Agent 浏览工具
 
-浏览入口输出版本为 `2`。账号管理仍使用 SDK 格式。所有浏览命令都有 `--raw`、`--requests 10`、`--seconds 30`，最大各 100。原始 SDK 文件保持不变。
+浏览入口输出版本为 `2`。账号管理仍使用 SDK 格式。所有浏览命令都有 `--raw`、`--requests 10`、`--seconds 30`，最大各 100。SDK 源码带有 `SNAPSHOT.json` 记录的下游补丁，来源、许可和补丁见 [THIRD_PARTY.md](THIRD_PARTY.md)。
 
 | 命令 | 数据与参数 |
 | --- | --- |
@@ -205,10 +235,11 @@ SDK 的管理签名器默认位于 `~/.xhh_sdk/signers`，可用 `XHH_SIGNER_HOM
 
 预算和页数停止后，可重复同一查询并提供 `--resume <value>`。正文读取的续读令牌保留下一个读取器位置，并绑定最初使用的 reader 方案；可用的 App 或 Web 会话改变后，旧令牌会被拒绝，调用方应重新读取。`thread` 的 `coverage.continuation` 返回可继续的 comments 页或 replies 游标。错误发生在后续页时，已读条目保留，`ok=false`，停止原因是 `platform_error`；验证码、限流、会话失效、公开 HTTP 访问失败和未知非成功状态都停止且不返回 resume，也不自动换账号、协议或入口。
 
-媒体依赖按需安装，核心读取和 Web 签名没有新增依赖。
+依赖按需安装，核心读取和 Web 签名没有新增依赖。媒体预览需要 Pillow；文章投稿的 `markdown` 正文需要固定的 Markdown 解析器。两者互不替代，`text`/`html` 和普通读取都不需要它们。
 
 ```console
 python -m pip install -r "<skill>/requirements-media.txt"
+python -m pip install -r "<skill>/requirements-formatting.txt"
 python -I -X utf8 "<skill>/scripts/xhh.py" asset "https://imgheybox.max-c.com/实际图片路径"
 ```
 

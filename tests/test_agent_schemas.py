@@ -118,6 +118,17 @@ class AgentCLITests(unittest.TestCase):
         self.assertEqual(payload["data"]["schema_lookup"], "describe --command <name>")
         self.assertFalse(self.data.exists())
 
+    def test_creator_rules_and_post_preview_are_discoverable_without_account(self):
+        creator = self.discover("creator-options")
+        self.assertTrue(creator["requires_account"])
+        self.assertIn("link_id", creator["input_schema"]["properties"])
+        preview = self.discover("preview-post")
+        self.assertFalse(preview["requires_account"])
+        self.assertIn("spec_file", preview["input_schema"]["required"])
+        self.assertNotIn("account", preview["input_schema"]["properties"])
+        self.assertEqual(preview["parameters"]["public"]["flags"], ["--public"])
+        self.assertFalse(self.data.exists())
+
     def test_isolated_cli_discovery_drives_native_only_file_preparation(self):
         command = self.discover("compose")
         spec = {"kind": "post", "content": [{"type": "native_emoji", "id": "cube:32"}]}

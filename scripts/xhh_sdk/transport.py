@@ -294,7 +294,7 @@ class Transport:
             raise XhhConfigError("Web GET requests cannot carry a payload")
         cookie = self.config.cookie_web
         for name, value in (extra_cookies or {}).items():
-            if name in _SESSION_FIELDS:
+            if name in _SESSION_FIELDS or (name == "x_xhh_tokenid" and self.config.risk_token is not None):
                 raise XhhConfigError("extra cookies cannot override protected session fields")
             if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_\-]{1,64}", name) or not value:
                 raise XhhConfigError("invalid extra cookie name or value")
@@ -325,9 +325,11 @@ class Transport:
             "Cookie": cookie,
             "Accept": "application/json, text/plain, */*",
         }
-        data = urllib.parse.urlencode(payload).encode("utf-8") if payload is not None else None
+        quote_via = urllib.parse.quote if is_web_post else urllib.parse.quote_plus
+        data = urllib.parse.urlencode(payload, quote_via=quote_via).encode("utf-8") if payload is not None else None
         if req_method == "POST":
-            headers["Content-Type"] = "application/x-www-form-urlencoded"
+            headers["Content-Type"] = ("application/x-www-form-urlencoded;charset=UTF-8"
+                                       if is_web_post else "application/x-www-form-urlencoded")
         body = self._open(urllib.request.Request(url, data=data, headers=headers, method=req_method))
         parsed = self._decode(body)
         if is_web_post and parsed.get("status") == "failed" and type(parsed.get("msg")) is str:

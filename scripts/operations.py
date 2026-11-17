@@ -8,9 +8,10 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
+from postspec import prepare_post
+from xhh_sdk.client import MAX_MEDIA_BYTES
 from xhh_sdk.exceptions import SDKDiagnostic, XhhAPIError, XhhConfigError
 from xhh_sdk.interaction import _validate_text
-from xhh_sdk.payload import Post
 from interaction_history import (database, bind_context, fingerprint, project_receipts, receipt_metadata,
                                  request_fingerprint, bind_message_context, read_message_context)
 
@@ -213,7 +214,7 @@ def prepare_write(client, kind: str, args, *, before_post=None):
     if kind in ("comment", "reply"):
         body = _validate_text(args.text_file.read_text(encoding="utf-8-sig"))
         payload["text"] = body
-        client.post_state(args.link_id)
+        client._assert_own_post(args.link_id)
         if kind == "reply":
             payload.update(root_id=args.root_id, reply_id=args.reply_id)
             floors = client.comment_thread(args.link_id, page=args.page, limit=args.limit, sort=args.sort)
@@ -233,7 +234,7 @@ def prepare_write(client, kind: str, args, *, before_post=None):
         image_url = getattr(args, "image_url", None)
         if image:
             data = image.read_bytes()
-            if not data or len(data) > 10 * 1024 * 1024:
+            if not data or len(data) > MAX_MEDIA_BYTES:
                 raise XhhConfigError("comment image must be nonempty and at most 10 MiB")
             client._image_info(image, data)
             payload["image_sha256"] = hashlib.sha256(data).hexdigest()
@@ -278,7 +279,7 @@ def prepare_write(client, kind: str, args, *, before_post=None):
         return payload, lambda: client.delete(args.link_id)
     if kind == "upload":
         data = args.image_file.read_bytes()
-        if not data or len(data) > 10 * 1024 * 1024:
+        if not data or len(data) > MAX_MEDIA_BYTES:
             raise XhhConfigError("image must be nonempty and at most 10 MiB")
         client._image_info(args.image_file, data)
         payload = {"image_sha256": hashlib.sha256(data).hexdigest()}
@@ -290,12 +291,8 @@ def prepare_write(client, kind: str, args, *, before_post=None):
         return payload, send_upload
     if kind == "publish":
         spec = json.loads(args.spec_file.read_text(encoding="utf-8-sig"))
-        if not isinstance(spec, dict):
-            raise XhhConfigError("post spec must be a JSON object")
-        post = Post(**{**spec, "draft": not args.public})
-        if any(not str(image).startswith("https://") for image in post.images):
-            raise XhhConfigError("upload images first and use their HTTPS URLs in the post spec")
-        payload = post.build()
+        post = prepare_post(spec, draft=not args.public, protocol=client.config.protocol_mode)
+        payload = post.build(protocol=client.config.protocol_mode)
         if args.public and not post.topic_ids and client.config.protocol_mode == "web":
             raise XhhConfigError("public Web posts require topic_ids from creator-options")
         if post.edit_link_id:

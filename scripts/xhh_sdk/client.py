@@ -18,7 +18,6 @@ never publish to the platform by accident.
 from __future__ import annotations
 
 import json
-import mimetypes
 from pathlib import Path
 import re
 
@@ -32,12 +31,22 @@ from .routes import call as _call_route
 from .transport import Transport
 from .web_signer import sign_web_request
 
-MAX_MEDIA_BYTES = 32 * 1024 * 1024
+MAX_MEDIA_BYTES = 10 * 1024 * 1024
 
 # The platform rejects an upload allocation whose file entry has no dimensions
 # ("file information missing"), so read them here rather than depend on an
 # optional imaging library.
 _SOF_MARKERS = frozenset(range(0xC0, 0xD0)) - {0xC4, 0xC8, 0xCC}
+
+
+def image_mime_type(data: bytes) -> str | None:
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8"):
+        return "image/jpeg"
+    if data.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    return None
 
 
 def image_dimensions(data: bytes) -> tuple[int, int] | None:
@@ -86,24 +95,14 @@ class XhhClient(GroupMixin, InteractionMixin, BrowseMixin):
 
     # ------------------------------------------------------------------ upload
     def _image_info(self, path: Path, data: bytes) -> dict:
-        mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        mime = image_mime_type(data)
+        if mime is None:
+            raise XhhConfigError(f"unsupported image type: {path}; use PNG, JPEG or GIF")
         info = {"name": path.name, "mimetype": mime, "fsize": len(data)}
-        size = None
-        try:
-            from PIL import Image  # optional dependency
-        except ImportError:
-            pass
-        else:
-            try:
-                with Image.open(path) as image:
-                    size = (image.width, image.height)
-            except (OSError, ValueError) as exc:
-                raise XhhConfigError(f"not a readable image: {path}") from exc
-        size = size or image_dimensions(data)
+        size = image_dimensions(data)
         if not size or min(size) < 1:
             raise XhhConfigError(
-                f"cannot read image dimensions: {path}; "
-                "use PNG, JPEG or GIF, or install Pillow")
+                f"cannot read image dimensions: {path}; use a valid PNG, JPEG or GIF")
         info["width"], info["height"] = size
         return info
 
@@ -200,17 +199,20 @@ class XhhClient(GroupMixin, InteractionMixin, BrowseMixin):
             # Validate content and metadata before allocating or uploading remote objects.
             Post(**{**post.__dict__, "images": [
                 ref if str(ref).startswith("https://") else "https://example.invalid/preflight"
-                for ref in post.images]}).build()
+                for ref in post.images]}).build(protocol=self.config.protocol_mode)
         if upload_local:
             resolved: list[str] = []
+            image_info = list(post.image_info)
             for image in post.images:
                 ref = str(image)
                 if ref.startswith("https://"):
                     resolved.append(ref)
                 else:
-                    resolved.append(self.upload(ref)["url"])
-            post = Post(**{**post.__dict__, "images": resolved})
-        payload = post.build()
+                    uploaded = self.upload(ref)
+                    resolved.append(uploaded["url"])
+                    image_info.append({key: uploaded[key] for key in ("url", "width", "height")})
+            post = Post(**{**post.__dict__, "images": resolved, "image_info": image_info})
+        payload = post.build(protocol=self.config.protocol_mode)
         response = self.transport.signed_request("/bbs/app/api/link/post", payload=payload)
         result = response.get("result", {})
         identifiers = [result.get("link_id") if isinstance(result, dict) else None]

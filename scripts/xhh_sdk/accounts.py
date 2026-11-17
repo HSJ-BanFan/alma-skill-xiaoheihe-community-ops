@@ -418,6 +418,7 @@ class AccountStore:
         _identity(account.identity)
         try:
             config = XhhConfig(pkey=pkey, heybox_id=account.identity,
+                               risk_token=account.risk_token,
                                **{**account.config, "protocol_mode": selected},
                                extra={"session_revision": account.revision})
             config.validate()

@@ -5,9 +5,54 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from documents import comment, document, summary, floors, link_id
 from xhh_sdk.exceptions import XhhConfigError
+from xhh_sdk.payload import Post
 
 
 class DocumentTests(unittest.TestCase):
+    def test_built_article_reads_back_inline_image_order_and_repetitions(self):
+        url = "https://imgheybox.max-c.com/fixture.png"
+        payload = Post(post_format="article").build(protocol="web", blocks=[
+            {"type": "html", "text": "<p>before</p>"},
+            {"type": "img", "url": url},
+            {"type": "html", "text": "<p>middle</p>"},
+            {"type": "img", "url": url},
+            {"type": "html", "text": "<p>after</p>"},
+        ])
+        post = document({"id": 123, "link_tag": payload["link_tag"], "text": payload["text"]}, {})
+        blocks = post["body"]["blocks"]
+        self.assertEqual([block["type"] for block in blocks], ["text", "image", "text", "image", "text"])
+        self.assertEqual([block["url"] for block in blocks if block["type"] == "image"], [url, url])
+        self.assertEqual([block["text"].strip() for block in blocks if block["type"] == "text"],
+                         ["before", "middle", "after"])
+
+    def test_current_article_metadata_preserves_repeated_visible_images(self):
+        url = "https://imgheybox.max-c.com/fixture.png"
+        post = document({"id": 123, "link_tag": 11, "text": [
+            {"type": "html", "text": f'<p>before</p><img src="{url}"><p>middle</p><img src="{url}"><p>after</p>'},
+            {"type": "img", "url": url}, {"type": "img", "url": url}]}, {})
+        self.assertEqual([block["url"] for block in post["body"]["blocks"] if block["type"] == "image"], [url, url])
+        self.assertEqual(post["content_type"], "article")
+
+    def test_plain_text_block_does_not_interpret_html_markup_as_images(self):
+        text = '<img src="https://example.com/a.png"> literal'
+        post = document({"id": 123, "link_tag": 27, "text": [{"type": "text", "text": text}]}, {})
+        self.assertEqual(post["body"]["text"], text)
+        self.assertEqual([block["type"] for block in post["body"]["blocks"]], ["text"])
+        self.assertEqual(post["content_type"], "dynamic")
+
+    def test_mixed_legacy_blocks_are_not_treated_as_an_article_metadata_tail(self):
+        url = "https://example.com/a.png"
+        post = document({"id": 123, "text": [{"type": "html", "text": f'<img src="{url}">'},
+                                              {"type": "img", "url": url}, {"type": "html", "text": "after"}]}, {})
+        self.assertEqual(sum(block["type"] == "image" for block in post["body"]["blocks"]), 2)
+
+    def test_legacy_app_article_gallery_image_is_not_web_metadata(self):
+        url = "https://example.com/a.png"
+        post = document({"id": 123, "link_tag": 1, "text": [
+            {"type": "html", "text": f'<img src="{url}">'},
+            {"type": "img", "url": url}]}, {})
+        self.assertEqual(sum(block["type"] == "image" for block in post["body"]["blocks"]), 2)
+
     def test_empty_article_never_uses_excerpt_as_body(self):
         post = document({"linkid": 123, "is_article": 1, "description": "a summary", "text": ""}, {})
         self.assertEqual(post["body"]["status"], "missing")

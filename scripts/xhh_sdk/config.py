@@ -44,6 +44,7 @@ class XhhConfig:
         "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
     extra: dict = field(default_factory=dict)
     protocol_mode: str = "app"
+    risk_token: str | None = field(default=None, repr=False)
 
     def validate(self) -> None:
         if self.protocol_mode not in ("app", "web"):
@@ -56,6 +57,10 @@ class XhhConfig:
                 raise XhhConfigError(f"{name} contains an illegal character")
         if not str(self.heybox_id).isdigit():
             raise XhhConfigError("heybox_id must be numeric")
+        if self.risk_token is not None and (
+                not isinstance(self.risk_token, str) or not self.risk_token
+                or any(ord(c) < 33 or ord(c) > 126 or c == ";" for c in self.risk_token)):
+            raise XhhConfigError("risk_token must be a nonempty ASCII cookie value")
         if not self.api_base.startswith("https://"):
             raise XhhConfigError("api_base must be an https:// URL")
         if not 0 < float(self.timeout) <= 120:
@@ -70,8 +75,10 @@ class XhhConfig:
     @property
     def cookie_web(self) -> str:
         """Cookie for signed Web API calls and unsigned upload requests."""
-        name = "user_pkey" if self.protocol_mode == "web" else "pkey"
-        return f"{name}={self.pkey}; user_heybox_id={self.heybox_id};"
+        if self.protocol_mode == "web":
+            cookie = f"user_pkey={self.pkey}; user_heybox_id={self.heybox_id};"
+            return cookie + (f" x_xhh_tokenid={self.risk_token};" if self.risk_token else "")
+        return f"pkey={self.pkey}; user_heybox_id={self.heybox_id};"
 
     @classmethod
     def from_env(cls) -> "XhhConfig":
@@ -92,6 +99,7 @@ class XhhConfig:
             signer_jar=os.environ.get("XHH_SIGNER_JAR"),
             java=os.environ.get("XHH_JAVA", "java"),
             protocol_mode=os.environ.get("XHH_PROTOCOL_MODE", "app"),
+            risk_token=os.environ.get("XHH_RISK_TOKEN") or None,
         )
         config.validate()
         return config
@@ -136,6 +144,8 @@ class XhhConfig:
             "java": self.java,
             "protocol_mode": self.protocol_mode,
         }
+        if self.risk_token is not None:
+            data["risk_token"] = self.risk_token
         target.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         try:
             os.chmod(target, 0o600)
