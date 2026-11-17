@@ -95,7 +95,7 @@ python -I -X utf8 "<skill>/scripts/xhh.py" preview-post <spec.json>
 
 ## 写操作
 
-调用方先确认实际账号与精确目标，读取相关帖子和楼层，再提交已经确定的正文或图片。评论和回复只写当前账号自己的帖子；工具在发送前读取作者并拒绝其他账号的帖子。每个写操作提供 `--confirm` 和唯一 `--operation-id`。同一次用户操作的后续查询或重试沿用该 ID。
+调用方先确认实际账号与精确目标，读取相关帖子和楼层，再提交已经确定的正文或图片。评论和回复支持在其他用户的帖子下参与讨论；工具在发送前核验实际账号 UID 与帖子存在，回复还核对根楼层、精确目标及所选分页。操作绑定实际账号 UID 和帖子 ID，回复另绑定根楼层与目标 CID。编辑或删除帖子仍要求帖子归当前账号所有，删除评论仍要求评论归当前账号所有；SDK 的 canary 可见性探测仍只用于自己的帖子。每个写操作提供 `--confirm` 和唯一 `--operation-id`。同一次用户操作的后续查询或重试沿用该 ID。
 
 ```console
 python -I -X utf8 "<skill>/scripts/xhh.py" --account <alias> comment <link-id> --text-file <utf8-file> --operation-id <id> --confirm

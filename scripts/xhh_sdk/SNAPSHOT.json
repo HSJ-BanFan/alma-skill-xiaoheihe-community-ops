@@ -5,15 +5,15 @@
   "files": {
     "__init__.py": "d90da8874f09ccd1afb2226e686b364148ff9728d57ea382c306b1cd049373cc",
     "accounts.py": "d771ceb99c5ecc9e21f19e8d9409ce0db4e86b5d779d3dacdbe6b58d387f9187",
-    "api_catalog.json": "601c6ebc1cb3f4ebd74851a6258ea2db941cc001e7671eb706524745e885c72f",
+    "api_catalog.json": "8a726847c79f0dd7fc11e91dc5c295adf0d6ee401f03e42b8fda8b73a621760e",
     "browse.py": "8d924b38f29fa9ba695fc47bbb47b3fcc359e2796ac17a8d09a893b5024d9ede",
     "catalog.py": "be1b48f8793a8629fe3a700e5e684741484a5536c254a53bcdcb3cbeb2f43a12",
-    "cli.py": "c3a44e91f4976168ab6978d9eec5ffe1c114bb9a57c568de90c6ab321678aa5a",
+    "cli.py": "c30b9bead3d7a7be2a86a4c4c51cc6740a9d89dcd4de986c50c389f752eb2526",
     "client.py": "9c7186fe116583e13b279af6e768c3ca1a78497231e4361275c5c92be7b006af",
     "config.py": "4fba07335c3e557868780c865fe4222527b4c7f3bf498020f65b17ef3ab13a97",
     "exceptions.py": "2b8149fbe2ca780586932f2d20564f1311ddeaf0ec0e8053bfef418372772b08",
     "groups.py": "7f96d995622909d99bd128f996037fa8ab5ef24ec0e8d4e104c82049765e8f5d",
-    "interaction.py": "5afad9aac800b7c3e5cf432e7eee0666542e8b50be55194975db524b5360ab57",
+    "interaction.py": "0ea419eb76fdfc0c50a2c165bee16cedb31327f1d5c5489378257eed88c3ad8c",
     "LICENSE": "6ad220b8dbff857ab6579903d8d4d5912bab9f99e0e03f63d317c04fbe6544c5",
     "login.py": "2a5519483d5802872145e0a0b5ea49c05d4e95514757602f728ef85fbd791ff3",
     "payload.py": "01f7b8af412b57394a745a9dfaf1964235b2b18e3ca0c1075cefa86dae9c6ca9",
@@ -31,8 +31,10 @@
     "config.py": "Preserve Web-only user session cookie names, carry the optional selected-account device cookie only on Web, and validate its header-safe characters.",
     "transport.py": "Use the observed Creator RFC3986 form encoder and UTF-8 content type on the normalized Web post route, while preserving the established encoding for other Web POSTs. Include the existing signer quadruple _rnd only on web post, classify exact recognized failures into closed diagnostics, and protect bound device and session cookies from override.",
     "accounts.py": "Carry the selected managed account device token into runtime configuration without changing the encrypted account record or session-selection contract.",
-    "cli.py": "Redact both session and bound device credentials from CLI output and error text.",
-    "exceptions.py": "Add optional SDKDiagnostic values with fixed public Web post diagnostics and no upstream message."
+    "interaction.py": "Use public post_state existence checks for ordinary comment and reply participation on other users' posts; preserve exact first-page root and reply target checks, edit/delete ownership guards, and public visibility uncertainty.",
+    "cli.py": "Redact both session and bound device credentials from CLI output and error text; update ordinary comment/reply help and explicitly retain the own-post guard before canary comments.",
+    "exceptions.py": "Add optional SDKDiagnostic values with fixed public Web post diagnostics and no upstream message.",
+    "api_catalog.json": "Update ordinary comment and reply command descriptions to observed-post participation while retaining historical evidence and live-retest flags."
   },
   "web_contract_observation": {
     "date": "2026-11-16",

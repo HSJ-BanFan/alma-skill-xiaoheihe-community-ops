@@ -270,14 +270,17 @@ class ToolsTest(unittest.TestCase):
         self.assertEqual(len([call for call in self.fixture.calls if call[1] == "PUT"]), 1)
         self.assertEqual(len(self.sends()), 3)
 
-    def test_comment_ownership_guard_denies_a_foreign_post(self):
+    def test_comment_on_another_accounts_post_sends_once(self):
         self.fixture.link_owner = "202"
         code, value = self.run_cli("comment", "501", "--text-file", str(self.text),
                                    "--operation-id", "foreign-comment", "--confirm")
-        self.assertEqual(code, 1)
-        self.assertIn("configured account's own posts", value["error"]["message"])
-        self.assertFalse(any(call[0] == "/bbs/app/comment/create"
-                             for call in self.fixture.calls))
+        self.assertEqual(code, 0, value)
+        self.assertEqual(value["data"]["receipt"]["comment_id"], "701")
+        self.assertEqual(value["data"]["receipt"]["link_id"], "501")
+        self.assertEqual(value["coverage"]["public_visibility"], "not_checked")
+        self.assertEqual(len(self.sends()), 1)
+        self.assertEqual(self.sends()[0][:3], ("/bbs/app/comment/create", "POST",
+                         {"link_id": ["501"], "text": ["这是调用方确定的正文。"], "is_cy": ["0"]}))
 
     def test_upload_rejects_webp_and_bmp_before_allocation(self):
         for name, data in (

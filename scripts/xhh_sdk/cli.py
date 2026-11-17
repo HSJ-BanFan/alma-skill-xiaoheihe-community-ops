@@ -14,8 +14,8 @@ Commands:
     my-comments list the account's own comments
     delete      delete a post (asks for --yes)
     publish     create a post from a JSON spec (draft by default)
-    comment     comment on an own post (needs --confirm)
-    reply       reply in a thread on an own post (needs --confirm)
+    comment     comment on one existing post (needs --confirm)
+    reply       reply to an observed target in one post's thread (needs --confirm)
     delete-comment  delete an own comment (needs --confirm)
     favourite / unfavourite  reversible single-post save (needs --confirm)
     follow-topic / unfollow-topic  reversible topic follow (needs --confirm)
@@ -490,7 +490,7 @@ def main(argv: list[str] | None = None) -> int:
                            help="publish for real (default: save as draft)")
     p_publish.add_argument("--confirm", action="store_true", help="confirm draft or public write")
 
-    p_comment = sub.add_parser("comment", help="comment on an own post")
+    p_comment = sub.add_parser("comment", help="comment on one existing post")
     p_comment.add_argument("link_id")
     p_comment.add_argument("text")
     p_comment.add_argument("--cy", action="store_true", help="mark as CY")
@@ -498,7 +498,7 @@ def main(argv: list[str] | None = None) -> int:
                            help="confirm this live write")
 
     p_reply = sub.add_parser("reply",
-                             help="reply in a thread on an own post")
+                             help="reply to an observed target in one post's thread")
     p_reply.add_argument("link_id")
     p_reply.add_argument("root_id")
     p_reply.add_argument("reply_id")
@@ -822,6 +822,7 @@ def main(argv: list[str] | None = None) -> int:
                 print("refusing without --confirm", file=sys.stderr)
                 return 2
             marker = "【xhh-sdk canary】临时评论，自动删除"
+            client._assert_own_post(args.link_id)
             created = client.comment(args.link_id, marker, confirm=True)
             comment_id = str(created.get("comment_id") or "")
             if not comment_id:

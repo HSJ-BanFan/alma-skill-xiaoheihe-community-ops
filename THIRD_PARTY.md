@@ -8,7 +8,9 @@
 - `payload.py` 用独立适配器区分当前 Creator Web 与旧 App 表单。Web 区分 `article` 与 `image_text`，派生 `link_tag` 和计划模式，使用数字作者身份与声明；App 保留旧 HTML、标签和字段默认值。正文图片元数据、真实宽高和原生表情不丢失。
 - `config.py` 的 Web 会话使用来源 SDK 的 `user_pkey`、`user_heybox_id` 名称，并在存在时携带已存设备 Cookie；App 保留原始名和 `x_` 前缀名。设备凭证校验 Cookie 字符并隐藏在对象显示中。
 - `accounts.py` 将选定账号已加密保存的设备凭证传入请求配置，不迁移或改写账号存储。
-- `cli.py` 的输出与错误文本同时脱敏会话和设备凭证。
+- `interaction.py` 的普通评论和回复通过公开的 `post_state` 核验帖子存在，允许在其他用户的帖子下参与；回复保留首个楼层页的精确根楼层和目标核验，编辑、删除的所有权核验保留。公开可见性的异步行为说明保留。
+- `cli.py` 的输出与错误文本同时脱敏会话和设备凭证，评论与回复帮助对应普通参与范围；canary 在调用评论前显式核验帖子归当前账号所有。
+- `api_catalog.json` 的评论和回复命令说明对应当前参与范围；历史实测与未复测标记保留。
 - `transport.py` 的 Web 签名请求（包括 Web 会话上传）使用 RFC3986 表单编码并声明 `application/x-www-form-urlencoded;charset=UTF-8`。仅在规范化的 `/bbs/app/api/link/post` Web POST 上发送现有签名结果的 `_rnd`，并把该请求的精确 `failed / 缺失参数` 和 `failed / 发布功能暂不可用` 映射为闭合诊断。Web 签名器和其他协议请求保留。
 - `exceptions.py` 为 `XhhAPIError` 增加可选的 `SDKDiagnostic` 枚举。诊断只投影固定的代码、路径、状态和消息，不携带上游文本。
 
