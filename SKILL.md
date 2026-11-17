@@ -29,6 +29,8 @@ python -I -X utf8 "<skill>/scripts/xhh.py" preview-post <spec.json>
 
 首次登录、凭据配置与 App 签名器见 [REFERENCE.md](REFERENCE.md)。Web 协议使用内置 Python 签名器；App 协议需要用户提供签名器和 Java。协议由账号配置或 `--protocol` 明确选择，失败后保持该协议。
 
+核对账号使用过的短信登录手机号时，读取 [手机号登录记录](REFERENCE.md#短信登录手机号记录)。`account status <alias> --phone <phone>` 返回与已核验登录记录的匹配结果；加 `--online` 同时核验当前会话 UID。记录不足时使用返回的 `not_recorded` 或 `conflict` 状态。
+
 账号管理命令也返回一行 JSON。缺失签名器、风险令牌、未绑定身份、会话或在线核验失败时，读取 `error.code` 和 `error.fix`，不要解析自由文本错误。
 
 用户要求逛论坛、回复收件箱来信或继续多轮讨论时，先读取 [CONVERSATION.md](CONVERSATION.md)。按其中的每轮流程补读正文、定位目标、复用操作 ID并读回新评论。

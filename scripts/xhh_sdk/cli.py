@@ -103,11 +103,23 @@ def _offline_doctor(args) -> int:
     return 0 if report["signer_ready"] and report["java_present"] else 1
 
 
+def _private_output_field(key, value):
+    if value is None or isinstance(value, bool):
+        return False
+    name = str(key).lower()
+    if any(word in name for word in (
+            "phone", "mobile", "msisdn", "verifier", "sms_code", "verification_code")):
+        return name != "login_phone" or not isinstance(value, dict)
+    if isinstance(value, (str, int)):
+        return (any(word in name for word in (
+                    "pkey", "cookie", "token", "secret", "password", "authorization"))
+                or name == "code" and str(value).isascii() and str(value).isdigit())
+    return False
+
+
 def _redact(data, secret: str | tuple[str | None, ...] | None = None):
     if isinstance(data, dict):
-        return {key: "[REDACTED]" if isinstance(value, (str, int)) and not isinstance(value, bool)
-                and any(word in str(key).lower()
-                        for word in ("pkey", "cookie", "token", "secret", "password", "authorization"))
+        return {key: "[REDACTED]" if _private_output_field(key, value)
                 else _redact(value, secret) for key, value in data.items()}
     if isinstance(data, (tuple, list)):
         return [_redact(value, secret) for value in data]
@@ -122,19 +134,6 @@ def _print(data, *, secret: str | tuple[str | None, ...] | None = None) -> None:
     print(json.dumps(_redact(data, secret), ensure_ascii=False, indent=2))
 
 
-def _account_view(account) -> dict:
-    sessions = {protocol: {"present": protocol in account.sessions,
-                           "state": "stored" if protocol in account.sessions else "missing"}
-                for protocol in ("app", "web")}
-    return {"alias": account.alias, "identity_masked": _mask_identity(account.identity),
-            "authenticated": bool(account.sessions),
-            "state": "logged_in" if account.sessions else "needs_login",
-            "sessions": sessions,
-            "storage": "windows-dpapi", "session_valid": "not_checked", "api_identity_verified": False,
-            "protocol_mode": account.config.get("protocol_mode", "app"),
-            "risk_token_present": bool(getattr(account, "risk_token", None))}
-
-
 def _mask_identity(identity: str) -> str:
     return "***" + identity[-2:] if len(identity) > 4 else "*" * len(identity)
 
@@ -143,7 +142,7 @@ def _identity_matches(data: dict, expected: str) -> bool:
     if not isinstance(data, dict):
         return False
     identities = set()
-    for container in (data, data.get("user"), data.get("account_detail")):
+    for container in (data, data.get("user"), data.get("account_detail"), data.get("profile")):
         if not isinstance(container, dict):
             continue
         for key in ("heybox_id", "userid", "user_id", "id"):
@@ -155,6 +154,14 @@ def _identity_matches(data: dict, expected: str) -> bool:
 
 def _manage_account(args) -> int:
     action = args.account_action
+    phone_input = getattr(args, "phone", None)
+    secrets = [phone_input, getattr(args, "code", None), getattr(args, "risk_token", None)]
+    if isinstance(phone_input, str):
+        secrets.append(phone_input.strip())
+
+    def emit(data):
+        _print(data, secret=tuple(secrets))
+
     try:
         if args.account or args.config or args.env:
             raise XhhConfigError(
@@ -173,10 +180,13 @@ def _manage_account(args) -> int:
                 fix="repeat the account change with --confirm",
             )
         store = _account_store(args)
+        from .secure_phone import normalize_phone
+        phone = normalize_phone(phone_input) if phone_input is not None else None
+        secrets.append(phone)
         if action == "list":
-            _print({"accounts": store.list(), "session_valid": "not_checked"})
+            emit({"accounts": store.list(), "session_valid": "not_checked"})
         elif action == "add":
-            _print(store.add(args.alias, identity=args.identity))
+            emit(store.add(args.alias, identity=args.identity))
         elif action == "configure":
             values = {}
             for pair in args.set:
@@ -191,7 +201,7 @@ def _manage_account(args) -> int:
                     except ValueError:
                         raise XhhConfigError("timeout must be numeric") from None
                 values[key] = value
-            _print(store.configure(args.alias, values))
+            emit(store.configure(args.alias, values))
         elif action == "login":
             account = store.get(args.alias)
             protocol_mode = "app" if args.method == "sms" else "web"
@@ -212,6 +222,7 @@ def _manage_account(args) -> int:
                         "--identity is required for an unbound alias")
                 risk_token = (args.risk_token or os.environ.get("XHH_RISK_TOKEN", "")
                               or account.risk_token or "")
+                secrets.append(risk_token)
                 if not risk_token:
                     raise XhhRiskTokenError(
                         "no risk token: run `account risk-token ALIAS --confirm` first, "
@@ -222,12 +233,12 @@ def _manage_account(args) -> int:
                            "java": account.config.get("java", "java"),
                            "identity": identity, "risk_token": risk_token}
                 if args.code:
-                    result = login_sms_verify(args.phone, args.code,
+                    result = login_sms_verify(phone, args.code,
                                               expected_identity=account.identity, **options)
                 else:
-                    body = login_sms_request(args.phone, **options)
-                    _print({"status": body.get("status"), "code_sent": True,
-                            "next": f"rerun with --code <sms code> to finish logging in {account.alias}"})
+                    body = login_sms_request(phone, **options)
+                    emit({"status": body.get("status"), "code_sent": True,
+                          "next": f"rerun with --code <sms code> to finish logging in {account.alias}"})
                     return 0
             elif args.method == "creator":
                 from .login import login_creator as login_impl
@@ -241,12 +252,14 @@ def _manage_account(args) -> int:
                       file=sys.stderr)
                 result = login_impl(expected_identity=account.identity,
                                     browser_channel=args.browser, timeout=args.timeout)
+            secrets.append(result.pkey)
             if account.identity and result.identity != account.identity:
                 raise XhhConfigError("Login identity does not match the bound account")
             candidate = XhhConfig(pkey=result.pkey, heybox_id=result.identity,
                                   **{**account.config, "protocol_mode": protocol_mode})
             candidate.validate()
-            report = {**_account_view(account), "changed": False,
+            report = {**store.status(args.alias, expected_revision=account.revision),
+                      "changed": False,
                       "protocol_mode": protocol_mode, "session_valid": False,
                       "candidate_persisted": False,
                       "browser_session_persisted": False, "login_method": args.method}
@@ -263,11 +276,16 @@ def _manage_account(args) -> int:
                 report.update(state="verified" if verified else "identity_unverified",
                               session_valid=bool(verified), api_identity_verified=verified)
                 if verified:
+                    from .accounts import VerifiedLoginObservation
+                    observation = VerifiedLoginObservation(
+                        identity=result.identity, protocol=protocol_mode,
+                        method=args.method, phone=phone if args.method == "sms" else None)
                     saved = store.save_login(args.alias, pkey=result.pkey, identity=result.identity,
                                              expected_revision=account.revision,
-                                             protocol_mode=protocol_mode)
+                                             protocol_mode=protocol_mode,
+                                             observation=observation)
                     report.update(saved, state="verified", candidate_persisted=True)
-            _print(report)
+            emit(report)
             return 0 if report["api_identity_verified"] else 1
         elif action in {"logout", "remove"}:
             if action == "logout":
@@ -276,22 +294,23 @@ def _manage_account(args) -> int:
                                             protocol=getattr(args, "protocol", None)))
             else:
                 result = store.remove(args.alias)
-            _print({**result, "server_session_revoked": False, "browser_session_persisted": False})
+            emit({**result, "server_session_revoked": False, "browser_session_persisted": False})
         elif action == "risk-token":
             from .login import capture_risk_token
             print(f"Opening the site for alias {args.alias}; sign in if it asks.", file=sys.stderr)
             token = capture_risk_token(browser_channel=args.browser, timeout=args.timeout)
-            _print({**store.set_risk_token(args.alias, token), "risk_token_present": True})
+            secrets.append(token)
+            emit({**store.set_risk_token(args.alias, token), "risk_token_present": True})
         elif action == "status":
             account = store.get(args.alias)
-            report = _account_view(account)
+            report = store.status(args.alias, phone=phone, expected_revision=account.revision)
             report["protocol_mode"] = getattr(args, "protocol", None) or report["protocol_mode"]
             if args.online:
                 try:
                     selection = account.select_session(
                         getattr(args, "protocol", None))
                 except XhhSessionMissingError:
-                    _print(report)
+                    emit(report)
                     return 1
                 report["protocol_mode"] = selection.protocol
                 report["session_selection"] = selection.public()
@@ -300,24 +319,34 @@ def _manage_account(args) -> int:
                 try:
                     data = XhhClient(config).account_info()
                 except XhhAuthError:
-                    _print({**report, "state": "expired", "session_valid": False})
+                    emit({**report, "state": "expired", "session_valid": False})
                     return 1
                 except XhhError:
-                    _print({**report, "state": "check_failed", "session_valid": "unknown"})
-                    return 1
-                if store.get(args.alias).revision != account.revision:
-                    _print({**report, "state": "account_changed", "session_valid": "unknown"})
+                    emit({**report, "state": "check_failed", "session_valid": "unknown"})
                     return 1
                 verified = _identity_matches(data, account.identity)
-                report.update(api_identity_verified=verified,
+                try:
+                    fresh = store.status(
+                        args.alias, phone=phone, expected_revision=account.revision,
+                        verified_identity=account.identity if verified else None)
+                except XhhConfigError as exc:
+                    if exc.public().get("code") != "account_changed":
+                        raise
+                    emit({**report, "state": "account_changed", "session_valid": "unknown"})
+                    return 1
+                report.update(fresh, protocol_mode=selection.protocol,
+                              api_identity_verified=verified,
                               session_valid=True if verified else "unknown",
                               state="verified" if verified else "identity_unverified")
-                _print(report)
-                return 0 if verified else 1
-            _print(report)
+                emit(report)
+                return 0 if verified and (
+                    phone is None or report["login_phone"]["matches"] is True) else 1
+            emit(report)
+            if phone is not None:
+                return 0 if report["login_phone"]["matches"] is True else 1
         return 0
     except XhhError as exc:
-        _print({
+        emit({
             "ok": False,
             "command": "account",
             "error": exc.public(),
@@ -350,6 +379,7 @@ def main(argv: list[str] | None = None) -> int:
     p_status = actions.add_parser("status", help="local state; --online checks API identity")
     p_status.add_argument("alias")
     p_status.add_argument("--online", action="store_true")
+    p_status.add_argument("--phone", help="locally compare the verified SMS login phone")
     p_login = actions.add_parser(
         "login", help="log in: Creator Web session, legacy WeChat web session, or App session from an SMS code")
     p_login.add_argument("alias")

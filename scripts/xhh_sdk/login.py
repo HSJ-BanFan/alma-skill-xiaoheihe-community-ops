@@ -27,6 +27,7 @@ from .exceptions import (
     XhhRateLimitError,
     XhhTransportError,
 )
+from .secure_phone import normalize_phone
 
 SSO = "https://api.xiaoheihe.cn/account/wechat/login/v2/web_sso/"
 CALLBACK = "https://api.xiaoheihe.cn/account/wechat/login_redirect/v2/web_sso/"
@@ -301,7 +302,6 @@ LOGIN_VERIFY_PATH = "/account/login_code/"
 RISK_COOKIE = "x_xhh_tokenid"
 MAIN_SITE = "https://www.xiaoheihe.cn/"
 DEFAULT_BROWSER_PROFILE = Path.home() / ".xhh_sdk" / "browser-profile"
-_PHONE = re.compile(r"1[3-9]\d{9}")
 _CODE = re.compile(r"\d{4,8}")
 
 
@@ -357,10 +357,7 @@ def capture_risk_token(*, profile: str | Path | None = None, browser_channel: st
 
 
 def _validate_phone(phone: str) -> str:
-    value = str(phone).strip()
-    if not _PHONE.fullmatch(value):
-        raise XhhConfigError("phone must be a mainland China mobile number, e.g. 13500000000")
-    return value
+    return normalize_phone(phone)
 
 
 def _signed_post(path: str, *, form: dict, query: dict | None = None, identity: str = "0",
@@ -431,7 +428,7 @@ def _require_ok(body: dict) -> None:
             "platform throttled the login request",
             code="rate_limited",
         )
-    raise XhhConfigError(f"platform refused the login request (status={status!r} msg={message!r})")
+    raise XhhConfigError("platform refused the login request")
 
 
 def session_from_response(body: dict, cookies: Mapping[str, str]) -> LoginResult:

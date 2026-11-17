@@ -26,6 +26,20 @@ _EXPONENT = b"\x02\x03\x01\x00\x01"
 _PAD_BYTES = 128
 
 
+def normalize_phone(phone: str) -> str:
+    """Normalize supported mainland mobile values without echoing input."""
+    if not isinstance(phone, str):
+        raise XhhConfigError("phone must be a supported mainland China mobile number")
+    value = phone.strip()
+    for prefix in ("+86", "0086"):
+        if value.startswith(prefix):
+            value = value[len(prefix):].strip()
+            break
+    if not re.fullmatch(r"1[3-9][0-9]{9}", value):
+        raise XhhConfigError("phone must be a supported mainland China mobile number")
+    return value
+
+
 def _public_numbers() -> tuple[int, int]:
     match = re.search(re.escape(_MODULUS_PREFIX) + b".{129}", RSA_PUBLIC_DER, re.S)
     if not match or _EXPONENT not in RSA_PUBLIC_DER:
