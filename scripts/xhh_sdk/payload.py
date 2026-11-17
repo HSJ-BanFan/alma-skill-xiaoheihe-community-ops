@@ -61,7 +61,7 @@ class _Images(HTMLParser):
 
 
 def _body_blocks(blocks: list[dict], kind: str, info: dict) -> tuple[list[dict], str]:
-    parts, images = [], []
+    parts, text_parts, images = [], [], []
     seen_image = False
     for block in blocks:
         if block["type"] == "img":
@@ -78,10 +78,19 @@ def _body_blocks(blocks: list[dict], kind: str, info: dict) -> tuple[list[dict],
                 parts.append("<p><img " + attrs + "></p>")
             else:
                 images.append({**block, **info.get(url, {}), "url": url})
+        elif block["type"] == "text":
+            if kind != "image_text":
+                raise XhhConfigError("unsupported post body block")
+            text = block["text"].replace("\r\n", "\n").replace("\r", "\n")
+            if seen_image and text.strip():
+                raise XhhConfigError("interleaved images require post_format article")
+            text_parts.append(text)
         elif block["type"] == "html":
             if kind == "image_text" and seen_image and plain_text(block["text"]).strip():
                 raise XhhConfigError("interleaved images require post_format article")
             parts.append(block["text"])
+            if kind == "image_text":
+                text_parts.append(plain_text(block["text"]))
         else:
             raise XhhConfigError("unsupported post body block")
     content = "".join(parts).strip()
@@ -90,7 +99,8 @@ def _body_blocks(blocks: list[dict], kind: str, info: dict) -> tuple[list[dict],
         parser.feed(content)
         parser.close()
         return [{"type": "html", "text": content}, *parser.images], content
-    return [{"type": "text", "text": plain_text(content).strip()}, *images], content
+    content = "".join(text_parts).strip()
+    return [{"type": "text", "text": content}, *images], content
 
 
 def _app_image_block(block: dict, info: dict) -> dict:
@@ -199,11 +209,15 @@ class Post:
         if blocks is None:
             if kind == "image_text" and self.content_format != "text":
                 raise XhhConfigError("image_text requires text; use post_format article for HTML or Markdown")
-            content = _text_to_html(self.content) if self.content_format == "text" else self.content
-            blocks = [{"type": "html", "text": content}]
+            if kind == "image_text":
+                blocks = [{"type": "text", "text": self.content}]
+            else:
+                content = _text_to_html(self.content) if self.content_format == "text" else self.content
+                blocks = [{"type": "html", "text": content}]
             blocks.extend({"type": "img", "url": _image_url(image)} for image in self.images)
         blocks, content = _body_blocks(blocks, kind, info)
-        if not plain_text(content).strip() and not any(block["type"] == "img" for block in blocks):
+        missing_text = not content.strip() if kind == "image_text" else not plain_text(content).strip()
+        if missing_text and not any(block["type"] == "img" for block in blocks):
             raise XhhConfigError("content is required")
 
         tags, seen = [], set()
@@ -212,7 +226,8 @@ class Post:
             if tag and tag.casefold() not in seen:
                 tags.append(tag)
                 seen.add(tag.casefold())
-        body = plain_text(content).replace("\n", " ").strip()
+        text_content = content if kind == "image_text" else plain_text(content)
+        body = text_content.replace("\n", " ").strip()
         topics = ",".join(str(t) for t in self.topic_ids) or ("58144" if kind == "image_text" else "")
         payload = {
             "title": self.title.strip(), "desc": body[:100],
@@ -221,7 +236,7 @@ class Post:
             "post_type": "2" if self.post_plan else "1",
             "draft": "1" if self.draft else "0", "edit": "1" if self.edit_link_id else "0",
             "text": json.dumps(blocks, ensure_ascii=False, separators=(",", ":")),
-            "words_count": str(len(plain_text(content).strip())),
+            "words_count": str(len(text_content.strip())),
             "hashtags": json.dumps(tags, ensure_ascii=False, separators=(",", ":")),
             "view_limit": self.visibility or "1", "schedule_ts": "0",
             "extra_declaration": str(self.extra_declaration if self.extra_declaration is not None else -1),

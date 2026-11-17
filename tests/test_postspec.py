@@ -327,6 +327,13 @@ class ProtocolWireTest(unittest.TestCase):
     SPAN = ('<span data-emoji="cube_笑cry" '
             'class="hb-emoji hb-emoji-cube hb-emoji-cube_32"></span>')
 
+    def test_web_image_text_preserves_literal_blank_lines(self):
+        for content in ("a\n\nb", "a\r\n\r\nb", "a\r\rb"):
+            with self.subTest(content=repr(content)):
+                payload = Post(content=content, content_format="text").build(protocol="web")
+                self.assertEqual(json.loads(payload["text"]),
+                                 [{"type": "text", "text": "a\n\nb"}])
+
     def test_raw_sdk_defaults_preserve_legacy_html_and_app_payload(self):
         post = Post(content="<p>legacy</p>", original=False)
         self.assertEqual(post.content_format, "html")

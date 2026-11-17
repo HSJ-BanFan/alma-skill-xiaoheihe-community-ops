@@ -165,6 +165,16 @@ class PostPreviewTest(unittest.TestCase):
         self.assertEqual((draft["data"]["payload"]["draft"], public["data"]["payload"]["draft"]), ("1", "0"))
         self.assertEqual((draft["data"]["spec"]["draft"], public["data"]["spec"]["draft"]), (True, False))
 
+    def test_image_text_preview_and_publish_preserve_literal_blank_lines(self):
+        spec = {"content": "a\r\n\r\nb", "content_format": "text"}
+        code, preview = self.preview(spec)
+        self.assertEqual(code, 0)
+        code, _ = self.publish(spec, "literal-image-text")
+        self.assertEqual(code, 0)
+        wire = self.fixture.wire()
+        self.assertEqual(preview["data"]["payload"], wire)
+        self.assertEqual(json.loads(wire["text"]), [{"type": "text", "text": "a\n\nb"}])
+
     def test_app_preview_uses_explicit_legacy_protocol_without_account_access(self):
         spec = self.write_spec({"content": "body", "post_format": "article", "visibility": "0"})
         code, preview = self.run_cli("--protocol", "app", "preview-post", str(spec))
