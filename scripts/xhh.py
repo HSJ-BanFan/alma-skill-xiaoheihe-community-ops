@@ -614,7 +614,7 @@ def main(argv=None, *, client_factory=XhhClient):
         clients = load_clients(args, config, client_factory)
         client = next(iter(clients.values()))
         config = client.config
-        secret = config.pkey
+        secret = (config.pkey, config.risk_token)
         if args.command in WRITES:
             verify_identity(client)
             journal = Journal(args.data_dir)

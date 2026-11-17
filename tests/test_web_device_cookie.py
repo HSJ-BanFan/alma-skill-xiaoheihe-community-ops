@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import contextlib
+import io
+import json
 import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 ROOT = Path(os.environ.get("XHH_TEST_SKILL_ROOT") or Path(__file__).resolve().parents[1])
@@ -15,6 +19,7 @@ from xhh_sdk.config import XhhConfig
 from xhh_sdk.exceptions import XhhConfigError
 from xhh_sdk.transport import Transport
 from xhh_sdk.cli import _redact
+import xhh
 from xhh import redact
 
 
@@ -62,6 +67,37 @@ class WebDeviceCookieTests(unittest.TestCase):
         for redactor in (redact, _redact):
             result = redactor(error, ("fixture-session-only", "fixture-device-only"))
             self.assertEqual(result["message"], "rejected [REDACTED] and [REDACTED]")
+
+    def test_ordinary_command_redacts_platform_errors(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            config = root / "config.json"
+            config.write_text(json.dumps({
+                "pkey": "fixture-session-only",
+                "heybox_id": "101",
+                "protocol_mode": "web",
+                "risk_token": "fixture-device-only",
+            }), encoding="utf-8")
+            output = io.StringIO()
+
+            def factory(runtime_config):
+                def drafts(**kwargs):
+                    raise XhhConfigError(
+                        "upstream echoed fixture-session-only and fixture-device-only")
+                return SimpleNamespace(config=runtime_config, drafts=drafts)
+
+            with contextlib.redirect_stdout(output):
+                code = xhh.main(
+                    ["--config", str(config), "--data-dir", str(root / "state"), "drafts"],
+                    client_factory=factory,
+                )
+
+        value = json.loads(output.getvalue())
+        self.assertEqual(code, 1)
+        self.assertNotIn("fixture-session-only", output.getvalue())
+        self.assertNotIn("fixture-device-only", output.getvalue())
+        self.assertEqual(value["error"]["message"],
+                         "upstream echoed [REDACTED] and [REDACTED]")
 
 
 if __name__ == "__main__":
