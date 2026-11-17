@@ -219,6 +219,32 @@ class PostPreviewTest(unittest.TestCase):
                 self.assertEqual(self.fixture.posts(), [])
                 self.assertIsNone(Journal(self.data).read("101", operation_id))
 
+    def test_markdown_boundary_refusals_do_not_touch_state(self):
+        cases = (
+            ("app-rich-image-text",
+             {"content": "**x**", "post_format": "image_text", "content_format": "markdown"},
+             "app"),
+            ("image-only-markdown",
+             {"content": "![only](https://img.example/a.png)",
+              "post_format": "article", "content_format": "markdown"},
+             None),
+        )
+        for name, spec, protocol in cases:
+            with self.subTest(case=name):
+                operation_id = "refused-" + name
+                path = self.write_spec(spec)
+                root = ("--protocol", protocol) if protocol else ()
+                code, value = self.run_cli(*root, "publish", str(path), "--operation-id", operation_id,
+                                           "--confirm")
+                self.assertEqual(code, 1)
+                self.assertEqual(value["ok"], False)
+                code, value = self.run_cli(*root, "preview-post", str(path))
+                self.assertEqual(code, 1)
+                self.assertEqual(value["ok"], False)
+                self.assertEqual(self.fixture.posts(), [])
+                self.assertIsNone(Journal(self.data).read("101", operation_id))
+                self.assertFalse(self.data.exists())
+
     def test_sdk_rejection_is_explained_without_reopening_the_operation(self):
         self.fixture.send_error = XhhAPIError(
             "Web post failed",

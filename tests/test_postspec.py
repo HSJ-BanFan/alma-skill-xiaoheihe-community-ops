@@ -144,6 +144,12 @@ class TypeAndMediaGateTest(unittest.TestCase):
 
 @requires_markdown
 class MarkdownConversionTest(unittest.TestCase):
+    def test_markdown_is_reserved_for_article_in_both_protocols(self):
+        spec = {"content": "**body**", "post_format": "image_text", "content_format": "markdown"}
+        for protocol in ("web", "app"):
+            with self.subTest(protocol=protocol), self.assertRaises(XhhConfigError):
+                prepare_post(spec, draft=True, protocol=protocol)
+
     def test_preview_spec_is_normalized_and_can_be_published_without_markdown(self):
         preview = preview_post({"content": "## Heading\n\n**bold**", "post_format": "article", "content_format": "markdown",
                                 "original": False})
@@ -203,7 +209,7 @@ class MarkdownConversionTest(unittest.TestCase):
                          ["https://img.example/a.png", "https://img.example/a.png"])
 
     def test_inline_and_trailing_images_stay_separate(self):
-        spec = {"title": "图片", "content": "![inline](https://img.example/inline.png)",
+        spec = {"title": "图片", "content": "before\n\n![inline](https://img.example/inline.png)\n\nafter",
                 "post_format": "article", "content_format": "markdown", "images": ["https://img.example/trailing.png"]}
         preview = preview_post(spec)
         self.assertEqual([(item["placement"], item["url"]) for item in preview["media"]["images"]],
@@ -223,6 +229,12 @@ class MarkdownConversionTest(unittest.TestCase):
             with self.subTest(content=content):
                 with self.assertRaises(XhhConfigError):
                     prepare_post({"content": content, "post_format": "article", "content_format": "markdown"}, draft=True)
+
+    def test_image_only_markdown_is_rejected(self):
+        for content in ("![only](https://img.example/a.png)",
+                        "  ![again](https://img.example/a.png)  "):
+            with self.subTest(content=content), self.assertRaises(XhhConfigError):
+                prepare_post({"content": content, "post_format": "article", "content_format": "markdown"}, draft=True)
 
     def test_crlf_and_bom_do_not_change_the_rendered_bytes(self):
         plain = prepare_post({"content": "# h\n\ntext", "post_format": "article", "content_format": "markdown"}, draft=True).build(protocol="web")

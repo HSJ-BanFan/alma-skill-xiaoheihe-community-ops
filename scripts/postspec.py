@@ -93,6 +93,23 @@ class _ImageElements(HTMLParser):
     handle_startendtag = handle_starttag
 
 
+class _RenderedText(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.found = False
+
+    def handle_data(self, data):
+        if data.strip():
+            self.found = True
+
+
+def _has_rendered_text(html: str) -> bool:
+    parser = _RenderedText()
+    parser.feed(html)
+    parser.close()
+    return parser.found
+
+
 def _media_from_payload(payload: dict, cover_url, protocol: str) -> dict:
     blocks = json.loads(payload["text"])
     images: list[dict] = []
@@ -168,6 +185,8 @@ def _validate(spec: dict, *, protocol: str) -> dict:
         for image in _sequence(values["images"], "images"):
             _https_url(image, "images entries")
     values["post_format"] = Post(**values).format()
+    if values["post_format"] != "article" and fmt == "markdown":
+        raise XhhConfigError('content_format "markdown" requires post_format "article"')
     if values["post_format"] == "image_text" and fmt != "text" and protocol == "web":
         raise XhhConfigError('HTML and Markdown require post_format "article"; image_text uses text')
     return values
@@ -183,7 +202,10 @@ def prepare_post(spec: dict, *, draft: bool, protocol: str = "web") -> Post:
         content = values.get("content", "")
         if not content.strip():
             raise XhhConfigError("content is required")
-        values["content"] = _markdown_to_html(content, Post(**values).image_info_map())
+        rendered = _markdown_to_html(content, Post(**values).image_info_map())
+        if not _has_rendered_text(rendered):
+            raise XhhConfigError("Markdown content requires visible text in addition to images")
+        values["content"] = rendered
         values["content_format"] = "html"
     post = Post(**values)
     post.build(protocol=protocol)

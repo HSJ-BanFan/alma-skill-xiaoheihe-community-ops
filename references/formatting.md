@@ -42,7 +42,7 @@ CLI spec 的 `content_format` 默认 `text`。它不选择投稿形态。以下�
 | `html` | 调用方提供的 HTML 原样进入一个 `html` 块。调用方负责标签合法性和转义。 | 仅 `article` |
 | `markdown` | 由本工具自动转换为 HTML，再走同一 `Post.build()`。 | 仅 `article` |
 
-Web 的 `image_text` 只接受 `text`。携带 `html` 或 `markdown` 时工具拒绝，不会把富文本静默降级成纯文本。Web 的富 HTML 或 Markdown 必须显式写 `post_format: "article"`。
+Web 的 `image_text` 只接受 `text`。携带 `html` 或 `markdown` 时工具拒绝，不会把富文本静默降级成纯文本。App 的旧适配器额外接受 `image_text` 加 `html`，但仍不接受 Markdown。两种协议的 Markdown 都必须显式写 `post_format: "article"`。
 
 把 Markdown 填进 `text` 或 `html` 时不会转换。`text` 会显示字面字符，`html` 也不会替你解析。需要自动转换时显式写 `"post_format": "article", "content_format": "markdown"`。
 
