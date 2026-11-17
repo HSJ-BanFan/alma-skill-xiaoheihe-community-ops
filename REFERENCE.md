@@ -118,7 +118,7 @@ Markdown 只用于 `article`。它保留作者写出的 `h1`-`h6` 层级，转�
 
 结构化表情内容使用 `compose SPEC.json --out prepared.json`，然后用 `send prepared.json --confirm --operation-id ID`，最后用 `verify ID`。输入、输出 schema 与 CLI 参数由 `describe --command compose` 返回。素材选择、图片创建与错误恢复见 [表情内容流程](references/EMOJIS.md)。既有纯文本和 SDK 发帖命令仍可使用。
 
-所有下列命令要求 `--confirm --operation-id ID`。正文文件使用 UTF-8。评论和回复只写当前账号自己的帖子，CLI 在发送前核验帖子作者。平台评论配置当前返回 5000，本工具把评论和回复保守限制为最多 1000 个 Unicode 字符。工具在写前在线核对账号，不要求调用方提供宿主会话证明。
+所有下列命令要求 `--confirm --operation-id ID`。正文文件使用 UTF-8。普通命令与结构化 `send` 均支持评论或回复其他用户的帖子；CLI 在发送前核验实际账号 UID、帖子存在与回复目标。操作绑定实际账号 UID 和帖子 ID，回复另绑定根楼层与精确目标 CID，并核验所选分页。编辑和删除帖子仍要求帖子归当前账号所有，删除评论仍要求评论归当前账号所有；SDK 的 canary 可见性探测仍只用于自己的帖子。平台评论配置当前返回 5000，本工具把评论和回复保守限制为最多 1000 个 Unicode 字符。工具在写前在线核对账号，不要求调用方提供宿主会话证明。
 
 | 命令 | 参数 |
 | --- | --- |

@@ -35977,8 +35977,8 @@
     {
       "name": "comment",
       "cli": "xhh-sdk --account <alias> comment",
-      "purpose": "在本人帖子下创建评论",
-      "safety": "write_own_post_confirm",
+      "purpose": "在明确指定的已存在帖子下创建评论",
+      "safety": "write_confirm_post_exists",
       "routes": [
         "/bbs/app/comment/create"
       ],
@@ -35999,8 +35999,8 @@
     {
       "name": "reply",
       "cli": "xhh-sdk --account <alias> reply",
-      "purpose": "在本人帖子内回复一条评论",
-      "safety": "write_own_post_confirm",
+      "purpose": "回复明确帖子内已观察到的评论",
+      "safety": "write_confirm_observed_reply_target",
       "routes": [
         "/bbs/app/comment/create"
       ],

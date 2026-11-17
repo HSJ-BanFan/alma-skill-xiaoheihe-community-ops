@@ -1,9 +1,9 @@
 """Community-interaction domain (v1): comments, favourites, topic follows.
 
-Deliberately narrow, own-account scope:
+One acting account, operation-specific target checks:
 
 * read a post's comment thread and the account's own comment list;
-* comment on the account's OWN post and reply inside its threads;
+* comment on an existing post and reply to an observed target in its thread;
 * delete the account's OWN comments (ownership is proven by reading the
   thread / own-comment list before the write);
 * favourite / unfavourite one explicitly named post (reversible);
@@ -174,7 +174,7 @@ class InteractionMixin:
         if owner != str(self.config.heybox_id):
             raise XhhConfigError(
                 f"refusing to write on link {link_id}: owner is {owner or 'unknown'}, "
-                "this SDK only writes on the configured account's own posts")
+                "this operation requires the configured account's own post")
         return link
 
     def _owns_comment(self, link_id: str, comment_id: str) -> bool:
@@ -204,7 +204,7 @@ class InteractionMixin:
     # ---------------------------------------------------------------- writes
     def comment(self, link_id: str, text: str, *, is_cy: bool = False,
                 confirm: bool = False) -> dict:
-        """Post a top-level comment on the account's own post.
+        """Post a top-level comment on one existing post.
 
         Note (observed 2026-10-04): a new comment is immediately visible in
         the author's own comment list, but its public-tree visibility is
@@ -212,7 +212,7 @@ class InteractionMixin:
         """
         self._require_confirm("comment()", confirm)
         body = _validate_text(text)
-        self._assert_own_post(link_id)
+        self.post_state(link_id)
         data = self.transport.signed_request(
             "/bbs/app/comment/create",
             query={"h_src": ""},
@@ -224,7 +224,7 @@ class InteractionMixin:
 
     def reply(self, link_id: str, root_id: str, reply_id: str, text: str, *,
               confirm: bool = False) -> dict:
-        """Reply to a comment in a thread on the account's own post.
+        """Reply to an observed comment in a thread on one existing post.
 
         ``root_id`` is the floor comment that starts the thread; ``reply_id``
         is the exact comment being replied to (pass ``root_id`` to reply to
@@ -235,7 +235,7 @@ class InteractionMixin:
         """
         self._require_confirm("reply()", confirm)
         body = _validate_text(text)
-        self._assert_own_post(link_id)
+        self.post_state(link_id)
         floors = self.comment_thread(link_id, page=1)
         floor = next((f for f in floors
                       if _comment_id(f["root"]) == str(root_id)), None)

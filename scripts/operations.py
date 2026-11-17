@@ -214,7 +214,7 @@ def prepare_write(client, kind: str, args, *, before_post=None):
     if kind in ("comment", "reply"):
         body = _validate_text(args.text_file.read_text(encoding="utf-8-sig"))
         payload["text"] = body
-        client._assert_own_post(args.link_id)
+        client.post_state(args.link_id)
         if kind == "reply":
             payload.update(root_id=args.root_id, reply_id=args.reply_id)
             floors = client.comment_thread(args.link_id, page=args.page, limit=args.limit, sort=args.sort)

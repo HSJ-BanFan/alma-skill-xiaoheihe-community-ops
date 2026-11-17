@@ -190,15 +190,22 @@ class AgentMessageTests(unittest.TestCase):
         self.assertFalse(self.platform.calls)
         self.assertFalse(self.data.exists())
 
-    def test_comment_and_reply_refuse_a_post_owned_by_another_account(self):
+    def test_composed_comment_and_reply_send_on_another_accounts_post(self):
         self.platform.posts["501"]["userid"] = "202"
         for kind in ("comment", "reply"):
             with self.subTest(kind=kind):
                 code, value = self.send(self.prepare(kind), "foreign-" + kind)
-                self.assertEqual(code, 1)
-                self.assertIn("configured account's own posts", value["error"]["message"])
-        self.assertFalse(any(call[0] == "/bbs/app/comment/create"
-                             for call in self.platform.calls))
+                self.assertEqual(code, 0, value)
+                self.assertEqual(value["data"]["receipt"]["link_id"], "501")
+                self.assertEqual(value["coverage"]["public_visibility"], "not_checked")
+                sent = [call for call in self.platform.calls if call[0] == "/bbs/app/comment/create"]
+                self.assertEqual(len(sent), 1 if kind == "comment" else 2)
+                self.assertEqual(sent[-1][2]["text"], ["[cube_笑cry]"])
+                if kind == "reply":
+                    self.assertEqual((sent[-1][2]["root_id"], sent[-1][2]["reply_id"]), (["601"], ["602"]))
+                operation = Journal(self.data).read("101", "foreign-" + kind)
+                self.assertEqual(operation["status"], "returned")
+                self.assertEqual(operation["context"]["target"]["link_id"], "501")
 
     def test_uncertain_delivery_retains_context_and_never_resends(self):
         self.platform.fail_send = True
