@@ -64,7 +64,7 @@ def build_distributions(root, work):
     checked([sys.executable, "-I", "-c",
              "import sys; from setuptools.build_meta import build_wheel, build_sdist; "
              "output=sys.argv[1]; build_wheel(output); build_sdist(output)", output], cwd=source)
-    return next(output.glob("*.whl")), next(output.glob("*.tar.gz"))
+    return next(output.glob("*.whl")).resolve(), next(output.glob("*.tar.gz")).resolve()
 
 
 def source_manifest(root):
@@ -210,6 +210,7 @@ class Installation:
 
 
 def install_wheel(wheel, work):
+    wheel = wheel.resolve()
     # Keep venv shebangs stable across Windows TEMP 8.3 spellings and symlink aliases.
     folder = (work / "environment").resolve()
     venv.EnvBuilder(with_pip=True).create(folder)
@@ -259,7 +260,8 @@ def verify_install(root, installation):
     digest = hashlib.sha256(installation.artifact.read_bytes()).hexdigest()
     info = direct_url["archive_info"]
     assert info in ({"hash": "sha256=" + digest, "hashes": {"sha256": digest}},
-                    {"hashes": {"sha256": digest}}), "installed archive digest"
+                    {"hashes": {"sha256": digest}},
+                    {"hash": "sha256=" + digest}), "installed archive digest"
     installed_contents = {name: actual[site_prefix + name][1] for name in contents}
     for name in ("INSTALLER", "REQUESTED", "direct_url.json"):
         installed_contents[prefix + name] = actual[site_prefix + prefix + name][1]
@@ -335,7 +337,8 @@ class PackagingTests(unittest.TestCase):
         cls.addClassCleanup(cls.temporary.cleanup)
         cls.work = Path(cls.temporary.name)
         cls.wheel, cls.sdist = build_distributions(ROOT, cls.work)
-        cls.installation = install_wheel(cls.wheel, cls.work)
+        wheel_alias = cls.wheel.parent / ".." / cls.wheel.parent.name / cls.wheel.name
+        cls.installation = install_wheel(wheel_alias, cls.work)
         cls.python, cls.console, cls.site = cls.installation.python, cls.installation.console, cls.installation.site
 
     def test_project_metadata_and_optional_dependencies(self):
@@ -542,8 +545,7 @@ class PackagingTests(unittest.TestCase):
 
     def test_recorded_unsafe_wheel_paths_are_rejected(self):
         for name in ("../synthetic-escape.txt", "/synthetic-absolute.txt", "C:/synthetic-drive.txt",
-                     "..\\synthetic-escape.txt", "C:\\synthetic-drive.txt", "a//b.py", "a/./b.py", "a/../b.py",
-                     "a\x00b.py"):
+                     "..\\synthetic-escape.txt", "C:\\synthetic-drive.txt", "a//b.py", "a/./b.py", "a/../b.py"):
             with self.subTest(member=name):
                 wheel = self.work / "unsafe-path.whl"
                 write_recorded_wheel(self.wheel, wheel, {name: b"synthetic unsafe path\n"})
@@ -554,6 +556,14 @@ class PackagingTests(unittest.TestCase):
         wheel = self.work / "invalid-member.whl"
         write_recorded_wheel(self.wheel, wheel, {"": b"synthetic empty member"})
         with self.assertRaisesRegex(AssertionError, "unsafe wheel path: $"):
+            verify_wheel(ROOT, wheel)
+        # Python 3.10's CSV writer cannot encode NUL; path validation precedes RECORD.
+        shutil.copyfile(self.wheel, wheel)
+        with zipfile.ZipFile(wheel, "a") as archive:
+            member = zipfile.ZipInfo("placeholder")
+            member.filename = member.orig_filename = "a\x00b.py"
+            archive.writestr(member, b"synthetic NUL path")
+        with self.assertRaisesRegex(AssertionError, "unsafe wheel path: " + re.escape(member.orig_filename)):
             verify_wheel(ROOT, wheel)
         target = PACKAGE + "/xhh.py"
         write_recorded_wheel(self.wheel, wheel, {target.upper(): b"# synthetic case alias\n"})
@@ -627,6 +637,40 @@ class PackagingTests(unittest.TestCase):
                 verify_install(ROOT, self.installation)
         finally:
             self.console.write_bytes(launcher)
+
+    def test_installed_archive_digest_formats_preserve_exact_integrity(self):
+        record, = self.site.glob(PACKAGE + "-*.dist-info/RECORD")
+        origin = record.with_name("direct_url.json")
+        original_record, original_origin = record.read_bytes(), origin.read_bytes()
+        digest = hashlib.sha256(self.installation.artifact.read_bytes()).hexdigest()
+        relative = origin.relative_to(self.site).as_posix()
+        # PEP 610's legacy single hash and newer hashes map must prove the same bytes.
+        valid = ({"hash": "sha256=" + digest}, {"hashes": {"sha256": digest}},
+                 {"hash": "sha256=" + digest, "hashes": {"sha256": digest}})
+        for info in (*valid,
+                     {"hash": "sha256=" + "0" * 64}, {}, {"hashes": {"sha256": digest}, "extra": "injected"}):
+            with self.subTest(archive_info=info):
+                try:
+                    payload = json.loads(original_origin)
+                    payload["archive_info"] = info
+                    content = json.dumps(payload).encode("utf-8")
+                    origin.write_bytes(content)
+                    rows = list(csv.reader(io.StringIO(original_record.decode("utf-8"))))
+                    for row in rows:
+                        if row[0] == relative:
+                            row[1] = "sha256=" + base64.urlsafe_b64encode(hashlib.sha256(content).digest()).rstrip(b"=").decode("ascii")
+                            row[2] = str(len(content))
+                    buffer = io.StringIO()
+                    csv.writer(buffer).writerows(rows)
+                    record.write_bytes(buffer.getvalue().encode("utf-8"))
+                    if info in valid:
+                        self.assertTrue(verify_install(ROOT, self.installation)["whole_environment_verified"])
+                    else:
+                        with self.assertRaisesRegex(AssertionError, "installed archive digest"):
+                            verify_install(ROOT, self.installation)
+                finally:
+                    origin.write_bytes(original_origin)
+                    record.write_bytes(original_record)
 
     def test_legal_sdk_evolution_uses_current_source_not_historical_hashes(self):
         work = self.work / "evolution"
