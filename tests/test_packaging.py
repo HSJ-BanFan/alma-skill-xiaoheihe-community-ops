@@ -207,6 +207,13 @@ class Installation:
     artifact: Path
     baseline: dict
     launcher: bytes
+    pip_version: str
+
+
+def hashed_artifact_url(artifact):
+    artifact = artifact.resolve()
+    digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    return artifact.as_uri() + "#sha256=" + digest
 
 
 def install_wheel(wheel, work):
@@ -220,16 +227,18 @@ def install_wheel(wheel, work):
     # Generate the expected launcher with the trusted seeded pip before candidate installation.
     launcher_dir = work / "expected launcher"
     launcher_dir.mkdir()
-    checked([python, "-I", "-B", "-c",
-             "import sys; from pip._internal.operations.install.wheel import PipScriptMaker; "
+    pip_version = checked([python, "-I", "-B", "-c",
+             "import sys, pip; from pip._internal.operations.install.wheel import PipScriptMaker; "
              "maker=PipScriptMaker(None, sys.argv[1]); maker.clobber=True; maker.variants={''}; "
              "maker.set_mode=True; "
-             "maker.make('xhh = xiaoheihe_tools.xhh:console_main')", launcher_dir], cwd=work)
+             "maker.make('xhh = xiaoheihe_tools.xhh:console_main'); print('pip ' + pip.__version__)",
+             launcher_dir], cwd=work).strip()
     launcher = (launcher_dir / console.name).read_bytes()
     baseline = environment_manifest(folder)
-    checked([python, "-I", "-B", "-m", "pip", "install", "--no-index", "--no-deps", "--no-compile", wheel], cwd=work)
+    checked([python, "-I", "-B", "-m", "pip", "install", "--no-index", "--no-deps", "--no-compile",
+             hashed_artifact_url(wheel)], cwd=work)
     assert console.is_file(), "installed console script missing"
-    return Installation(folder, python, console, site, wheel, wheel, baseline, launcher)
+    return Installation(folder, python, console, site, wheel, wheel, baseline, launcher, pip_version)
 
 
 def verify_install(root, installation):
@@ -261,7 +270,9 @@ def verify_install(root, installation):
     info = direct_url["archive_info"]
     assert info in ({"hash": "sha256=" + digest, "hashes": {"sha256": digest}},
                     {"hashes": {"sha256": digest}},
-                    {"hash": "sha256=" + digest}), "installed archive digest"
+                    {"hash": "sha256=" + digest}), (
+                        f"installed archive digest: archive_info={info!r}; "
+                        f"pip_version={installation.pip_version}; expected_sha256={digest}")
     installed_contents = {name: actual[site_prefix + name][1] for name in contents}
     for name in ("INSTALLER", "REQUESTED", "direct_url.json"):
         installed_contents[prefix + name] = actual[site_prefix + prefix + name][1]
@@ -411,7 +422,7 @@ class PackagingTests(unittest.TestCase):
         backend_path = site / "_test_build_environment.pth"
         backend_path.write_text(sysconfig.get_path("purelib") + "\n", encoding="utf-8")
         checked([python, "-I", "-B", "-m", "pip", "install", "--no-index", "--no-build-isolation",
-                 "--no-deps", "--no-compile", "--force-reinstall", self.sdist], cwd=install)
+                 "--no-deps", "--no-compile", "--force-reinstall", hashed_artifact_url(self.sdist)], cwd=install)
         backend_path.unlink()
         installation.artifact = self.sdist
         verify_install(ROOT, installation)
@@ -666,11 +677,24 @@ class PackagingTests(unittest.TestCase):
                     if info in valid:
                         self.assertTrue(verify_install(ROOT, self.installation)["whole_environment_verified"])
                     else:
-                        with self.assertRaisesRegex(AssertionError, "installed archive digest"):
+                        with self.assertRaisesRegex(AssertionError, "installed archive digest") as failure:
                             verify_install(ROOT, self.installation)
+                        diagnostic = str(failure.exception)
+                        self.assertIn("archive_info=" + repr(info), diagnostic)
+                        self.assertIn("pip_version=" + self.installation.pip_version, diagnostic)
+                        self.assertNotIn(str(self.installation.folder), diagnostic)
                 finally:
                     origin.write_bytes(original_origin)
                     record.write_bytes(original_record)
+
+    def test_wrong_local_artifact_digest_is_rejected_by_offline_pip(self):
+        wrong = self.wheel.resolve().as_uri() + "#sha256=" + "0" * 64
+        result = run([self.python, "-I", "-B", "-m", "pip", "install", "--no-index", "--no-deps",
+                      "--no-compile", "--force-reinstall", wrong], cwd=self.work)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("0" * 64, result.stderr)
+        self.assertIn(hashlib.sha256(self.wheel.read_bytes()).hexdigest(), result.stderr)
+        self.assertTrue(verify_install(ROOT, self.installation)["whole_environment_verified"])
 
     def test_legal_sdk_evolution_uses_current_source_not_historical_hashes(self):
         work = self.work / "evolution"
