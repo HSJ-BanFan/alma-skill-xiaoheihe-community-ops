@@ -151,7 +151,8 @@ def equivalent_smoke(root, console, site, work, *, installed_entry=None):
         if arguments[0] == "describe":
             for payload, expected_entry in ((left, entry), (right, installed_entry or site / PACKAGE / "xhh.py")):
                 located = Path(payload["data"]["entrypoint_file"])
-                assert located.is_absolute() and located == expected_entry.resolve(), "describe entrypoint location"
+                assert located.is_absolute() and located.resolve() == expected_entry.resolve(), "describe entrypoint location"
+                assert located.samefile(expected_entry), "describe entrypoint file identity"
                 assert located.read_bytes() == entry.read_bytes(), "describe entrypoint bytes"
                 payload["data"]["entrypoint_file"] = "<validated-entrypoint>"
         assert left == right, (arguments, left, right)
@@ -255,10 +256,15 @@ class PackagingTests(unittest.TestCase):
         work.mkdir()
         python, console, site = install_wheel(self.wheel, work)
         (site / "_test_build_environment.pth").write_text(sysconfig.get_path("purelib") + "\n", encoding="utf-8")
-        source = self.work / "build source"
+        # Exercise a valid alias spelling even on hosts without Windows short paths.
+        source = self.work / "build source" / ".." / "build source"
         checked([python, "-I", "-m", "pip", "install", "--no-index", "--no-build-isolation", "--no-deps", "-e", source], cwd=work)
         described = json.loads(checked([console, "--data-dir", work / "no state", "describe"], cwd=work))
-        self.assertEqual(Path(described["data"]["entrypoint_file"]), source / "scripts/xhh.py")
+        located = Path(described["data"]["entrypoint_file"])
+        expected = source / "scripts/xhh.py"
+        self.assertTrue(located.is_absolute())
+        self.assertEqual(located.resolve(), expected.resolve())
+        self.assertTrue(located.samefile(expected))
         self.assertFalse((work / "no state").exists())
         equivalent_smoke(source, console, site, work, installed_entry=source / "scripts/xhh.py")
 
