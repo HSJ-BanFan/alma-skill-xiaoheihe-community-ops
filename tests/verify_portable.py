@@ -136,9 +136,9 @@ def main():
         artifacts.mkdir()
         wheel, sdist = build_distributions(skill, artifacts)
         integrity = verify_wheel(skill, wheel)
-        _, console, site = install_wheel(wheel, artifacts)
-        integrity["installed_files"] = verify_install(skill, site)
-        smoke = equivalent_smoke(skill, console, site, artifacts)
+        installation = install_wheel(wheel, artifacts)
+        integrity["installation"] = verify_install(skill, installation)
+        smoke = equivalent_smoke(skill, installation.console, installation.site, artifacts)
         test = subprocess.run([sys.executable, "-I", "-X", "utf8", "-m", "unittest", "discover",
                                "-s", str(skill / "tests"), "-q"], cwd=unrelated, env=environment,
                               capture_output=True, text=True, encoding="utf-8", timeout=300)
@@ -155,7 +155,11 @@ def main():
                           "sdist_built": sdist.is_file(),
                           "integrity_controls": ["legal_sdk_evolution", "wheel_omission", "wheel_corruption",
                                                  "wheel_record_omission", "wheel_record_corruption", "wheel_provenance_corruption",
-                                                 "installed_omission", "installed_corruption", "historical_path_safety", "license_corruption"],
+                                                 "installed_omission", "installed_corruption", "wheel_runtime_injection",
+                                                 "wheel_archive_path_safety", "wheel_duplicate_and_special_members",
+                                                 "wheel_generated_metadata_corruption",
+                                                 "installed_external_runtime", "installed_record_closure", "installed_launcher_corruption",
+                                                 "historical_path_safety", "license_corruption"],
                           "unrelated_cwd": True, "isolated_python": True,
                           "web_without_java": True, "offline_state_writes": 0,
                           "preview_formats": ["text", "html"], "markdown_missing_diagnostic": True,

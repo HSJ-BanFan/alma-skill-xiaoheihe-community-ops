@@ -56,7 +56,7 @@ python -I -X utf8 scripts/xhh.py preview-post post.json
 
 SDK 的 Python 源码和平台数据目录随技能提供，源码带有 `SNAPSHOT.json` 记录的下游补丁，许可与来源见 [THIRD_PARTY.md](THIRD_PARTY.md)。Web 使用内置 Python 签名器。App 签名器与 Java 是平台协议依赖，由用户显式配置。
 
-[ADR-0001](docs/adr/0001-independent-sdk-fork.md) 将 `SNAPSHOT.json` 定义为历史来源记录。可移植检查保留合法 JSON、结构、相对路径安全、历史来源文件存在及 SDK LICENSE 的固定 SHA-256 校验。Python 源码允许在本仓库独立演进；当前源码的运行文件集合与字节通过真实 wheel、wheel RECORD 和安装目录逐一核对。临时副本中的合法演进必须通过，产物遗漏、字节损坏及许可损坏必须失败。
+[ADR-0001](docs/adr/0001-independent-sdk-fork.md) 将 `SNAPSHOT.json` 定义为历史来源记录。可移植检查保留合法 JSON、结构、相对路径安全、历史来源文件存在及 SDK LICENSE 的固定 SHA-256 校验。Python 源码允许在本仓库独立演进；当前源码确定 wheel 包文件集合和字节，干净源码副本的构建确定允许的 `.dist-info` 元数据及许可文件。所有 ZIP 成员都检查路径、类型、重复名称和 RECORD，拒绝来源外的模块、`.pth`、脚本及 `.data` 文件。安装验证比较整个隔离 venv 的安装前后足迹，核对包文件、元数据、安装来源摘要、安装 RECORD 和由安装前可信 pip 生成的 `xhh` 入口字节，并确认既有文件未变。验证安装使用 `--no-compile`，无需忽略额外字节码文件。临时副本中的合法演进必须通过，产物遗漏、字节损坏、许可损坏及重算 RECORD 的注入或路径逃逸必须失败。
 
 验证命令使用隔离测试数据，不登录真实账号，也不向平台写入。
 
