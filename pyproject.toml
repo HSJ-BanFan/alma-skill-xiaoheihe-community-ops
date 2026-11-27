@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xiaoheihe-tools"
+version = "0.1.0"
+description = "Standalone Xiaoheihe community and content tools"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+xhh = "xiaoheihe_tools.xhh:console_main"
+
+[project.optional-dependencies]
+formatting = ["markdown-it-py==4.2.0"]
+media = ["Pillow>=10"]
+test = ["Pillow>=10", "jsonschema>=4.23,<5", "setuptools>=68", "wheel"]
+
+[tool.setuptools]
+packages = ["xiaoheihe_tools", "xiaoheihe_tools.xhh_sdk"]
+package-dir = {xiaoheihe_tools = "scripts"}
+include-package-data = false
+license-files = ["scripts/xhh_sdk/LICENSE", "THIRD_PARTY.md"]
+
+[tool.setuptools.package-data]
+xiaoheihe_tools = ["data/*.json"]
+"xiaoheihe_tools.xhh_sdk" = ["*.json", "LICENSE"]
