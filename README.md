@@ -2,6 +2,27 @@
 
 把本目录命名为 `xiaoheihe-tools` 并放入支持 `SKILL.md` 的 agent 技能目录，或直接通过 Python CLI 调用。Python 3.10 或更高版本即可运行核心工具，无需安装 Python 包。文章投稿的 Markdown 转换需要 `requirements-formatting.txt` 中的固定依赖；登录浏览器和媒体预览的可选依赖见 [命令参考](REFERENCE.md)。
 
+在包含 `pyproject.toml` 的本仓库 checkout 中，可选择一种安装方式。这里的 `.` 是当前本地源码目录，不依赖同名 PyPI 项目已发布。
+
+```console
+uv tool install .
+pipx install .
+python -m pip install -e .
+```
+
+前两条命令安装独立工具，第三条用于可编辑开发安装。安装后调用 `xhh`：
+
+```console
+xhh --help
+xhh --protocol web doctor --offline
+xhh describe
+xhh preview-post post.json
+```
+
+核心安装的必选运行依赖为空。需要 Markdown 转换时安装 `.[formatting]`，图像处理安装 `.[media]`，例如 `uv tool install '.[formatting,media]'` 或 `python -m pip install -e '.[formatting,media]'`。浏览器登录所需 Playwright 仍按 [认证参考](REFERENCE.md) 单独配置。
+
+安装入口与下列零安装入口共用实现，帮助中的命令名统一为 `xhh`。两种入口均可从无关工作目录调用；零安装方式将脚本路径替换为技能内的绝对路径。安装 Python 包不会自动把技能文档注册到宿主。
+
 ```console
 python -I -X utf8 scripts/xhh.py --help
 python -I -X utf8 scripts/xhh.py --protocol web doctor --offline
@@ -25,6 +46,8 @@ python -I -X utf8 scripts/xhh.py preview-post post.json
 
 `describe` 返回精简命令目录，`describe --command compose` 返回输入和输出 schema、真实 CLI 参数及其编码方式；`describe --command "emojis get"` 查询子命令。说明从当前 CLI 参数定义生成，agent 可以先读技能流程，再按需查询命令契约。目录查询和本地准备不需要账号，也不调用特定模型或宿主服务。图片贴纸由调用方创建文件后登记，项目不会创建新的官方原生表情。
 
+`describe.data.entrypoint_file` 始终是当前运行副本中 `xhh.py` 的真实绝对路径，可用于隔离直跑该副本。普通 wheel 安装指向安装包，可编辑安装指向源码，零安装指向技能目录。路径随安装位置变化，其指向的文件内容与命令、schema、JSON 信封和退出码保持一致；自动比较先验证路径归属及文件字节，再替换这个定位字段。
+
 互动历史共用 `operations.sqlite3`，按实际 UID 与 CID 隔离，自动记录评论目标、回复关系、回执、时间和可信来源。持久化记录不包含帖子正文、评论全文、图片或原始通知。`interaction status`、`interaction history` 是本地事实查询，`interaction sync` 按请求、时间和页数预算补录；`post`、`feed` 和 `hot` 自动附加轻量本地摘要。讨论原文按需要从 `post` 和 `thread` 当前读取取得。完整契约见 [互动参考](docs/INTERACTION.md)，SQLite 及字段选择见 [存储说明](docs/INTERACTION_STORAGE.md)。历史可信 UID 与当前读取的在线核验分别标记，单请求 post 保持原预算。
 
 实现顺序、行为测试和真实只读范围见 [浏览验证记录](docs/BROWSER_VERIFICATION.md)。没有把测试通过或 API 接受当作全量正文与公开效果证明。
@@ -33,12 +56,27 @@ python -I -X utf8 scripts/xhh.py preview-post post.json
 
 SDK 的 Python 源码和平台数据目录随技能提供，源码带有 `SNAPSHOT.json` 记录的下游补丁，许可与来源见 [THIRD_PARTY.md](THIRD_PARTY.md)。Web 使用内置 Python 签名器。App 签名器与 Java 是平台协议依赖，由用户显式配置。
 
+[ADR-0001](docs/adr/0001-independent-sdk-fork.md) 将 `SNAPSHOT.json` 定义为历史来源记录。可移植检查保留合法 JSON、结构、相对路径安全、历史来源文件存在及 SDK LICENSE 的固定 SHA-256 校验。Python 源码允许在本仓库独立演进；当前源码确定 wheel 包文件集合和字节，干净源码副本的构建确定允许的 `.dist-info` 元数据及许可文件。所有 ZIP 成员都检查路径、类型、重复名称和 RECORD，拒绝来源外的模块、`.pth`、脚本及 `.data` 文件。安装验证比较整个隔离 venv 的安装前后足迹，核对包文件、元数据、安装来源摘要、安装 RECORD 和由安装前可信 pip 生成的 `xhh` 入口字节，并确认既有文件未变。验证安装使用 `--no-compile`，无需忽略额外字节码文件。临时副本中的合法演进必须通过，产物遗漏、字节损坏、许可损坏及重算 RECORD 的注入或路径逃逸必须失败。
+
 验证命令使用隔离测试数据，不登录真实账号，也不向平台写入。
 
 ```console
 python -m pip install -r requirements-test.txt -r requirements-formatting.txt
 python -m unittest discover -s tests -v
 python tests/verify_portable.py
+python tests/verify_skill_docs.py
 ```
+
+构建先决条件是 Python 3.10+、pip、setuptools>=68 和 wheel。上面的环境准备安装 `requirements-test.txt` 提供测试构建依赖，`requirements-formatting.txt` 提供格式测试依赖；它们不进入核心运行依赖。测试根据构建产物的 METADATA 核对项目元数据，不要求 Python 3.10 提供 `tomllib`，也不要求 Python 3.12 新建 venv 自带 setuptools。
+
+已准备构建依赖后，可关闭索引和依赖下载，生成普通 wheel 与 sdist：
+
+```console
+python -m pip wheel --no-index --no-build-isolation --no-deps . --wheel-dir dist
+python -c "from setuptools.build_meta import build_sdist; build_sdist('dist')"
+python -m pip install --no-index --no-deps dist/xiaoheihe_tools-0.1.0-py3-none-any.whl
+```
+
+`tests/test_packaging.py` 在临时目录构建 wheel 和 sdist，从 sdist 再构建 wheel，并实际安装生成的 console script。安装验证使用无依赖、无索引的独立 venv；可编辑安装在能读取已准备构建后端的测试 venv 中执行。离线等价冒烟覆盖帮助、Web doctor、describe、文本/HTML preview-post 和失败退出码，且不创建账号状态。缺少构建后端会使核心打包测试失败，不会跳过。
 
 测试依赖包含图像与 JSON Schema 验证库，不是核心运行依赖。所有发帖、评论、图片上传和读回测试使用合成响应。真实官方资源只用于核对目录和本地图像预览，API 回执与本地渲染不冒充线上公开效果。

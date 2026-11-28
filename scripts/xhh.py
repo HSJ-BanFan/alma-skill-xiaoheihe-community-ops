@@ -65,7 +65,7 @@ def nonnegative(value):
 
 
 def parser():
-    result = argparse.ArgumentParser(description=__doc__)
+    result = argparse.ArgumentParser(prog="xhh", description=__doc__)
     source = result.add_mutually_exclusive_group()
     source.add_argument("--account", help="explicit account alias; no main/alt policy")
     source.add_argument("--config", type=Path, help="explicit credential JSON")
@@ -745,8 +745,12 @@ def main(argv=None, *, client_factory=XhhClient):
         return 1
 
 
-if __name__ == "__main__":
+def console_main():
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8")
-    raise SystemExit(main())
+    return main()
+
+
+if __name__ == "__main__":
+    raise SystemExit(console_main())
